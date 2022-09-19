@@ -11,13 +11,12 @@ import numpy as np
 import pandas as pd
 import fasteners
 import h5py
-from traits.api import Directory, Float, Str, Bool
+from traits.api import Directory, Float, Str
 
 from QuantStudio import __QS_Error__, __QS_ConfigPath__
 from QuantStudio.Tools.api import Panel
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB, FactorTable
-from QuantStudio.FactorDataBase.FDBFun import adjustDataDTID
-from QuantStudio.Tools.FileFun import listDirDir, listDirFile
+from QuantStudio.Tools.FileFun import listDirDir
 from QuantStudio.Tools.DataTypeFun import readNestedDictFromHDF5, writeNestedDict2HDF5
 
 def _identifyDataType(id_data, data_type=None):
@@ -289,9 +288,9 @@ class HDF5TickDB(WritableFactorDB):
                         elif iVal is not None:
                             iFile.attrs[iKey] = iVal
         return 0
-    def writeIDData(self, id_data, table_name, iid, if_exists="update", data_type=None, **kwargs):
+    def writeIDData(self, id_data, table_name, iid, if_exists="replace", data_type=None, **kwargs):
         StrDataType = h5py.string_dtype(encoding="utf-8")
-        if kwargs.get("timestamp_index", False):
+        if not kwargs.get("timestamp_index", False):
             DTs = id_data.index
             if pd.__version__>="0.20.0": id_data.index = [idt.to_pydatetime().timestamp() for idt in DTs]
             else: id_data.index = [idt.timestamp() for idt in DTs]
@@ -307,20 +306,21 @@ class HDF5TickDB(WritableFactorDB):
             if not os.path.isfile(FilePath):# 文件不存在
                 open(FilePath, mode="a").close()# h5py 直接创建文件名包含中文的文件会报错.
                 with self._openHDF5File(FilePath, mode="a") as DataFile:
-                    DataFile.attrs["DataType"] = data_type
-                    for iTS in range(StartTS, EndTS, 86400):
+                    #DataFile.attrs["DataType"] = data_type
+                    DataFile.attrs.create("DataType", data=np.frombuffer(pickle.dumps(data_type), dtype=np.uint8))
+                    for iTS in range(int(StartTS), int(EndTS), 86400):
                         iData = id_data.loc[iTS:iTS+86400]
                         iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                         iGroup = DataFile.create_group(iDate)
-                        iGroup.create_dataset("DateTime", shape=(iData.shape[0],), max_shape=(None,), data=iData.index)
+                        iGroup.create_dataset("DateTime", shape=(iData.shape[0],), maxshape=(None,), data=iData.index)
                         for jFactorName, jDataType in data_type.items():
                             if jDataType=="double":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
                             elif jDataType=="string":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                             elif jDataType=="object":
                                 ijData = np.ascontiguousarray(iData[jFactorName].apply(lambda x: np.frombuffer(pickle.dumps(x), dtype=np.uint8)).values)
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
                     DataFile.flush()
             elif if_exists=="replace":
                 with self._openHDF5File(FilePath, mode="a") as DataFile:
@@ -332,15 +332,15 @@ class HDF5TickDB(WritableFactorDB):
                         iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                         if iDate in DataFile: del DataFile[iDate]
                         iGroup = DataFile.create_group(iDate)
-                        iGroup.create_dataset("DateTime", shape=(iData.shape[0],), max_shape=(None,), data=iData.index)
+                        iGroup.create_dataset("DateTime", shape=(iData.shape[0],), maxshape=(None,), data=iData.index)
                         for jFactorName, jDataType in data_type.items():
                             if jDataType=="double":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
                             elif jDataType=="string":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                             elif jDataType=="object":
                                 ijData = np.ascontiguousarray(iData[jFactorName].apply(lambda x: np.frombuffer(pickle.dumps(x), dtype=np.uint8)).values)
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
                     DataFile.flush()
             elif if_exists=="append":
                 with self._openHDF5File(FilePath, mode="a") as DataFile:
@@ -352,7 +352,7 @@ class HDF5TickDB(WritableFactorDB):
                         iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                         if iDate not in DataFile:
                             iGroup = DataFile.create_group(iDate)
-                            iGroup.create_dataset("DateTime", shape=(iData.shape[0],), max_shape=(None,), data=iData.index)
+                            iGroup.create_dataset("DateTime", shape=(iData.shape[0],), maxshape=(None,), data=iData.index)
                         else:
                             nOld = iGroup["DateTime"].shape[0]
                             iGroup["DateTime"].resize((nOld+iData.shape[0],))
@@ -360,12 +360,12 @@ class HDF5TickDB(WritableFactorDB):
                         for jFactorName, jDataType in data_type.items():
                             if jFactorName not in iGroup:
                                 if jDataType=="double":
-                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
                                 elif jDataType=="string":
-                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
+                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                                 elif jDataType=="object":
                                     ijData = np.ascontiguousarray(iData[jFactorName].apply(lambda x: np.frombuffer(pickle.dumps(x), dtype=np.uint8)).values)
-                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), max_shape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
+                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=h5py.vlen_dtype(np.uint8), data=ijData)
                             else:
                                 nOld = iGroup[jFactorName].shape[0]
                                 iGroup[jFactorName].resize((nOld+iData.shape[0],))
@@ -384,7 +384,7 @@ class HDF5TickDB(WritableFactorDB):
     # if_exists 仅支持: replace, append
     # replace: 按天 replace
     # append: 假设已经写入的数据排好了序, 并且新写入的数据和已有数据不重叠
-    def writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
+    def writeData(self, data, table_name, if_exists="replace", data_type={}, **kwargs):
         DTs = data.major_axis
         if pd.__version__>="0.20.0": data.index = [idt.to_pydatetime().timestamp() for idt in DTs]
         else: data.index = [idt.timestamp() for idt in DTs]
@@ -392,3 +392,15 @@ class HDF5TickDB(WritableFactorDB):
             self.writeIDData(data.iloc[:, :, i], table_name, iID, if_exists=if_exists, data_type=data_type, timestamp_index=True, **kwargs)
         data.major_axis = DTs
         return 0
+
+if __name__=="__main__":
+    FDB = HDF5TickDB(sys_args={"主目录": r"D:\HST\Data\HDF5TickData"})
+    FDB.connect()
+    
+    TickData = pd.read_csv(r"D:\HST\Data\TXTData\DZH-SH201212-TXT\20121212\600519_20121212.txt", header=0, index_col=None, encoding="gb2312")
+    DateField, TimeField = TickData.columns[0], TickData.columns[1]
+    TickData.index = (TickData.pop(DateField)+"T"+TickData.pop(TimeField)).apply(lambda d: dt.datetime.strptime(d, "%Y-%m-%dT%H:%M:%S"))
+    
+    FDB.writeIDData(TickData, "test", "600519.SH")
+    
+    print("===")
