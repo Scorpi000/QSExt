@@ -77,17 +77,17 @@ class _FactorTable(FactorTable):
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):# TODO
         return []
     def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
-        Data = {iID: self.readIDData(iid=iID, factor_names=factor_names, dts=dts, args=args) for iID in ids}
+        Data = {iID: self.readIDData(iid=iID, factor_names=factor_names, start_dt=dts[0], end_dt=dts[-1], args=args).reindex(dts) for iID in ids}
         return Panel(Data, items=ids, major_axis=dts, minor_axis=factor_names).swapaxes(0, 2)
-    def readIDData(self, iid, factor_names, dts, args={}):
+    def readIDData(self, iid, factor_names, start_dt, end_dt, args={}):
         FilePath = self._FactorDB.MainDir+os.sep+self.Name+os.sep+iid+"."+self._Suffix
         if not os.path.isfile(FilePath): raise __QS_Error__("因子库 '%s' 的因子表 '%s' 中不存在ID '%s'!" % (self._FactorDB.Name, self.Name, iid))
-        StartTS = dt.datetime.combine(dts[0].date(), dt.time(0)).timestamp()
-        EndTS = (dt.datetime.combine(dts[-1].date(), dt.time(0))).timestamp()
-        Rslt = {np.array([]) for iFactorName in factor_names}
+        StartTS = int(dt.datetime.combine(start_dt.date(), dt.time(0)).timestamp())
+        EndTS = int((dt.datetime.combine(end_dt.date(), dt.time(0))).timestamp())
+        Rslt = {iFactorName: np.array([]) for iFactorName in factor_names}
         with self._FactorDB._getLock(self._Name) as DataLock:
             with self._FactorDB._openHDF5File(FilePath, mode="r") as DataFile:
-                DataType = DataFile.attrs["DataType"]
+                DataType = pickle.loads(bytes(DataFile.attrs["DataType"]))
                 for iTS in range(StartTS, EndTS+86400, 86400):
                     iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                     if iDate in DataFile:
@@ -103,7 +103,7 @@ class _FactorTable(FactorTable):
                                 Rslt[jFactorName] = np.r_[Rslt[jFactorName], np.full(shape=iDTs.shape, fill_value=None)]
         Rslt = pd.DataFrame(Rslt).set_index(["DateTime"]).loc[:, factor_names]
         Rslt.index = [dt.datetime.fromtimestamp(iTS) for iTS in Rslt.index]
-        Rslt = Rslt.loc[dts[0]:dts[-1]]
+        Rslt = Rslt.loc[start_dt:end_dt]
         for jFactorName in factor_names:
             if DataType[jFactorName]=="string":
                 Rslt[jFactorName] = Rslt[jFactorName].where(pd.notnull(Rslt[jFactorName]), None)
@@ -324,10 +324,10 @@ class HDF5TickDB(WritableFactorDB):
                     DataFile.flush()
             elif if_exists=="replace":
                 with self._openHDF5File(FilePath, mode="a") as DataFile:
-                    NewDataType = DataFile.attrs["DataType"]
+                    NewDataType = pickle.loads(bytes(DataFile.attrs["DataType"]))
                     NewDataType.update(data_type)
-                    DataFile.attrs["DataType"] = NewDataType
-                    for iTS in range(StartTS, EndTS, 86400):
+                    DataFile.attrs.create("DataType", data=np.frombuffer(pickle.dumps(NewDataType), dtype=np.uint8))
+                    for iTS in range(int(StartTS), int(EndTS), 86400):
                         iData = id_data.loc[iTS:iTS+86400]
                         iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                         if iDate in DataFile: del DataFile[iDate]
@@ -344,10 +344,10 @@ class HDF5TickDB(WritableFactorDB):
                     DataFile.flush()
             elif if_exists=="append":
                 with self._openHDF5File(FilePath, mode="a") as DataFile:
-                    NewDataType = DataFile.attrs["DataType"]
+                    NewDataType = pickle.loads(bytes(DataFile.attrs["DataType"]))
                     NewDataType.update(data_type)
-                    DataFile.attrs["DataType"] = NewDataType
-                    for iTS in range(StartTS, EndTS, 86400):
+                    DataFile.attrs.create("DataType", data=np.frombuffer(pickle.dumps(NewDataType), dtype=np.uint8))
+                    for iTS in range(int(StartTS), int(EndTS), 86400):
                         iData = id_data.loc[iTS:iTS+86400]
                         iDate = dt.datetime.fromtimestamp(iTS).strftime("%Y%m%d")
                         if iDate not in DataFile:
@@ -397,10 +397,24 @@ if __name__=="__main__":
     FDB = HDF5TickDB(sys_args={"主目录": r"D:\HST\Data\HDF5TickData"})
     FDB.connect()
     
-    TickData = pd.read_csv(r"D:\HST\Data\TXTData\DZH-SH201212-TXT\20121212\600519_20121212.txt", header=0, index_col=None, encoding="gb2312")
-    DateField, TimeField = TickData.columns[0], TickData.columns[1]
-    TickData.index = (TickData.pop(DateField)+"T"+TickData.pop(TimeField)).apply(lambda d: dt.datetime.strptime(d, "%Y-%m-%dT%H:%M:%S"))
+    #TickData = pd.read_csv(r"D:\HST\Data\TXTData\DZH-SH201212-TXT\20121212\600519_20121212.txt", header=0, index_col=None, encoding="gb2312")
+    #DateField, TimeField = TickData.columns[0], TickData.columns[1]
+    #TickData.index = (TickData.pop(DateField)+"T"+TickData.pop(TimeField)).apply(lambda d: dt.datetime.strptime(d, "%Y-%m-%dT%H:%M:%S"))
+    #FDB.writeIDData(TickData, "test", "600519.SH")
     
-    FDB.writeIDData(TickData, "test", "600519.SH")
+    TargetDir = r"D:\HST\Data\TXTData\DZH-SH201212-TXT"
+    for iDir in os.listdir(TargetDir):
+        for jFile in os.listdir(TargetDir+os.sep+iDir):
+            jID = jFile.split("_")[0]
+            if (not jID) or (jID[0]!="6"): continue
+            jID = jID + ".SH"
+            TickData = pd.read_csv(TargetDir+os.sep+iDir+os.sep+jFile, header=0, index_col=None, encoding="gb2312")
+            DateField, TimeField = TickData.columns[0], TickData.columns[1]
+            TickData.index = (TickData.pop(DateField)+"T"+TickData.pop(TimeField)).apply(lambda d: dt.datetime.strptime(d, "%Y-%m-%dT%H:%M:%S"))
+            FDB.writeIDData(TickData, "test", jID)
+        print(iDir)
+    
+    #FT = FDB.getTable("test")
+    #Data = FT.readIDData("600519.SH", ["B1价", "S1价", "成交价"], start_dt=dt.datetime(2012, 12, 12), end_dt=dt.datetime(2012, 12, 13))
     
     print("===")
