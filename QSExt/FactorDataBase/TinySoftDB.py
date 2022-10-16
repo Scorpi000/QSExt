@@ -80,8 +80,9 @@ class _CalendarTable(FactorTable):
     def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
         Data = pd.DataFrame(1, index=self.getDateTime(start_dt=dts[0], end_dt=dts[-1]), columns=["SSE", "SZSE"])
         if Data.index.intersection(dts).shape[0]==0: return Panel(np.nan, items=factor_names, major_axis=dts, minor_axis=ids)
-        Data = Data.loc[dts, ids]
+        Data = Data.reindex(index=dts, columns=ids)
         return Panel({"交易日": Data})
+
 class _TradeTable(_TSTable):
     """tradetable"""
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):

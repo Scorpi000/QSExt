@@ -81,9 +81,9 @@ class _FactorTable(FactorTable):
             with open(FilePath, mode="r") as File:
                 DataType = File.readline().strip().split(",")[0]
         if ids is not None:
-            Data = Data.loc[:, ids]
+            Data = Data.reindex(columns=ids)
         if dts is not None:
-            Data = Data.loc[dts]
+            Data = Data.reindex(index=dts)
         if DataType=="double":
             Data = Data.astype(float)
         elif DataType=="object":
@@ -225,13 +225,14 @@ class CSVDB(WritableFactorDB):
         Data = self.getTable(table_name).readFactorData(ifactor_name=ifactor_name, ids=None, dts=None)
         AllDTs = Data.index.union(factor_data.index)
         AllIDs = Data.columns.union(factor_data.columns)
-        Data = Data.loc[AllDTs, AllIDs]
+        Data = Data.reindex(index=AllDTs, columns=AllIDs)
         if if_exists=="update":
             Data.loc[factor_data.index, factor_data.columns] = factor_data
         elif if_exists=="append":
-            Data = Data.where(pd.notnull(Data), factor_data.loc[AllDTs, AllIDs])
+            Data = Data.where(pd.notnull(Data), factor_data.reindex(index=AllDTs, columns=AllIDs))
         elif if_exists=="update_notnull":
-            Data = factor_data.loc[AllDTs, AllIDs].where(pd.notnull(factor_data.loc[AllDTs, AllIDs]), Data)
+            factor_data = factor_data.reindex(index=AllDTs, columns=AllIDs)
+            Data = factor_data.where(pd.notnull(factor_data), Data)
         else:
             Msg = ("因子库 '%s' 调用方法 writeData 错误: 不支持的写入方式 '%s'!" % (self.Name, str(if_exists)))
             self._QS_Logger.error(Msg)

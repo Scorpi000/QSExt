@@ -68,8 +68,8 @@ class _FactorTable(FactorTable):
                     if key is None: MetaData[iFactorName] = pd.Series(iZFactor.attrs)
                     elif key in iZFactor.attrs: MetaData[iFactorName] = iZFactor.attrs[key]
         if not MetaData: return super().getFactorMetaData(factor_names=factor_names, key=key, args=args)
-        if key is None: return pd.DataFrame(MetaData).loc[:, factor_names]
-        else: return pd.Series(MetaData).loc[factor_names]
+        if key is None: return pd.DataFrame(MetaData).reindex(columns=factor_names)
+        else: return pd.Series(MetaData).reindex(factor_names)
     def getID(self, ifactor_name=None, idt=None, args={}):
         if ifactor_name is None: ifactor_name = self.FactorNames[0]
         with self._FactorDB._DataLock:
@@ -114,12 +114,12 @@ class _FactorTable(FactorTable):
                 DTIndices = slice(None)
             Rslt = pd.DataFrame(ZFactor["Data"].get_orthogonal_selection((DTIndices, IDIndices)), index=DateTimes[DTIndices], columns=IDs[IDIndices])
         if ids is not None:
-            if Rslt.shape[1]>0: Rslt = Rslt.loc[:, ids]
+            if Rslt.shape[1]>0: Rslt = Rslt.reindex(columns=ids)
             else: Rslt = pd.DataFrame(index=Rslt.index, columns=ids)
         else:
             Rslt = Rslt.sort_index(axis=1)
         if dts is not None:
-            if Rslt.shape[0]>0: Rslt = Rslt.loc[dts, :]
+            if Rslt.shape[0]>0: Rslt = Rslt.reindex(index=dts)
             else: Rslt = pd.DataFrame(index=dts, columns=Rslt.columns)
         else:
             Rslt = Rslt.sort_index(axis=0)
@@ -252,8 +252,8 @@ class ZarrDB(WritableFactorDB):
             ZFactor["DateTime"].append(NewDateTimes, axis=0)
             ZFactor["ID"].append(NewIDs, axis=0)
             ZFactor["Data"].resize((ZFactor["DateTime"].shape[0], ZFactor["ID"].shape[0]))
-            IDIndices = pd.Series(np.arange(ZFactor["ID"].shape[0]), index=np.r_[OldIDs, NewIDs]).loc[factor_data.columns].tolist()
-            DTIndices = pd.Series(np.arange(ZFactor["DateTime"].shape[0]), index=np.r_[OldDateTimes, NewDateTimes]).loc[factor_data.index].tolist()
+            IDIndices = pd.Series(np.arange(ZFactor["ID"].shape[0]), index=np.r_[OldIDs, NewIDs]).reindex(factor_data.columns).tolist()
+            DTIndices = pd.Series(np.arange(ZFactor["DateTime"].shape[0]), index=np.r_[OldDateTimes, NewDateTimes]).reindex(factor_data.index).tolist()
             if data_type!="double": factor_data = factor_data.where(pd.notnull(factor_data), None)
             else: factor_data = factor_data.astype("float")
             ZFactor["Data"].set_orthogonal_selection((DTIndices, IDIndices), factor_data.values)
