@@ -66,7 +66,7 @@ def defFactor(args={}):
     Factors.append(IfListed)
     
     ST = JYDB.getTable("证券特别处理").getFactor("特别处理(或撤销)类别", args={"回溯天数": np.inf})
-    ST = QS.FactorDB.PointOperation("special_trade", [ST], sys_args={"算子": STFun, "运算时点": "多时点", "运算ID": "多ID"})
+    ST = QS.FactorDB.PointOperation("st", [ST], sys_args={"算子": STFun, "运算时点": "多时点", "运算ID": "多ID"})
     Factors.append(ST)
     
     FT = JYDB.getTable("公司概况")
