@@ -1,9 +1,9 @@
 build/
 dist/
 .idea/
-QuantStudio.egg-info/
-QuantStudio/Backup/
-QuantStudio/Tools/QtGUI/.eric6project/
+QSExt.egg-info/
+QSExt/Backup/
+QSExt/Tools/QtGUI/.eric6project/
 __*/
 _eric*/
 backup/
