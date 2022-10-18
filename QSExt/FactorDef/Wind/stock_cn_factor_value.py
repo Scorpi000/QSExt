@@ -118,5 +118,34 @@ def defFactor(args={}):
     
 
 if __name__=="__main__":
-    pass
+    import logging
+    Logger = logging.getLogger()
+    
+    WDB = QS.FactorDB.WindDB2()
+    WDB.connect()
+    
+    TDB = QS.FactorDB.HDF5DB()
+    TDB.connect()
+    
+    StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
+    DTs = WDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date())
+    DTRuler = WDB.getTradeDay(start_date=StartDT.date() - dt.timedelta(365), end_date=EndDT.date())
+    
+    IDs = WDB.getStockID(is_current=False)
+    
+    Args = {"WDB": WDB}
+    Factors = defFactor(args=Args)
+    
+    CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
+    CFT.addFactors(factor_list=Factors)
+    CFT.setDateTime(DTs)
+    CFT.setID(IDs)
+    
+    TargetTable = CFT.Name
+    CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs,
+        factor_db=TDB, table_name=TargetTable,
+        if_exists="update", subprocess_num=20)
+    
+    TDB.disconnect()
+    WDB.disconnect()
     
