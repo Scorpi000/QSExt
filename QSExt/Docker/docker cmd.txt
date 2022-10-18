@@ -1,0 +1,11 @@
+构建镜像
+docker build -t "scorpi000/qsdemo" .
+
+启动容器
+docker run -it -p 8888:8888 -v D:\Project\Research\QSDemo:/usr/src/app/QSDemo --name QSDemo scorpi000/qsdemo
+
+导出镜像
+docker export --output="QSDemo.tar" QSDemo
+
+导入镜像
+docker import QSDemo.tar
