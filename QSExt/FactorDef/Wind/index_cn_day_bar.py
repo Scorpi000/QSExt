@@ -1,31 +1,20 @@
 # coding=utf-8
-"""股票基准指数因子"""
+"""指数日行情"""
 import datetime as dt
-import UpdateDate
+
 import numpy as np
 import pandas as pd
 
 import QuantStudio.api as QS
 Factorize = QS.FactorDB.Factorize
+fd = QS.FactorDB.FactorTools
 
-Factors = []
-
-WDB = QS.FactorDB.WindDB2()
-
-FT = WDB.getTable("中国A股指数日行情")
-PreClose, Open, High, Low = FT.getFactor("昨收盘价(点)", new_name="昨收盘价"), FT.getFactor("开盘价(点)", new_name="开盘价"), FT.getFactor("最高价(点)", new_name="最高价"), FT.getFactor("最低价(点)", new_name="最低价")
-Close, Volume, Amount = FT.getFactor("收盘价(点)", new_name="收盘价"), FT.getFactor("成交量(手)", new_name="成交量"), FT.getFactor("成交金额(千元)", new_name="成交金额")
-
-Factors.extend([PreClose, Open, High, Low, Close, Volume, Amount])
-
-RawName = WDB.getTable("中国A股指数基本资料").getFactor("证券简称")
-def NameFun(f, idt, iid, x, args):
-    Data = pd.DataFrame(x[0])
-    Data = Data.applymap(lambda x:str.replace(x,'指数','') if pd.notnull(x) else None)
-    return Data.values
-Factors.append(QS.FactorDB.PointOperation("指数名称", [RawName], {"算子":NameFun, "运算ID":"多ID", "运算时点":"多时点", "数据类型":"string"}))
-
-Factors.append(Factorize(Close/PreClose-1,"日收益率"))
+UpdateArgs = {
+    "因子表": "index_cn_day_bar",
+    "默认起始日": dt.datetime(2002, 1, 1),
+    "最长回溯期": 365,
+    "IDs": "指数"
+}
 
 def WeekRetFun(f, idt, iid, x, args):
     CurDate = idt[-1].date()
@@ -39,7 +28,6 @@ def WeekRetFun(f, idt, iid, x, args):
     Denominator = x[1][-i]
     Denominator[Denominator==0] = np.nan
     return x[0][0] / Denominator - 1
-Factors.append(QS.FactorDB.TimeOperation('周收益率', [Close, PreClose], {"算子":WeekRetFun, "回溯期数":[1-1, 8-1], "运算ID":"多ID"}))
 
 def MonthRetFun(f, idt, iid, x, args):
     CurDate = idt[-1].strftime("%Y%m%d")
@@ -51,7 +39,28 @@ def MonthRetFun(f, idt, iid, x, args):
     Denominator = x[1][-i]
     Denominator[Denominator==0] = np.nan
     return x[0][0] / Denominator - 1
-Factors.append(QS.FactorDB.TimeOperation('月收益率', [Close, PreClose], {"算子":MonthRetFun, "回溯期数":[1-1, 31-1], "运算ID":"多ID"}))
+
+def defFactor(args={}):
+    Factors = []
+
+    WDB = args["WDB"]
+
+    FT = WDB.getTable("中国A股指数日行情")
+    PreClose = FT.getFactor("昨收盘价(点)", new_name="pre_close")
+    Factors.append(PreClose)
+    Factors.append(FT.getFactor("开盘价(点)", new_name="open"))
+    Factors.append(FT.getFactor("最高价(点)", new_name="high"))
+    Factors.append(FT.getFactor("最低价(点)", new_name="low"))
+    Close = FT.getFactor("收盘价(点)", new_name="close")
+    Factors.append(Close)
+    Factors.append(FT.getFactor("成交量(手)", new_name="volume"))
+    Factors.append(FT.getFactor("成交金额(千元)", new_name="amount"))
+    Factors.append(Factorize(Close / PreClose - 1, "chg_rate"))
+
+    Factors.append(QS.FactorDB.TimeOperation("week_return", [Close, PreClose], {"算子":WeekRetFun, "回溯期数":[1-1, 8-1], "运算ID":"多ID"}))
+    Factors.append(QS.FactorDB.TimeOperation("month_return", [Close, PreClose], {"算子":MonthRetFun, "回溯期数":[1-1, 31-1], "运算ID":"多ID"}))
+
+    return Factors
 
 if __name__=="__main__":
     HDB = QS.FactorDB.HDF5DB()
