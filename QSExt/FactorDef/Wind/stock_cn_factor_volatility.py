@@ -66,7 +66,7 @@ def defFactor(args={}):
     Turnover = FT.getFactor("turnover")# %
     Volume = FT.getFactor("volume")# 手
     Amount = FT.getFactor("amount")# 千元
-    TradeStatus = FT.getFactor("if_trading")
+    IfTrading = FT.getFactor("if_trading")
     Close = FT.getFactor("close")
     Low = FT.getFactor("low")
     High = FT.getFactor("high")
@@ -80,7 +80,7 @@ def defFactor(args={}):
     ST = FT.getFactor("st")
     ListDays = FT.getFactor("listed_days")
 
-    Mask = ((TradeStatus!="停牌") & fd.notnull(TradeStatus))
+    Mask = (IfTrading==1)
     Mask_20D = (fd.rolling_sum(Mask, 20)>=20*0.8)
     Mask_60D = (fd.rolling_sum(Mask, 60)>=60*0.8)
     Mask_240D = (fd.rolling_sum(Mask, 240)>=240*0.8)

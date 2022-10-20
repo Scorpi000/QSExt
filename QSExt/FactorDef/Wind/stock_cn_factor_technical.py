@@ -4,7 +4,6 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 
 import QuantStudio.api as QS
 Factorize = QS.FactorDB.Factorize
@@ -20,9 +19,9 @@ UpdateArgs = {
 def RSI_Fun(f, idt, iid, x, args):
     Close = x[0]
     Pre_Close = x[1]
-    TradeStatus = x[2]
-    Len = TradeStatus.shape[0]
-    Mask = (np.sum((TradeStatus != "停牌") & pd.notnull(TradeStatus), axis=0) / Len < args['非空率'])
+    IfTrading = x[2]
+    Len = IfTrading.shape[0]
+    Mask = (np.sum(IfTrading==1, axis=0) / Len < args['非空率'])
     Gap_large = Close - Pre_Close
     Gap_large[Close < Pre_Close] = 0
     Gap_large = abs(Gap_large)
@@ -48,11 +47,10 @@ def RSI_Fun(f, idt, iid, x, args):
     return RSI[-1, :]
 
 def Bias_Fun(f, idt, iid, x, args):
-    #Mask = (x[1]==1)
     Data = x[0]
-    TradeStatus=x[1]
-    Len = TradeStatus.shape[0]
-    Mask = (np.sum((TradeStatus!="停牌") & pd.notnull(TradeStatus), axis=0)/Len<args['非空率'])
+    IfTrading=x[1]
+    Len = IfTrading.shape[0]
+    Mask = (np.sum(IfTrading==1, axis=0)/Len<args['非空率'])
     Avg = np.nanmean(Data,axis=0)
     Bias=(Data[-1]-Avg)/Avg
     Bias[Mask] = np.nan
@@ -64,21 +62,23 @@ def defFactor(args={}):
     LDB = args["LDB"]
 
     FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
-    TradeStatus = FT.getFactor("if_trading")
     AdjPreClose = FT.getFactor("pre_close")
     AdjClose = FT.getFactor("close")
 
-    RSI_5D = QS.FactorDB.TimeOperation('RSI_5D',[AdjClose, AdjPreClose, TradeStatus], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':5},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
-    RSI_20D = QS.FactorDB.TimeOperation('RSI_20D',[AdjClose, AdjPreClose, TradeStatus], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':20},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
-    RSI_60D = QS.FactorDB.TimeOperation('RSI_60D',[AdjClose, AdjPreClose, TradeStatus], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':60},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
+    FT = LDB.getTable("stock_cn_day_bar_nafilled")
+    IfTrading = FT.getFactor("if_trading")
+
+    RSI_5D = QS.FactorDB.TimeOperation('RSI_5D',[AdjClose, AdjPreClose, IfTrading], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':5},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
+    RSI_20D = QS.FactorDB.TimeOperation('RSI_20D',[AdjClose, AdjPreClose, IfTrading], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':20},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
+    RSI_60D = QS.FactorDB.TimeOperation('RSI_60D',[AdjClose, AdjPreClose, IfTrading], {'算子':RSI_Fun,'参数':{"非空率":0.8,'回测期':60},'回溯期数':[1000-1,1000-1,1000-1],"运算ID":"多ID"})
     Factors.append(RSI_5D)
     Factors.append(RSI_20D)
     Factors.append(RSI_60D)
 
     # 乖离率指标
-    Bias_5D = QS.FactorDB.TimeOperation("Bias_5D", [AdjClose, TradeStatus], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [5-1,5-1],"运算ID":"多ID"})
-    Bias_20D = QS.FactorDB.TimeOperation("Bias_20D", [AdjClose, TradeStatus], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [20-1,20-1],"运算ID":"多ID"})
-    Bias_60D = QS.FactorDB.TimeOperation("Bias_60D", [AdjClose, TradeStatus], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [60-1,60-1],"运算ID":"多ID"})
+    Bias_5D = QS.FactorDB.TimeOperation("Bias_5D", [AdjClose, IfTrading], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [5-1,5-1],"运算ID":"多ID"})
+    Bias_20D = QS.FactorDB.TimeOperation("Bias_20D", [AdjClose, IfTrading], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [20-1,20-1],"运算ID":"多ID"})
+    Bias_60D = QS.FactorDB.TimeOperation("Bias_60D", [AdjClose, IfTrading], sys_args={"算子": Bias_Fun,'参数':{"非空率":0.8}, "回溯期数": [60-1,60-1],"运算ID":"多ID"})
     Factors.append(Bias_5D)
     Factors.append(Bias_20D)
     Factors.append(Bias_60D)
@@ -86,4 +86,33 @@ def defFactor(args={}):
     return Factors
 
 if __name__=="__main__":
-    pass
+    import logging
+    Logger = logging.getLogger()
+    
+    WDB = QS.FactorDB.WindDB2()
+    WDB.connect()
+    
+    TDB = QS.FactorDB.HDF5DB()
+    TDB.connect()
+    
+    StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
+    DTs = WDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date())
+    DTRuler = WDB.getTradeDay(start_date=StartDT.date() - dt.timedelta(365), end_date=EndDT.date())
+    
+    IDs = WDB.getStockID(is_current=False)
+    
+    Args = {"WDB": WDB}
+    Factors = defFactor(args=Args)
+    
+    CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
+    CFT.addFactors(factor_list=Factors)
+    CFT.setDateTime(DTs)
+    CFT.setID(IDs)
+    
+    TargetTable = CFT.Name
+    CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs,
+        factor_db=TDB, table_name=TargetTable,
+        if_exists="update", subprocess_num=20)
+    
+    TDB.disconnect()
+    WDB.disconnect()

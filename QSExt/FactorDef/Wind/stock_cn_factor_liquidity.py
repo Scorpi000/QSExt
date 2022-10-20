@@ -26,9 +26,9 @@ def defFactor(args={}):
     Turnover = FT.getFactor("turnover")# %
     Volume = FT.getFactor("volume")# 手
     Amount = FT.getFactor("amount")# 千元
-    TradeStatus = FT.getFactor("if_trading")
+    IfTrading = FT.getFactor("if_trading")
 
-    Mask = ((TradeStatus!="停牌") & fd.notnull(TradeStatus))
+    Mask = (IfTrading==1)
     Mask_20D = (fd.rolling_sum(Mask, 20)>=20*0.8)
     Mask_240D = (fd.rolling_sum(Mask, 240)>=240*0.8)
 

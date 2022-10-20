@@ -22,7 +22,9 @@ def defFactor(args={}):
     WDB = args["WDB"]
     
     FT = WDB.getTable("中国A股日行情")
-    Factors.append(FT.getFactor("交易状态", new_name="if_trading"))
+    TradeStatus = FT.getFactor("交易状态", new_name="trade_status")
+    Factors.append(TradeStatus)
+    Factors.append(Factorize((TradeStatus!="停牌") & fd.notnull(TradeStatus), factor_name="if_trading"))
     PreClose = FT.getFactor("昨收盘价(元)", new_name="pre_close")
     Factors.append(PreClose)
     Factors.append(FT.getFactor("开盘价(元)", new_name="open"))

@@ -43,15 +43,15 @@ def loadModule(module_name, file_path):
 @click.option("-ids", "--ids", type=str, default="", help="证券代码列表, 以逗号分隔, 比如: 000001.SZ,000002.SZ")
 @click.option("-um", "--update_method", type=str, default="update", type=click.Choice(["update", "append", "update_notnull"]), help="更新方式")
 @click.option("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
-@click.option("-darg", "--def_args", type=str, default=None, help="因子定义参数")
+@click.option("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
 @click.option("-sdb", "--sdb", type=str, default="LDB:HDF5DB", help="需要传入定义函数的源因子库, 多个以逗号分隔, 格式: 名称:因子库类, 比如: JYDB:JYDB,LDB:HDF5DB")
-@click.option("-scfg", "--sdb_config", type=str, default=None, help="源因子库配置文件, 多个以逗号分隔")
-@click.option("-sarg", "--sdb_args", type=str, default=None, help="源因子库参数, 多个以逗号分隔, 比如: {'主目录':'D:\\HDF5Data'}")
+@click.option("-scfg", "--sdb_config", type=str, default=None, help="源因子库配置文件, 多个以逗号分隔, 格式: /home/hst/JYDBConfig.json,/home/hst/HDF5DBConfig.json")
+@click.option("-sarg", "--sdb_args", type=str, default=None, help="源因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
 @click.option("-tdb", "--tdb", type=str, default="TDB:HDF5DB", help="目标因子库, 比如: TDB:HDF5DB")
 @click.option("-tcfg", "--tdb_config", type=str, default=None, help="目标因子库配置文件")
-@click.option("-targ", "--tdb_args", type=str, default=None, help="目标因子库参数, 比如: {'主目录':'D:\\HDF5Data'}")
-@click.option("-dtdb", "--dt_db", type=str, default=None, help="用于提取时点序列的因子库名称")
-@click.option("-iddb", "--id_db", type=str, default=None, help="用于提取 ID 序列的因子库名称")
+@click.option("-targ", "--tdb_args", type=str, default=None, help="目标因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
+@click.option("-dtdb", "--dt_db", type=str, default=None, help="用于提取时点序列的因子库名称或者因子表名称, 比如 WDB 或者 LDB:stock_cn_day_bar")
+@click.option("-iddb", "--id_db", type=str, default=None, help="用于提取 ID 序列的因子库名称或者因子表名称, 比如 WDB 或者 LDB:stock_cn_day_bar")
 @click.option("-ll", "--log_level", type=int, default=logging.INFO, help="log level")
 @click.option("-ld", "--log_dir", type=str, default="", help="日志输出的文件目录")
 def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, end_look_back=0, ids=None, update_method="update", process_num=0, def_args=None, 
@@ -150,8 +150,15 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
         if dt_db not in DefArgs:
             Logger.info(f"提取时点序列的因子库对象({dt_db})不存在")
             return -1
-        DTs = DefArgs[dt_db].getTradeDay(start_date=start_dt.date(), end_date=end_dt.date(), output_type="datetime")
-        DTRuler = DefArgs[dt_db].getTradeDay(start_date=start_dt.date() - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_date=end_dt.date(), output_type="datetime")
+        dt_db = dt_db.split(":")
+        if len(dt_db)==1:
+            DTs = DefArgs[dt_db[0]].getTradeDay(start_date=start_dt.date(), end_date=end_dt.date(), output_type="datetime")
+            DTRuler = DefArgs[dt_db[0]].getTradeDay(start_date=start_dt.date() - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_date=end_dt.date(), output_type="datetime")
+        else:
+            iFactorName = (dt_db[2] if len(dt_db)>2 else None)
+            FT = DefArgs[dt_db[0]].getTable(dt_db[1])
+            DTs = FT.getDateTime(ifactor_name=iFactorName, start_dt=start_dt, end_dt=end_dt)
+            DTRuler = FT.getDateTime(ifactor_name=iFactorName, start_dt=start_dt - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_dt=end_dt)
     elif DTType=="自然日":
         DTs = QS.Tools.DateTime.getDateTimeSeries(start_dt=start_dt, end_dt=end_dt, timedelta=dt.timedelta(1))
         DTRuler = QS.Tools.DateTime.getDateTimeSeries(start_dt=start_dt - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_dt=end_dt, timedelta=dt.timedelta(1))
@@ -186,15 +193,21 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
             if id_db not in DefArgs:
                 Logger.info(f"提取 ID 序列的因子库对象({id_db})不存在")
                 return -1
-            if IDType=="股票":
-                IDs = DefArgs[id_db].getStockID(is_current=False)
-            elif IDType=="债券":
-                IDs = DefArgs[id_db].getBondID(is_current=False)
-            elif IDType=="公募基金":
-                IDs = DefArgs[id_db].getMutualFundID(is_current=False)
+            id_db = id_db.split(":")
+            if len(id_db)==1:
+                if IDType=="股票":
+                    IDs = DefArgs[id_db[0]].getStockID(is_current=False)
+                elif IDType=="债券":
+                    IDs = DefArgs[id_db[0]].getBondID(is_current=False)
+                elif IDType=="公募基金":
+                    IDs = DefArgs[id_db[0]].getMutualFundID(is_current=False)
+                else:
+                    Logger.error(f"不支持因子定义文件指定的 ID 类型: {IDType}")
+                    return -1
             else:
-                Logger.error(f"不支持因子定义文件指定的 ID 类型: {IDType}")
-                return -1
+                iFactorName = (id_db[2] if len(id_db)>2 else None)
+                FT = DefArgs[id_db[0]].getTable(id_db[1])
+                IDs = FT.getID(ifactor_name=iFactorName)
         else:
             IDs = sorted(IDType)
             IDType = "因子定义文件指定"

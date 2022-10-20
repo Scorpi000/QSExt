@@ -47,9 +47,6 @@ def defFactor(args={}):
     FT = WDB.getTable("中国A股日行情")
     AdjFactor = FT.getFactor("复权因子", new_name="adj_factor")
     Factors.append(AdjFactor)
-    
-    Factors.append(FT.getFactor("交易状态", new_name="if_trading"))
-    
     PreClose = Factorize(FT.getFactor("昨收盘价(元)") * AdjFactor, factor_name="pre_close")
     Factors.append(PreClose)
     Factors.append(Factorize(FT.getFactor("开盘价(元)") * AdjFactor, factor_name="open"))

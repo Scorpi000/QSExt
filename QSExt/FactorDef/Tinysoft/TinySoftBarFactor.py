@@ -3,8 +3,8 @@
 import datetime as dt
 
 import QuantStudio.api as QS
-from QuantStudio.FactorDataBase.TinySoftDB import TinySoftDB
-from QuantStudio.FactorDataBase.ArcticDB import ArcticDB
+from QSExt.FactorDataBase.TinySoftDB import TinySoftDB
+from QSExt.FactorDataBase.ArcticDB import ArcticDB
 
 ADB = ArcticDB()
 ADB.connect()
