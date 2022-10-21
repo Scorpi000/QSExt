@@ -41,7 +41,7 @@ def loadModule(module_name, file_path):
 @click.option("-slb", "--start_look_back", type=int, default=0, help="起始时点的回溯天数")
 @click.option("-elb", "--end_look_back", type=int, default=0, help="结束时点的回溯天数")
 @click.option("-ids", "--ids", type=str, default="", help="证券代码列表, 以逗号分隔, 比如: 000001.SZ,000002.SZ")
-@click.option("-um", "--update_method", type=str, default="update", type=click.Choice(["update", "append", "update_notnull"]), help="更新方式")
+@click.option("-um", "--update_method", type=click.Choice(["update", "append", "update_notnull"]), default="update", help="更新方式")
 @click.option("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
 @click.option("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
 @click.option("-sdb", "--sdb", type=str, default="LDB:HDF5DB", help="需要传入定义函数的源因子库, 多个以逗号分隔, 格式: 名称:因子库类, 比如: JYDB:JYDB,LDB:HDF5DB")
