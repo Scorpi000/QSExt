@@ -3,6 +3,7 @@
 import os
 import importlib
 import logging
+logging.root.setLevel(logging.NOTSET)
 import datetime as dt
 
 import click
@@ -20,11 +21,12 @@ def getLogger(log_dir, log_level):
         LogHandler.setFormatter(logging.Formatter(Fmt))
         Logger.addHandler(LogHandler)
     else:
-        #LogHandler = logging.StreamHandler()
-        #LogHandler.setLevel(log_level)
-        #LogHandler.setFormatter(logging.Formatter(Fmt))
-        #Logger.addHandler(LogHandler)
+        # LogHandler = logging.StreamHandler()
+        # LogHandler.setLevel(log_level)
+        # LogHandler.setFormatter(logging.Formatter(Fmt))
+        # Logger.addHandler(LogHandler)
         logging.basicConfig(level=log_level, format=Fmt)
+        Logger.setLevel(log_level)
     return Logger
 
 def loadModule(module_name, file_path):
@@ -45,17 +47,17 @@ def loadModule(module_name, file_path):
 @click.option("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
 @click.option("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
 @click.option("-sdb", "--sdb", type=str, default="LDB:HDF5DB", help="需要传入定义函数的源因子库, 多个以逗号分隔, 格式: 名称:因子库类, 比如: JYDB:JYDB,LDB:HDF5DB")
-@click.option("-scfg", "--sdb_config", type=str, default=None, help="源因子库配置文件, 多个以逗号分隔, 格式: /home/hst/JYDBConfig.json,/home/hst/HDF5DBConfig.json")
-@click.option("-sarg", "--sdb_args", type=str, default=None, help="源因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
+@click.option("-scfg", "--sdb_config", type=str, default="", help="源因子库配置文件, 多个以逗号分隔, 格式: /home/hst/JYDBConfig.json,/home/hst/HDF5DBConfig.json")
+@click.option("-sarg", "--sdb_args", type=str, default="", help="源因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
 @click.option("-tdb", "--tdb", type=str, default="TDB:HDF5DB", help="目标因子库, 比如: TDB:HDF5DB")
-@click.option("-tcfg", "--tdb_config", type=str, default=None, help="目标因子库配置文件")
-@click.option("-targ", "--tdb_args", type=str, default=None, help="目标因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
+@click.option("-tcfg", "--tdb_config", type=str, default="", help="目标因子库配置文件")
+@click.option("-targ", "--tdb_args", type=str, default="", help="目标因子库参数, 字典字面量, 比如: {'主目录':'/home/hst/Data/HDF5Data'}")
 @click.option("-dtdb", "--dt_db", type=str, default=None, help="用于提取时点序列的因子库名称或者因子表名称, 比如 WDB 或者 LDB:stock_cn_day_bar")
 @click.option("-iddb", "--id_db", type=str, default=None, help="用于提取 ID 序列的因子库名称或者因子表名称, 比如 WDB 或者 LDB:stock_cn_day_bar")
-@click.option("-ll", "--log_level", type=int, default=logging.INFO, help="log level")
+@click.option("-ll", "--log_level", type=str, default="INFO", help="log level")
 @click.option("-ld", "--log_dir", type=str, default="", help="日志输出的文件目录")
-def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, end_look_back=0, ids=None, update_method="update", process_num=0, def_args=None, 
-    sdb="", sdb_config="", sdb_args="", tdb="TDB:HDF5DB", tdb_config=None, tdb_args="", dt_db=None, id_db=None, log_level=logging.INFO, log_dir=None):
+def updateFactorData(def_file, table_name=None, start_dt=None, end_dt=None, start_look_back=0, end_look_back=0, ids=None, update_method="update", process_num=0, def_args=None, 
+    sdb="", sdb_config="", sdb_args="", tdb="TDB:HDF5DB", tdb_config="", tdb_args="", dt_db=None, id_db=None, log_level=logging.INFO, log_dir=None):
     Logger = getLogger(log_dir, log_level)
     Logger.info("=================================================")
     
@@ -87,6 +89,7 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
             iModules = iFDBType.split(".")
             iFDBClass = getattr(importlib.import_module(".".join(iModules[:-1])), iModules[-1])
         DefArgs[iName] = iFDBClass(sys_args=iArgs, config_file=iConfig, logger=Logger)
+        DefArgs[iName].connect()
         Logger.info(f"创建因子库({iFDB}): {DefArgs[iName].Args}")
     
     # 创建目标因子库
@@ -143,14 +146,16 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
     if end_look_back>0:
         end_dt -= dt.timedelta(end_look_back)
         Logger.info(f"最终结束时点: {end_dt}, 在初始结束时点基础上回溯 {end_look_back} 天得到")
+    else:
+        Logger.info(f"最终结束时点: {end_dt}, 等于初始结束时点")
     
     # 设置时点序列
     DTType = UpdateArgs.get("时点类型", "交易日")
     if DTType=="交易日":
-        if dt_db not in DefArgs:
-            Logger.info(f"提取时点序列的因子库对象({dt_db})不存在")
-            return -1
         dt_db = dt_db.split(":")
+        if dt_db[0] not in DefArgs:
+            Logger.error(f"提取时点序列的因子库对象({dt_db})不存在")
+            return -1
         if len(dt_db)==1:
             DTs = DefArgs[dt_db[0]].getTradeDay(start_date=start_dt.date(), end_date=end_dt.date(), output_type="datetime")
             DTRuler = DefArgs[dt_db[0]].getTradeDay(start_date=start_dt.date() - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_date=end_dt.date(), output_type="datetime")
@@ -190,10 +195,10 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
     elif "IDs" in UpdateArgs:
         IDType = UpdateArgs["IDs"]
         if isinstance(IDType, str):
-            if id_db not in DefArgs:
-                Logger.info(f"提取 ID 序列的因子库对象({id_db})不存在")
-                return -1
             id_db = id_db.split(":")
+            if id_db[0] not in DefArgs:
+                Logger.info(f"提取 ID 序列的因子库对象({id_db})不存在")
+                return -1           
             if len(id_db)==1:
                 if IDType=="股票":
                     IDs = DefArgs[id_db[0]].getStockID(is_current=False)
@@ -242,5 +247,15 @@ def updateFactorData(def_file, table_name, start_dt, end_dt, start_look_back=0, 
     return 0
 
 if __name__=="__main__":
-    #updateFactorData()
-    print("===")
+    # updateFactorData(r".\stock_cn_factor_momentum.py", start_dt="2019-04-15", end_dt="2019-04-30", 
+    #     sdb="LDB:HDF5DB", sdb_config=r".\QSConfig\HDF5DBConfig.json", 
+    #     tdb="TDB:HDF5DB", tdb_config=r".\QSConfig\HDF5DBConfig.json",
+    #     dt_db="LDB:stock_cn_day_bar_nafilled", id_db="LDB:stock_cn_day_bar_nafilled")
+
+    # from click.testing import CliRunner
+    # Runner = CliRunner()
+    # Result = Runner.invoke(updateFactorData, "./stock_cn_factor_momentum.py -sdt 2019-04-15 -edt 2019-04-30 -sdb LDB:HDF5DB -scfg ./QSConfig/HDF5DBConfig.json -tdb TDB:HDF5DB -tcfg ./QSConfig/HDF5DBConfig.json -dtdb LDB:stock_cn_day_bar_nafilled -iddb LDB:stock_cn_day_bar_nafilled -ll INFO")
+    # print(Result)
+
+    updateFactorData()
+    

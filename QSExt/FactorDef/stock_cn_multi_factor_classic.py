@@ -46,7 +46,7 @@ def defFactor(args={}):
 
     FT = LDB.getTable("stock_cn_info")
     IsListed = FT.getFactor("if_listed")
-    FT = LDB.getTable("stock_industry")
+    FT = LDB.getTable("stock_cn_industry")
     Industry = FT.getFactor("citic_level1")
     FT = LDB.getTable("stock_cn_day_bar_nafilled")
     TotalCap = FT.getFactor("total_cap")
