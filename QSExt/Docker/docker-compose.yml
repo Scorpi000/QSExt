@@ -16,6 +16,10 @@ services:
             - QuantStudio
         volumes:
             - "MySQL:/var/lib/mysql"
+        healthcheck:
+            test: ["CMD-SHELL", "mysql --user=airflow --password=123.com -e 'SELECT 1;'"]
+            timeout: 5s
+            retries: 5
     
     research:
         image: scorpi000/research
@@ -37,7 +41,7 @@ services:
             context: ./FactorDef
             dockerfile: Dockerfile
             args:
-                - "sql_alchemy_conn=mysql://airflow:123.com@qs_mysql:3306/Airflow"
+                - "sql_alchemy_conn=mysql+mysqldb://airflow:123.com@qs_mysql:3306/Airflow"
                 - "executor=LocalExecutor"
         ports:
             - "8080:8080"
@@ -50,7 +54,7 @@ services:
             - "D:/Project/Packages:/usr/src/app/Packages"
         depends_on:
             mysql:
-                condition: service_healthy
+                condition: service_healthy # service_started, service_healthy, service_completed_successfully
 
 networks:
     QuantStudio: 

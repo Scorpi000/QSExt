@@ -9,7 +9,7 @@ ENV PYTHONPATH="/usr/src/app/Packages/QuantStudio:/usr/src/app/Packages/QSExt"
 
 # install airflow
 ENV AIRFLOW_HOME=/usr/src/app/Airflow
-RUN pip install mysqlclient && pip install --no-cache-dir "apache-airflow==2.4.1" -i https://mirrors.aliyun.com/pypi/simple --constraint "./constraints-3.10.txt"
+RUN pip install mysqlclient -i https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir "apache-airflow==2.4.1" -i https://mirrors.aliyun.com/pypi/simple --constraint "./constraints-3.10.txt"
 
 # setup airflow
 ARG sql_alchemy_conn="sqlite:///$AIRFLOW_HOME/airflow.db"
