@@ -1,0 +1,59 @@
+name: qs
+version: "3.8"
+
+services: 
+    mysql:
+        container_name: qs_mysql
+        image: mysql:latest
+        environment:
+            - "MYSQL_ROOT_PASSWORD=123.com"
+            - "MYSQL_DATABASE=Airflow"
+            - "MYSQL_USER=airflow"
+            - "MYSQL_PASSWORD=123.com"
+        ports:
+            - "3306:3306"
+        networks:
+            - QuantStudio
+        volumes:
+            - "MySQL:/var/lib/mysql"
+    
+    research:
+        image: scorpi000/research
+        build:
+            context: ./Research
+            dockerfile: ./Dockerfile
+        ports:
+            - "8888:8888"
+        volumes:
+            - "D:/Project/Research:/usr/src/app/Research"
+            - "D:/Data:/usr/src/app/Data"
+            - "D:/Project/Packages:/usr/src/app/Packages"
+        networks:
+            - QuantStudio
+    
+    factor_def:
+        image: scorpi000/factor_def
+        build: 
+            context: ./FactorDef
+            dockerfile: Dockerfile
+            args:
+                - "sql_alchemy_conn=mysql://airflow:123.com@qs_mysql:3306/Airflow"
+                - "executor=LocalExecutor"
+        ports:
+            - "8080:8080"
+        networks:
+            - QuantStudio
+        volumes:
+            - "D:/Project/QSExt/QSExt/AirflowDAGs:/usr/src/app/DAGs"
+            - "D:/Project/QSExt/QSExt/FactorDef:/usr/src/app/FactorDef"
+            - "D:/Data:/usr/src/app/Data"
+            - "D:/Project/Packages:/usr/src/app/Packages"
+        depends_on:
+            mysql:
+                condition: service_healthy
+
+networks:
+    QuantStudio: 
+
+volumes:
+    MySQL:
