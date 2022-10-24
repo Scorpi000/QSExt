@@ -3,8 +3,11 @@ FROM python:3
 WORKDIR /usr/src/app
 COPY . .
 
+# 解决容器与宿主机时区不一致问题
+RUN cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && echo "Asia/Shanghai" > /etc/timezone
+
 # install python packages
-# RUN mkdir ./Packages && pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirementsQS.txt -i https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirementsQSExt.txt -i https://mirrors.aliyun.com/pypi/simple
+RUN mkdir ./Packages && pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirementsQS.txt -i https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirementsQSExt.txt -i https://mirrors.aliyun.com/pypi/simple
 ENV PYTHONPATH="/usr/src/app/Packages/QuantStudio:/usr/src/app/Packages/QSExt"
 
 # install airflow
