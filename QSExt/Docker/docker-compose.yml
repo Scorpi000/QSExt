@@ -29,8 +29,8 @@ services:
         ports:
             - "8888:8888"
         volumes:
-            - "D:/Project/Research:/usr/src/app/Research"
-            - "D:/Data:/usr/src/app/Data"
+            - "D:/Project/Demo/Research:/usr/src/app/Research"
+            - "D:/Project/DemoData:/usr/src/app/Data"
             - "D:/Project/Packages:/usr/src/app/Packages"
         networks:
             - QuantStudio
@@ -48,9 +48,9 @@ services:
         networks:
             - QuantStudio
         volumes:
-            - "D:/Project/QSExt/QSExt/AirflowDAGs:/usr/src/app/DAGs"
-            - "D:/Project/QSExt/QSExt/FactorDef:/usr/src/app/FactorDef"
-            - "D:/Data:/usr/src/app/Data"
+            - "D:/Project/Demo/DAGs:/usr/src/app/DAGs"
+            - "D:/Project/Demo/FactorDef:/usr/src/app/FactorDef"
+            - "D:/Project/DemoData:/usr/src/app/Data"
             - "D:/Project/Packages:/usr/src/app/Packages"
         depends_on:
             mysql:
