@@ -65,24 +65,25 @@ def label2Class(f, labels=(1, -1), top_bottom_ratio=(0.3, 0.3), mask=None, cat_d
     return SectionOperation(kwargs.pop("factor_name", str(uuid.uuid1())),Descriptors,{"算子":_label2Class,"参数":Args,"运算时点":"多时点","输出形式":"全截面"}, **kwargs)
 
 
-# 生成标签因子
+# 生成标签因子: TODO
 def _labelQuantile(f, idt, iid, x, args):
-    Data = _genOperatorData(f,idt,iid,x,args)[0]
+    Data = _genOperatorData(f,idt,iid,x,args)
+    Data, PartitionFactor = Data[0], Data[1]
     Thresholds = args["OperatorArg"]["thresholds"]
-    Rslt = np.zeros()
+    TopBottomRatio = args["OperatorArg"]["top_bottom_ratio"]
     AllCat = np.unique(PartitionFactor[PartitionFactor>0])
-    YLabel = np.zeros(Return.shape)
+    YLabel = np.zeros(Data.shape)
     for jCat in AllCat:
         jMask = (PartitionFactor==jCat)
-        jReturn = Return[jMask]
-        jSelectedNum = int(jReturn.shape[0] * TopBottomRatio)
+        jData = Data[jMask]
+        jSelectedNum = int(jData.shape[0] * TopBottomRatio)
         if jSelectedNum==0:
-            jSubMask = (Return>=np.nanmedian(jReturn))
+            jSubMask = (Data>=np.nanmedian(jData))
             YLabel[jMask & jSubMask] = 1
             YLabel[jMask & (~jSubMask)] = -1
         else:
-            YLabel[jMask & (Return >= np.nanpercentile(jReturn, (1-TopBottomRatio)*100))] = 1
-            YLabel[jMask & (Return <= np.nanpercentile(jReturn, TopBottomRatio*100))] = -1
+            YLabel[jMask & (Data >= np.nanpercentile(jData, (1-TopBottomRatio)*100))] = 1
+            YLabel[jMask & (Data <= np.nanpercentile(jData, TopBottomRatio*100))] = -1
     return YLabel
 
 def labelQuantile(f, thresholds, labels, mask=None, cat_data=None, **kwargs):

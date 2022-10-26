@@ -308,7 +308,7 @@ if __name__=="__main__":
     #r2, sigma2 = calcEfficientFrontier(V, mu, allow_short=True)
     #r3, sigma3 = calcEfficientFrontier(V, mu, allow_short=False)
     #r4, sigma4 = calcEfficientFrontier(V, mu, rf=0.02, allow_short=True)
-    #r5, sigma5 = calcEfficientFrontier(V, mu, rf=0.02, allow_short=False)
+    r5, sigma5 = calcEfficientFrontier(V, mu, rf=0.02, allow_short=False)
     import matplotlib.pyplot as plt
     Fig, Axes = plt.subplots(1, 1)
     #Axes.plot(sigma1, r1, label="Efficient Frontier without Constraint")

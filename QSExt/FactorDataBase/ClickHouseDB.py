@@ -140,7 +140,7 @@ class ClickHouseDB(QSClickHouseObject, SQLDB):
             SQLStr += "AND "+genSQLInCondition(self.IDField, ids, is_str=True, max_num=1000)
         if dt_ids is not None:
             dt_ids = ["('"+iDTIDs[0].strftime("%Y-%m-%d %H:%M:%S")+"', '"+iDTIDs[1]+"')" for iDTIDs in dt_ids]
-            SQLStr += "AND "+genSQLInCondition("("+elf.DTField+", "+self.IDField+")", dt_ids, is_str=False, max_num=1000)
+            SQLStr += "AND "+genSQLInCondition("("+self.DTField+", "+self.IDField+")", dt_ids, is_str=False, max_num=1000)
         try:
             self.execute(SQLStr)
         except Exception as e:

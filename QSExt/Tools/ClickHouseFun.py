@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 from traits.api import Enum, Str, Range, Password, File, Bool, Either
 
-from QuantStudio import __QS_Object__, __QS_Error__
+from QuantStudio import __QS_Error__
+from QuantStudio.Tools.QSObjects import QSSQLObject
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 
 
