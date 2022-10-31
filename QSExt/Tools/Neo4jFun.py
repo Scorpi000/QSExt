@@ -62,7 +62,7 @@ class QSNeo4jObject(__QS_Object__):
     def _connect(self):
         self._Connection, self._Connector = self._getConnection()
         self._PID = os.getpid()
-        return 0
+        return self
     def connect(self):
         return self._connect()
     def disconnect(self):

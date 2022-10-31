@@ -71,7 +71,7 @@ class Neo4jRDB(QSNeo4jObject, RiskDB):
             self._TableNames = set()
         else:
             self._TableNames = set(TableNames[0][0])
-        return 0
+        return self
     @property
     def TableNames(self):
         return sorted(self._TableNames)
@@ -339,7 +339,7 @@ class Neo4jFRDB(QSNeo4jObject, FactorRDB):
                 self._FactorInfo = tx.run(CypherStr).values()
         self._TableInfo = pd.DataFrame(self._TableInfo, columns=["TableName", "Description"]).set_index(["TableName"])
         self._FactorInfo = pd.DataFrame(self._FactorInfo, columns=["FactorName", "TableName", "DataType", "Description"]).set_index(["TableName", "FactorName"])
-        return 0
+        return self
     @property
     def TableNames(self):
         return sorted(self._TableInfo.index)

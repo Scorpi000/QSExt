@@ -85,7 +85,7 @@ class ArcticDB(WritableFactorDB):
         else: self._Arctic = None
     def connect(self):
         self._Arctic = arctic.Arctic(self.IPAddr)
-        return 0
+        return self
     def disconnect(self):
         self._Arctic = None
         return 1

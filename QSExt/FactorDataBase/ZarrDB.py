@@ -150,7 +150,7 @@ class ZarrDB(WritableFactorDB):
         self._LockFile = self.MainDir+os.sep+"LockFile"
         self._DataLock = fasteners.InterProcessLock(self._LockFile)
         self._isAvailable = True
-        return 0
+        return self
     def disconnect(self):
         self._LockFile = None
         self._DataLock = None

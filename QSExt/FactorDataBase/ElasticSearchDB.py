@@ -271,7 +271,7 @@ class ElasticSearchDB(WritableFactorDB):
         self._FactorInfo["DBFieldName"] = self._FactorInfo["FactorName"]
         self._FactorInfo["Supplementary"] = self._FactorInfo["Description"] = None
         self._FactorInfo = self._FactorInfo.set_index(["TableName", "FactorName"])
-        return 0
+        return self
     def disconnect(self):
         self._Connection.close()
         self._Connection = None

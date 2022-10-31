@@ -102,7 +102,7 @@ class ClickHouseDB(QSClickHouseObject, SQLDB):
         self._TableInfo["TableClass"] = "WideTable"
         self._FactorInfo.pop("DBTableName")
         self._FactorInfo = self._genFactorInfo(self._FactorInfo)
-        return 0
+        return self
     def getTable(self, table_name, args={}):
         Args = self.__QS_initFTArgs__(table_name=table_name, args=args)
         return eval("_"+Args["因子表类型"]+"(name='"+table_name+"', fdb=self, sys_args=Args, logger=self._QS_Logger)")

@@ -46,7 +46,7 @@ class QSClickHouseObject(QSSQLObject):
         # 设置特异性参数
         # 设置 SQL 相关特异性函数
         self._SQLFun = {"toDate": "DATE(%s)"}
-        return 0
+        return self
     def renameDBTable(self, old_table_name, new_table_name):
         SQLStr = "RENAME TABLE "+self.TablePrefix+old_table_name+" TO "+self.TablePrefix+new_table_name
         try:

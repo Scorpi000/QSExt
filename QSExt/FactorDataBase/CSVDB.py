@@ -128,7 +128,7 @@ class CSVDB(WritableFactorDB):
             os.chmod(self._LockFile, stat.S_IRWXO | stat.S_IRWXG | stat.S_IRWXU)
         self._DataLock = fasteners.InterProcessLock(self._LockFile)
         self._isAvailable = True
-        return 0
+        return self
     def disconnect(self):
         self._LockFile = None
         self._DataLock = None

@@ -464,7 +464,7 @@ class TinySoftDB(FactorDB):
                 raise __QS_Error__("TinySoft 登录失败: "+Msg)
         else:
             raise __QS_Error__("TinySoft 登录失败!")
-        return 0
+        return self
     def disconnect(self):
         self._TSLPy.Disconnect()
         self._TSLPy = None

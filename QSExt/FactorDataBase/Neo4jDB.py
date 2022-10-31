@@ -469,7 +469,7 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
                 self._FactorInfo = tx.run(CypherStr).values()
         self._TableInfo = pd.DataFrame(self._TableInfo, columns=["TableName", "Description"]).set_index(["TableName"])
         self._FactorInfo = pd.DataFrame(self._FactorInfo, columns=["FactorName", "TableName", "DataType", "Description"]).set_index(["TableName", "FactorName"])
-        return 0
+        return self
     # ----------------------------因子表操作-----------------------------
     @property
     def TableNames(self):
