@@ -1,5 +1,7 @@
 # coding=utf-8
+from itertools import product
 from sre_constants import IN
+from turtle import position
 from typing import Optional, Union
 import datetime as dt
 
@@ -69,3 +71,87 @@ def tradeTransaction(idt: dt.datetime, itransaction: pd.DataFrame, iposition: Op
         index=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏"])
     return iposition, icash
 
+# 根据交易记录进行回测
+# cash_price: 现金产品净值, Series(index=["时点"]), 按照时点升序
+# product_price: 产品净值, DataFrame(index=["时点"], columns=["产品代码"]), 按照时点排序
+# cashflow: 现金流, Series(index=["时点"]), 现金流为正表示流入, 为负表示流出, 假设现金流入流出发生在每个时点之前, 即计入当期收益率的计算
+# transaction: 交易记录, DataFrame(index=["时点"], columns=["产品代码", "方向", "数量", "价格", "费用"]), 方向可选: 1: 买入, -1: 卖出
+# init_position: 期初持仓信息, DataFrame(index=["产品代码"], columns=["数量", "成本价", "最新价"])
+# init_cash: 期初现金信息, Series(index=["数量", "成本价", "最新价"])
+# 返回: Position: 持仓信息, DataFrame(index=["产品代码", "时点"], columns=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏", "浮动盈亏", "浮动盈亏率"])
+# 返回: Cash: 持仓现金, DataFrame(index=["时点"], columns=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏", "浮动盈亏", "浮动盈亏率"])
+# 返回: Account: 账户信息, DataFrame(index=["时点"], columns=["市值", "持仓成本", "权重", "当日实现盈亏", "当日盈亏", "浮动盈亏", "总资产", "当日初始总资产", "现金流发生前总资产", "当日收益率"])
+def backtestTransaction(cash_price, product_price, cashflow, transaction, 
+    init_cash=pd.Series([10000, 1, 1], index=["数量", "成本价", "最新价"]),
+    init_position=pd.DataFrame(columns=["数量", "成本价", "最新价"])):
+    nDT = cash_price.shape[0]
+    TransactionDTs = set(transaction.index)
+    transaction = transaction.set_index(["产品代码"], append=True)
+    Position, Cash, PreVal = [], np.zeros((nDT, 7)), np.zeros((nDT,))
+    iPosition, iCash = init_position, pd.Series(np.r_[init_cash.values, np.zeros((4,))], index=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏"])
+    for i, iDT in enumerate(cash_price.index):
+        iNum = cashflow.get(iDT, 0) / iCash["最新价"]
+        if iNum!=0:
+            iCash["成本价"] = (iNum * iCash["最新价"] + iCash["数量"] * iCash["成本价"]) / (iCash["数量"] + iNum)
+            iCash["数量"] += iNum
+            if iCash["数量"] < -__MinNum__:
+                raise Exception(f"{iDT}: 当前现金 {iCash['数量'] * iCash['最新价']} 不足以提取 {cashflow[iDT]}!")
+        PreVal[i] = (iPosition["数量"] * iPosition["最新价"]).sum() + iCash["数量"] * iCash["最新价"]
+        iPosition = iPosition[iPosition["数量"].abs() >= __MinNum__].copy()
+        if iDT not in TransactionDTs:
+            iPosition, iCash = tradeTransaction(iDT, None, iPosition, iCash, product_price.iloc[i], cash_price.iloc[i])
+        else:
+            iPosition, iCash = tradeTransaction(iDT, transaction.loc[iDT], iPosition, iCash, product_price.iloc[i], cash_price.iloc[i])
+        iPosition["日期"] = iDT
+        Position.append(iPosition)
+        Cash[i] = iCash.values
+    if Position:
+        Position = pd.concat(Position, axis=0, ignore_index=False).set_index(["日期"], append=True).swaplevel(axis=0)
+    else:
+        Position = pd.DataFrame(columns=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏"])
+    Position["浮动盈亏"] = (Position["最新价"] - Position["成本价"]) * Position["数量"]
+    Position["浮动盈亏率"] = Position["最新价"] / Position["成本价"] - 1
+    Cash = pd.DataFrame(Cash, index=cash_price.index, columns=["数量", "成本价", "最新价", "市值", "权重", "当日实现盈亏", "当日盈亏"])
+    Cash["浮动盈亏"] = (Cash["最新价"] - Cash["成本价"]) * Cash["数量"]
+    Cash["浮动盈亏率"] = Cash["最新价"] / Cash["成本价"] - 1
+
+    # 计算账户指标
+    if Position.shape[0]>0:
+        Account = Position.groupby(axis=0, level=0)[["市值", "权重", "当日实现盈亏", "当日盈亏", "浮动盈亏"]].sum().reindex(index=cash_price.index).fillna(0)
+    else:
+        Account = pd.DataFrame(0, columns=["市值", "权重", "当日实现盈亏", "当日盈亏", "浮动盈亏"], index=cash_price.index)
+    Account["当日实现盈亏"] += Cash["当日实现盈亏"]
+    Account["当日盈亏"] += Cash["当日盈亏"]
+    Account["浮动盈亏"] += Cash["浮动盈亏"]
+    Account["总资产"] = Account["市值"] + Cash["市值"]
+    Account["当日初始总资产"] = PreVal
+    Account["现金流发生前总资产"] = Account["总资产"] - cashflow.reindex(cash_price.index).fillna(0)
+    Account["持仓成本"] = (Position["成本价"] * Position["数量"]).groupby(axis=0, level=0).sum().reindex(index=cash_price.index).fillna(0)
+    Account["持仓成本"] += Cash["成本价"] * Cash["数量"]
+    Account["当日收益率"] = Account["当日盈亏"] / Account["当日初始总资产"]
+    return Position, Cash, Account
+
+if __name__=="__main__":
+    import time
+
+    np.random.seed(0)
+    DTs = [dt.datetime(2022, 1, 1) + dt.timedelta(i) for i in range(730)]
+    ProductPrice = (1 + pd.DataFrame(-0.05 + np.random.rand(len(DTs), 2)*0.1, index=DTs, columns=["A", "B"])).cumprod()
+    CashPrice = (1 + pd.Series(-0.005 + np.random.rand(len(DTs))*0.01, index=DTs)).cumprod()
+    InitPosition = pd.DataFrame(columns=["数量", "成本价", "最新价"])
+    InitCash = pd.Series([10000, 1, 1], index=["数量", "成本价", "最新价"])
+    Cashflow = pd.Series(dtype=float)
+
+    Transaction = pd.DataFrame([
+        ("A", 1, 5000, ProductPrice.loc[dt.datetime(2022, 1, 1), "A"], 0),
+        ("B", 1, 1000, ProductPrice.loc[dt.datetime(2022, 1, 10), "B"], 0),
+        ("A", -1, 5000, ProductPrice.loc[dt.datetime(2022, 1, 10), "A"], 1000),
+        ("B", 1, 1000, ProductPrice.loc[dt.datetime(2022, 1, 15), "B"], 0),
+    ], index=[dt.datetime(2022, 1, 1), dt.datetime(2022, 1, 10), dt.datetime(2022, 1, 10), dt.datetime(2022, 1, 15)], 
+    columns=["产品代码", "方向", "数量", "价格", "费用"])
+
+    StartT = time.perf_counter()
+    Position, Cash, Account = backtestTransaction(CashPrice, ProductPrice, Cashflow, Transaction, InitCash, InitPosition)
+    print("回测时间: ", time.perf_counter() - StartT)
+
+    print("===")

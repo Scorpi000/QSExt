@@ -1,0 +1,14 @@
+# ZarrDB
+zarr
+# MongoDB
+pymongo
+# ElasticsearchDB
+elasticsearch
+# ClickHouseDB
+clickhouse-driver
+# Neo4jDB
+neo4j
+# ArcticDB
+arctic
+# AKShareDB
+akshare
