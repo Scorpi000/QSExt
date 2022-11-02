@@ -15,8 +15,7 @@ from traits.api import Directory, Str
 from QuantStudio import __QS_Error__, __QS_ConfigPath__
 from QuantStudio.Tools.api import Panel
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB, FactorTable
-from QuantStudio.Tools.FileFun import listDirDir, listDirFile, readJSONFile
-from QuantStudio.Tools.DataTypeFun import readNestedDictFromHDF5, writeNestedDict2HDF5
+from QuantStudio.Tools.FileFun import listDirDir, listDirFile
 
 def _identifyDataType(factor_data, data_type=None):
     if (data_type is None) or (data_type=="double"):
@@ -41,10 +40,10 @@ class _FactorTable(FactorTable):
         return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
     @property
     def FactorNames(self):
-        return sorted(listDirFile(self._FactorDB.MainDir+os.sep+self.Name, suffix=self._Suffix))
+        return sorted(listDirFile(self._FactorDB._QSArgs.MainDir+os.sep+self.Name, suffix=self._Suffix))
     def getMetaData(self, key=None, args={}):
         with self._FactorDB._getLock(self._Name):
-            with shelve.open(self._FactorDB.MainDir+os.sep+self.Name+os.sep+"_TableInfo") as File:
+            with shelve.open(self._FactorDB._QSArgs.MainDir+os.sep+self.Name+os.sep+"_TableInfo") as File:
                 if key is not None:
                     return File[key]
                 else:
@@ -54,12 +53,12 @@ class _FactorTable(FactorTable):
     def getID(self, ifactor_name=None, idt=None, args={}):
         if ifactor_name is None: ifactor_name = self.FactorNames[0]
         with self._FactorDB._getLock(self._Name):
-            with open(self._FactorDB.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix, mode="r") as ijFile:
+            with open(self._FactorDB._QSArgs.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix, mode="r", encoding=self._FactorDB._QSArgs.Encoding) as ijFile:
                 return sorted(ijFile.readline().strip().split(",")[1:])
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):
         if ifactor_name is None: ifactor_name = self.FactorNames[0]
         with self._FactorDB._getLock(self._Name):
-            with open(self._FactorDB.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix, mode="r") as ijFile:
+            with open(self._FactorDB._QSArgs.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix, mode="r", encoding=self._FactorDB._QSArgs.Encoding) as ijFile:
                 Timestamps = ijFile["DateTime"][...]
         if start_dt is not None:
             if isinstance(start_dt, pd.Timestamp) and (pd.__version__>="0.20.0"): start_dt = start_dt.to_pydatetime().timestamp()
@@ -74,11 +73,11 @@ class _FactorTable(FactorTable):
         Data = {iFactor: self.readFactorData(ifactor_name=iFactor, ids=ids, dts=dts, args=args) for iFactor in factor_names}
         return Panel(Data, items=factor_names, major_axis=dts, minor_axis=ids)
     def readFactorData(self, ifactor_name, ids, dts, args={}):
-        FilePath = self._FactorDB.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix
+        FilePath = self._FactorDB._QSArgs.MainDir+os.sep+self.Name+os.sep+ifactor_name+"."+self._Suffix
         if not os.path.isfile(FilePath): raise __QS_Error__("因子库 '%s' 的因子表 '%s' 中不存在因子 '%s'!" % (self._FactorDB.Name, self.Name, ifactor_name))
         with self._FactorDB._getLock(self._Name):
-            Data = pd.read_csv(FilePath, sep=",", header=0, index_col=0, parse_dates=True, infer_datetime_format=True)
-            with open(FilePath, mode="r") as File:
+            Data = pd.read_csv(FilePath, sep=",", header=0, index_col=0, parse_dates=True, infer_datetime_format=True, encoding=self._FactorDB._QSArgs.Encoding)
+            with open(FilePath, mode="r", encoding=self._FactorDB._QSArgs.Encoding) as File:
                 DataType = File.readline().strip().split(",")[0]
         if ids is not None:
             Data = Data.reindex(columns=ids)
@@ -98,9 +97,10 @@ class _FactorTable(FactorTable):
 # 表的元数据存储在表文件夹下特殊文件: _TableInfo 中
 class CSVDB(WritableFactorDB):
     """CSVDB"""
-    Name = Str("CSVDB", arg_type="String", label="名称", order=-100)
-    MainDir = Directory(label="主目录", arg_type="Directory", order=0)
-    Encoding = Str("utf-8", label="字符编码", arg_type="String", order=1)
+    class __QS_ArgClass__(WritableFactorDB.__QS_ArgClass__):
+        Name = Str("CSVDB", arg_type="String", label="名称", order=-100)
+        MainDir = Directory(label="主目录", arg_type="Directory", order=0)
+        Encoding = Str("utf-8", label="字符编码", arg_type="String", order=1)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         self._LockFile = None# 文件锁的目标文件
         self._DataLock = None# 访问该因子库资源的锁, 防止并发访问冲突
@@ -120,9 +120,9 @@ class CSVDB(WritableFactorDB):
         else:
             self._DataLock = None
     def connect(self):
-        if not os.path.isdir(self.MainDir):
-            raise __QS_Error__("CSVDB.connect: 不存在主目录 '%s'!" % self.MainDir)
-        self._LockFile = self.MainDir+os.sep+"LockFile"
+        if not os.path.isdir(self._QSArgs.MainDir):
+            raise __QS_Error__("CSVDB.connect: 不存在主目录 '%s'!" % self._QSArgs.MainDir)
+        self._LockFile = self._QSArgs.MainDir+os.sep+"LockFile"
         if not os.path.isfile(self._LockFile):
             open(self._LockFile, mode="a").close()
             os.chmod(self._LockFile, stat.S_IRWXO | stat.S_IRWXG | stat.S_IRWXU)
@@ -138,7 +138,7 @@ class CSVDB(WritableFactorDB):
     def _getLock(self, table_name=None):
         if table_name is None:
             return self._DataLock
-        TablePath = self.MainDir + os.sep + table_name
+        TablePath = self._QSArgs.MainDir + os.sep + table_name
         if not os.path.isdir(TablePath):
             Msg = ("因子库 '%s' 调用 _getLock 时错误, 不存在因子表: '%s'" % (self.Name, table_name))
             self._QS_Logger.error(Msg)
@@ -153,28 +153,28 @@ class CSVDB(WritableFactorDB):
     # -------------------------------表的操作---------------------------------
     @property
     def TableNames(self):
-        return sorted(listDirDir(self.MainDir))
+        return sorted(listDirDir(self._QSArgs.MainDir))
     def getTable(self, table_name, args={}):
-        if not os.path.isdir(self.MainDir+os.sep+table_name): raise __QS_Error__("CSVDB.getTable: 表 '%s' 不存在!" % table_name)
+        if not os.path.isdir(self._QSArgs.MainDir+os.sep+table_name): raise __QS_Error__("CSVDB.getTable: 表 '%s' 不存在!" % table_name)
         return _FactorTable(name=table_name, fdb=self, sys_args=args, logger=self._QS_Logger)
     def renameTable(self, old_table_name, new_table_name):
         if old_table_name==new_table_name: return 0
-        OldPath = self.MainDir+os.sep+old_table_name
-        NewPath = self.MainDir+os.sep+new_table_name
+        OldPath = self._QSArgs.MainDir+os.sep+old_table_name
+        NewPath = self._QSArgs.MainDir+os.sep+new_table_name
         with self._DataLock:
             if not os.path.isdir(OldPath): raise __QS_Error__("CSVDB.renameTable: 表: '%s' 不存在!" % old_table_name)
             if os.path.isdir(NewPath): raise __QS_Error__("CSVDB.renameTable: 表 '"+new_table_name+"' 已存在!")
             os.rename(OldPath, NewPath)
         return 0
     def deleteTable(self, table_name):
-        TablePath = self.MainDir+os.sep+table_name
+        TablePath = self._QSArgs.MainDir+os.sep+table_name
         with self._DataLock:
             if os.path.isdir(TablePath):
                 shutil.rmtree(TablePath, ignore_errors=True)
         return 0
     def setTableMetaData(self, table_name, key=None, value=None, meta_data=None):
         with self._DataLock:
-            with shelve.open(self.MainDir+os.sep+table_name+os.sep+"_TableInfo") as File:
+            with shelve.open(self._QSArgs.MainDir+os.sep+table_name+os.sep+"_TableInfo") as File:
                 if key is not None:
                     if value is not None:
                         File[key] = value
@@ -187,15 +187,15 @@ class CSVDB(WritableFactorDB):
     # ----------------------------因子操作---------------------------------
     def renameFactor(self, table_name, old_factor_name, new_factor_name):
         if old_factor_name==new_factor_name: return 0
-        OldPath = self.MainDir+os.sep+table_name+os.sep+old_factor_name+"."+self._Suffix
-        NewPath = self.MainDir+os.sep+table_name+os.sep+new_factor_name+"."+self._Suffix
+        OldPath = self._QSArgs.MainDir+os.sep+table_name+os.sep+old_factor_name+"."+self._Suffix
+        NewPath = self._QSArgs.MainDir+os.sep+table_name+os.sep+new_factor_name+"."+self._Suffix
         with self._DataLock:
             if not os.path.isfile(OldPath): raise __QS_Error__("CSVDB.renameFactor: 表 ’%s' 中不存在因子 '%s'!" % (table_name, old_factor_name))
             if os.path.isfile(NewPath): raise __QS_Error__("CSVDB.renameFactor: 表 ’%s' 中的因子 '%s' 已存在!" % (table_name, new_factor_name))
             os.rename(OldPath, NewPath)
         return 0
     def deleteFactor(self, table_name, factor_names):
-        TablePath = self.MainDir+os.sep+table_name
+        TablePath = self._QSArgs.MainDir+os.sep+table_name
         FactorNames = set(listDirFile(TablePath, suffix=self._Suffix))
         with self._DataLock:
             if FactorNames.issubset(set(factor_names)):
@@ -211,10 +211,10 @@ class CSVDB(WritableFactorDB):
     def _writeData(self, data, table_name, file_path, data_type):
         data, data_type = _identifyDataType(data, data_type)
         data = _adjustData(data, data_type)
-        data.to_csv(file_path, sep=",", na_rep="", mode="w", header=True, index=True, encoding=self.Encoding, date_format=None)
+        data.to_csv(file_path, sep=",", na_rep="", mode="w", header=True, index=True, encoding=self._QSArgs.Encoding, date_format=None)
         return 0
     def writeFactorData(self, factor_data, table_name, ifactor_name, if_exists="update", data_type=None, **kwargs):
-        TablePath = self.MainDir+os.sep+table_name
+        TablePath = self._QSArgs.MainDir+os.sep+table_name
         FilePath = TablePath+os.sep+ifactor_name+"."+self._Suffix
         if not os.path.isdir(TablePath):
             with self._DataLock:
