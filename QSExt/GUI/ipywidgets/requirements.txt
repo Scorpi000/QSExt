@@ -1,3 +1,4 @@
 ipywidgets
 ipyevents
 ipytree
+ipyfilechooser

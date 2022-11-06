@@ -14,7 +14,6 @@ from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.Tools.FileFun import listDirFile, loadCSVFactorData
 from QSExt.GUI.ipywidgets.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
 
-# 基于 plotly 绘图的 ResultDlg
 class ResultDlg(__QS_Object__):
     def __init__(self, fdbs, sys_args={}, config_file=None, **kwargs):
         pass

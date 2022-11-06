@@ -11,7 +11,7 @@ from traits.api import Enum, Int, Str, File, Dict
 from QuantStudio import __QS_Error__
 from QSExt import  __QS_LibPath__, __QS_MainPath__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import FactorDB, FactorTable
-from QuantStudio.FactorDataBase.FDBFun import updateInfo, _QS_calcData_WideTable
+from QuantStudio.FactorDataBase.FDBFun import _QS_calcData_WideTable
 
 # 将信息源文件中的表和字段信息导入信息文件
 def _importInfo(info_file, info_resource, logger, out_info=False):
@@ -52,7 +52,37 @@ def _updateInfo(info_file, info_resource, logger, out_info=False):
 
 
 class _AKSTable(FactorTable):
-
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        def __QS_initArgs__(self):
+            super().__QS_initArgs__()
+            ArgInfo = self._Owner._ArgInfo
+            ArgInfo = ArgInfo[ArgInfo["FieldType"]=="QSArg"]
+            for i, iArgName in enumerate(ArgInfo.index):
+                iArgInfo = eval(ArgInfo.loc[iArgName, "ArgInfo"])
+                if iArgInfo["arg_type"]=="SingleOption":
+                    self.add_trait(iArgName, Enum(*iArgInfo["option_range"], arg_type="SingleOption", label=iArgName, order=i+100))
+                else:
+                    raise __QS_Error__(f"无法识别的参数信息: {iArgInfo}")
+                iDataType = ArgInfo.loc[iArgName, "DataType"]
+                iDefaultVal = ArgInfo.loc[iArgName, "DefaultValue"]
+                if iDataType=="str":
+                    self[iArgName] = (str(iDefaultVal) if pd.notnull(iDefaultVal) else "")
+                elif iDataType=="float":
+                    self[iArgName] = float(iDefaultVal)
+                elif iDataType=="int":
+                    self[iArgName] = int(iDefaultVal)
+                else:
+                    self[iArgName] = iDefaultVal
+    
+    def __init__(self, name, fdb, sys_args={}, **kwargs):
+        self._TableInfo = fdb._TableInfo.loc[name]
+        self._FactorInfo = fdb._FactorInfo.loc[name]
+        self._ArgInfo = fdb._ArgInfo.loc[name]
+        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
+    
+    def _getAPIArgs(self, args={}):
+        return {iArgName: args.get(iArgName, self.Args[iArgName]) for iArgName in self._ArgInfo.index[self._ArgInfo["FieldType"]=="QSArg"]}
+        
     def getMetaData(self, key=None, args={}):
         TableInfo = self._FactorDB._TableInfo.loc[self.Name]
         if key is None:
@@ -62,7 +92,7 @@ class _AKSTable(FactorTable):
     
     @property
     def FactorNames(self):
-        FactorInfo = self._FactorDB._FactorInfo.loc[self.Name]
+        FactorInfo = self._FactorInfo
         return FactorInfo[FactorInfo["FieldType"]=="因子"].index.tolist()
     
     def getFactorMetaData(self, factor_names=None, key=None, args={}):
@@ -85,45 +115,31 @@ class _AKSTable(FactorTable):
             return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
 
 
-class _WideTable(_AKSTable):
-    """WideTable"""
+class _DTRangeTable(_AKSTable):
+    """DTRangeTable"""
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
         LookBack = Int(0, arg_type="Integer", label="回溯天数", order=0)
-    
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
-        self._TableInfo = fdb._TableInfo.loc[name]
-        self._FactorInfo = fdb._FactorInfo.loc[name]
-        self._ArgInfo = fdb._ArgInfo.loc[name]
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
-    
-    @property
-    def FactorNames(self):
-        FactorInfo = self._FactorDB._FactorInfo.loc[self.Name]
-        return FactorInfo[FactorInfo["FieldType"]=="因子"].index.tolist()+self._DateFields
     
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         StartDate, EndDate = dts[0].date(), dts[-1].date()
         StartDate -= dt.timedelta(args.get("回溯天数", self._QSArgs.LookBack))
         APIName = self._TableInfo.loc["DBTableName"]
-        APIArgs = {"start_date": StartDate.strftime("%Y%m%d"), "end_date": EndDate.strftime("%Y%m%d")}
-        for iArgName in self._ArgInfo.index[self._ArgInfo["FieldType"]=="QSArg"]:
-            iDataType = self._ArgInfo.loc[iArgName, "DataType"]
-            iArgVal = args.get(iArgName, self._ArgInfo.loc[iArgName, "DefaultValue"])
-            if iDataType=="str":
-                APIArgs[iArgName] = (str(iArgVal) if pd.notnull(iArgVal) else "")
-            elif iDataType=="float":
-                APIArgs[iArgName] = float(iArgVal)
-            elif iDataType=="int":
-                APIArgs[iArgName] = int(iArgVal)
+        ArgInfo = self._ArgInfo
+        StartDTArg = ArgInfo.index[ArgInfo["FieldType"]=="StartDate"][0]
+        EndDTArg = ArgInfo.index[ArgInfo["FieldType"]=="EndDate"][0]
+        IDArg = ArgInfo.index[ArgInfo["FieldType"]=="ID"][0]
+        APIArgs = {StartDTArg: StartDate.strftime("%Y%m%d"), EndDTArg: EndDate.strftime("%Y%m%d")}
+        APIArgs.update(self._getAPIArgs(args=args))
         RawData = []
         for iID in ids:
-            APIArgs["symbol"] = ".".join(iID.split(".")[:-1])
+            APIArgs[IDArg] = ".".join(iID.split(".")[:-1])
             iRawData = getattr(ak, APIName)(**APIArgs)
             iRawData["ID"] = iID
             RawData.append(iRawData)
+        DTField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="Date"][0]
         if RawData:
             RawData = pd.concat(RawData, axis=0, ignore_index=True)
-            RawData = RawData.rename(columns={"日期": "QS_DT"}).reindex(columns=["ID", "QS_DT"]+factor_names)
+            RawData = RawData.rename(columns={DTField: "QS_DT"}).reindex(columns=["ID", "QS_DT"]+factor_names)
             RawData["QS_DT"] = RawData["QS_DT"].apply(lambda d: dt.datetime.strptime(str(d), "%Y-%m-%d") if d else pd.NaT)
             return RawData.sort_values(by=["ID", "QS_DT"])
         else:
@@ -142,6 +158,7 @@ class AKShareDB(FactorDB):
         Name = Str("AKShareDB", arg_type="String", label="名称", order=-100)
         DBInfoFile = File(label="库信息文件", arg_type="File", order=100)
         FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
+    
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"AKShareDBConfig.json" if config_file is None else config_file), **kwargs)
         self._InfoFilePath = __QS_LibPath__+os.sep+"AKShareDBInfo.hdf5"# 数据库信息文件路径
@@ -187,7 +204,8 @@ if __name__=="__main__":
     AKSDB = AKShareDB().connect()
     print(AKSDB.TableNames)
 
-    FT = AKSDB["历史行情数据-东财"]
+    #FT = AKSDB["历史行情数据-东财"]
+    FT = AKSDB.getTable("历史行情数据-东财", args={"adjust": "hfq"})
 
     Data = FT.readData(factor_names=["开盘", "收盘"], ids=["000001.SZ"], 
         dts=[dt.datetime(2022, 10, 28), dt.datetime(2022, 10, 31)])
