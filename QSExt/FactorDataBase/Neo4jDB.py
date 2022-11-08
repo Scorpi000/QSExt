@@ -6,7 +6,7 @@ import concurrent.futures
 
 import numpy as np
 import pandas as pd
-from traits.api import Str, Dict, Enum, ListStr, Bool
+from traits.api import Str, Dict, Enum, ListStr
 
 from QuantStudio import __QS_Error__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB, FactorTable
@@ -129,7 +129,7 @@ class _NarrowTable(FactorTable):
 class _EntityFeatureTable(FactorTable):
     EntityLabels = ListStr(["因子库"], arg_type="List", label="实体标签", order=0)
     IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-    MultiMapping = Bool(False, label="多重映射", arg_type="Bool", order=2)
+    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=2)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField
@@ -206,7 +206,7 @@ class _RelationFeatureTable(FactorTable):
     OppField = Str("Name", arg_type="Dict", label="关联字段", order=4)
     RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
     Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
-    MultiMapping = Bool(False, label="多重映射", arg_type="Bool", order=7)
+    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=7)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField
@@ -326,7 +326,7 @@ class _RelationFeatureOppFactorTable(FactorTable):
     RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
     Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
     RelationField = Str(arg_type="String", label="因子值字段", order=7)
-    MultiMapping = Bool(False, label="多重映射", arg_type="Bool", order=8)
+    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=8)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField

@@ -5,7 +5,7 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
-from traits.api import Enum, Str, Bool, ListStr, Dict
+from traits.api import Enum, Str, ListStr, Dict
 
 from QuantStudio.Tools.SQLDBFun import genSQLInCondition
 from QSExt.Tools.ClickHouseFun import QSClickHouseObject
@@ -65,9 +65,9 @@ class _MappingTable(SQL_MappingTable):
 class ClickHouseDB(QSClickHouseObject, SQLDB):
     """ClickHouseDB"""
     Name = Str("ClickHouseDB", arg_type="String", label="名称", order=-100)
-    DBType = Enum("ClickHouse", arg_type="SingleOption", label="数据库类型", order=0)
-    Connector = Enum("default", "clickhouse-driver", arg_type="SingleOption", label="连接器", order=7)
-    CheckWriteData = Bool(False, arg_type="Bool", label="检查写入值", order=100)
+    DBType = Enum("ClickHouse", arg_type="SingleOption", label="数据库类型", order=0, option_range=["ClickHouse"])
+    Connector = Enum("default", "clickhouse-driver", arg_type="SingleOption", label="连接器", order=7, option_range=["default", "clickhouse-driver"])
+    CheckWriteData = Enum(False, True, arg_type="Bool", label="检查写入值", order=100)
     IgnoreFields = ListStr(arg_type="List", label="忽略字段", order=101)
     InnerPrefix = Str("qs_", arg_type="String", label="内部前缀", order=102)
     FTArgs = Dict(label="因子表参数", arg_type="Dict", order=103)

@@ -60,7 +60,7 @@ class _AKSTable(FactorTable):
             for i, iArgName in enumerate(ArgInfo.index):
                 iArgInfo = eval(ArgInfo.loc[iArgName, "ArgInfo"])
                 if iArgInfo["arg_type"]=="SingleOption":
-                    self.add_trait(iArgName, Enum(*iArgInfo["option_range"], arg_type="SingleOption", label=iArgName, order=i+100))
+                    self.add_trait(iArgName, Enum(*iArgInfo["option_range"], arg_type="SingleOption", label=iArgName, order=i+100, option_range=iArgInfo["option_range"]))
                 else:
                     raise __QS_Error__(f"无法识别的参数信息: {iArgInfo}")
                 iDataType = ArgInfo.loc[iArgName, "DataType"]

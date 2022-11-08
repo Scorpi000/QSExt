@@ -7,7 +7,7 @@ import concurrent.futures
 
 import numpy as np
 import pandas as pd
-from traits.api import Enum, Str, Range, Password, Either, Int, Bool
+from traits.api import Enum, Str, Range, Password, Either, Int
 
 from QuantStudio import __QS_Object__, __QS_Error__
 from QuantStudio.FactorDataBase.FactorOperation import DerivativeFactor
@@ -27,7 +27,7 @@ class QSNeo4jObject(__QS_Object__):
     CSVImportPath = Either(None, Str("file:///"), arg_type="String", label="CSV导入地址", order=6)
     CSVExportPath = Either(None, Str(), arg_type="String", label="CSV导出地址", order=7)
     CSVSep = Str(",", arg_type="String", label="CSV分隔符", order=8)
-    ClearCSV = Bool(False, arg_type="Bool", label="清除CSV", order=9)
+    ClearCSV = Enum(False, True, arg_type="Bool", label="清除CSV", order=9)
     PeriodicSize = Int(-1, arg_type="Integer", label="定期数量", order=10)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         self._Connection = None# 连接对象

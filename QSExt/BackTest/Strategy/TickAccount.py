@@ -4,7 +4,7 @@ import datetime as dt
 
 import pandas as pd
 import numpy as np
-from traits.api import Enum, ListStr, Float, Str, Int, Bool, Instance
+from traits.api import Enum, ListStr
 
 from QuantStudio import __QS_Error__, __QS_Object__
 from QuantStudio.BackTest.Strategy.StrategyModule import Account, cutDateTime
@@ -14,7 +14,7 @@ from QuantStudio.Tools.AuxiliaryFun import getFactorList, searchNameInStrList
 # market_ft: 提供价格数据的因子表, 时间频率任意
 class TickAccount(Account):
     """Tick 账户"""
-    Delay = Bool(True, arg_type="Bool", label="交易延迟", order=2)
+    Delay = Enum(True, False, arg_type="Bool", label="交易延迟", order=2)
     TargetIDs = ListStr(arg_type="IDList", label="目标ID", order=3)
     #Last = Enum(None, arg_type="SingleOption", label="最新价", order=6)
     PriceFillna = Enum(False, True, arg_type="SingleOption", label="价格缺失填充", order=7)

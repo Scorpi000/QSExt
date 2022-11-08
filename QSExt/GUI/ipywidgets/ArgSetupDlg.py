@@ -90,31 +90,38 @@ class ArgSetupDlg(__QS_Object__):
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
                 widget_dict[iArgName].observe(self._on_value_change, names="value")
-            elif iArgType=="SingleOption":# traits: Enum
-                widget_dict[iArgName] = widgets.Dropdown(value=iArgVal, options=iTrait.option_range, disabled=iDisabled)
-                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
-                widget_dict[iArgName]._QSArgName = iArgName
-                widget_dict[iArgName]._QSArgs = args
-                widget_dict[iArgName].observe(self._on_value_change, names="value")
             elif iArgType=="Bool":# traits: Bool
                 widget_dict[iArgName] = widgets.Checkbox(value=iArgVal, indent=False, disabled=iDisabled)
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
-                widget_dict[iArgName].observe(self._on_value_change, names="value")
-            elif iArgType=="MultiOption":# traits: List
-                if iTrait.option_range is None:
-                    widget_dict[iArgName] = widgets.Textarea(value=str(iArgVal), disabled=iDisabled, tooltip="List")
-                    widget_dict[iArgName]._QSValueFun = eval
-                else:
-                    widget_dict[iArgName] = widgets.TagsInput(value=iArgVal, allowed_tags=iTrait.option_range, allow_duplicates=False)
+                widget_dict[iArgName].observe(self._on_value_change, names="value")            
+            elif iArgType=="SingleOption":# traits: Enum
+                widget_dict[iArgName] = widgets.Dropdown(value=iArgVal, options=[(str(iOption), iOption) for iOption in iTrait.option_range], disabled=iDisabled)
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
                 widget_dict[iArgName].observe(self._on_value_change, names="value")
+            elif iArgType=="MultiOption":# traits: List
+                widget_dict[iArgName] = widgets.SelectMultiple(value=iArgVal, options=[(str(iOption), iOption) for iOption in iTrait.option_range], disabled=iDisabled)
+                widget_dict[iArgName]._QSValueFun = list
+                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
+                widget_dict[iArgName]._QSArgName = iArgName
+                widget_dict[iArgName]._QSArgs = args
+                widget_dict[iArgName].observe(self._on_value_change, names="value")
+            elif iArgType=="File":# traits: File
+                if os.path.isfile(iArgVal):
+                    iDir, iFile = os.path.split(os.path.abspath(iArgVal))
+                else:
+                    iDir, iFile = os.getcwd(), ""
+                widget_dict[iArgName] = FileChooser(path=iDir, filename=iFile, filter_pattern=iTrait.filter, show_only_dirs=False, select_default=os.path.isfile(iArgVal))
+                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
+                widget_dict[iArgName]._QSArgName = iArgName
+                widget_dict[iArgName]._QSArgs = args
+                widget_dict[iArgName].register_callback(lambda w: self._on_value_change({"owner": w, "new": w.value, "old": w._QSArgs[w._QSArgName], "type": "change", "name": "value"}))
             elif iArgType=="Directory":# traits: Directory
                 Dir = (os.path.abspath(iArgVal) if os.path.isdir(iArgVal) else os.getcwd())
-                widget_dict[iArgName] = FileChooser(path=Dir, show_only_dirs=True, select_default=True)
+                widget_dict[iArgName] = FileChooser(path=Dir, show_only_dirs=True, select_default=os.path.isdir(iArgVal))
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args

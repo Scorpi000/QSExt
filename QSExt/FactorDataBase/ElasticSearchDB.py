@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from elasticsearch import Elasticsearch, helpers, client
 from elasticsearch.exceptions import ConnectionTimeout
-from traits.api import Enum, Str, Float, ListStr, List, Dict, Bool
+from traits.api import Enum, Str, Float, ListStr, List, Dict
 
 from QuantStudio import __QS_Error__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB, FactorTable
@@ -60,8 +60,8 @@ def _adjustData(data, look_back, factor_names, ids, dts):
 
 class _WideTable(FactorTable):
     """ElasticSearchDB 宽因子表"""
-    TableType = Enum("WideTable", arg_type="SingleOption", label="因子表类型", order=0)
-    PreFilterID = Bool(True, arg_type="Bool", label="预筛选ID", order=1)
+    TableType = Enum("WideTable", arg_type="SingleOption", label="因子表类型", order=0, mutable=False, option_range=["WideTable"])
+    PreFilterID = Enum(True, False, arg_type="Bool", label="预筛选ID", order=1)
     FilterCondition = List([], arg_type="List", label="筛选条件", order=2)
     #DTField = Enum("datetime", arg_type="SingleOption", label="时点字段", order=3)
     #IDField = Enum("code", arg_type="SingleOption", label="ID字段", order=4)
@@ -75,8 +75,8 @@ class _WideTable(FactorTable):
     def __QS_initArgs__(self):
         super().__QS_initArgs__()
         Fields = self._FactorInfo.index.tolist()
-        self.add_trait("DTField", Enum(*Fields, arg_type="SingleOption", label="时点字段", order=3))
-        self.add_trait("IDField", Enum(*Fields, arg_type="SingleOption", label="ID字段", order=4))
+        self.add_trait("DTField", Enum(*Fields, arg_type="SingleOption", label="时点字段", order=3, option_range=Fields))
+        self.add_trait("IDField", Enum(*Fields, arg_type="SingleOption", label="ID字段", order=4, option_range=Fields))
     @property
     def FactorNames(self):
         return sorted(self._FactorInfo.index)
@@ -214,13 +214,13 @@ class ElasticSearchDB(WritableFactorDB):
     """ElasticSearchDB"""
     Name = Str("ElasticSearchDB", arg_type="String", label="名称", order=-100)
     ConnectArgs = Dict(arg_type="Dict", label="连接参数", order=0)
-    Connector = Enum("default", "elasticsearch", arg_type="SingleOption", label="连接器", order=1)
-    IgnoreFields = ListStr([], arg_type="List", label="忽略字段", order=2)
+    Connector = Enum("default", "elasticsearch", arg_type="SingleOption", label="连接器", order=1, option_range=["default", "elasticsearch"])
+    IgnoreFields = ListStr([], arg_type="ListStr", label="忽略字段", order=2)
     InnerPrefix = Str("qs_", arg_type="String", label="内部前缀", order=3)
     FTArgs = Dict(label="因子表参数", arg_type="Dict", order=4)
     DTField = Str("datetime", arg_type="String", label="时点字段", order=5)
     IDField = Str("code", arg_type="String", label="ID字段", order=6)
-    #SQLClient = Bool(False, arg_type="Bool", label="SQL接口", order=7)
+    #SQLClient = Enum(False, True, arg_type="Bool", label="SQL接口", order=7)
     SearchRetryNum = Float(10, label="查询重试次数", arg_type="Float", order=8)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"ElasticSearchDBConfig.json" if config_file is None else config_file), **kwargs)

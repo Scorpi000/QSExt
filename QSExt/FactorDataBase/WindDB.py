@@ -6,7 +6,7 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
-from traits.api import Enum, Int, Str, Range, Password, Bool
+from traits.api import Enum, Int, Str, Range, Password
 
 from QuantStudio.Tools.SQLDBFun import genSQLInCondition
 from QuantStudio.Tools.DateTimeFun import getDateSeries, getDateTimeSeries
@@ -47,7 +47,7 @@ class _DBTable(FactorTable):
 
 class _MarketTable(_DBTable):
     """行情因子表"""
-    FillNa = Bool(True, arg_type="Bool", label="缺失填充", order=0)
+    FillNa = Enum(True, False, arg_type="Bool", label="缺失填充", order=0)
     LookBack = Int(0, arg_type="Integer", label="回溯天数", order=1)
     def getID(self, ifactor_name=None, idt=None, args={}):
         DBTableName = self._FactorDB.TablePrefix + self._FactorDB._TableInfo.loc[self.Name, "DBTableName"]
