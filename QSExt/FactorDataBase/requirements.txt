@@ -12,3 +12,5 @@ neo4j
 arctic
 # AKShareDB
 akshare
+# MongoDB
+pymongo>=3.4.0
