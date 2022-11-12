@@ -7,8 +7,8 @@ import pandas as pd
 from PyQt5.QtCore import pyqtSlot, QModelIndex
 from PyQt5.QtWidgets import QDialog, QTreeWidgetItem, QMessageBox, QInputDialog, QFileDialog
 
-from QuantStudio.Tools.QtGUI.Ui_RiskDBDlg import Ui_RiskDBDlg
-from QuantStudio.Tools.QtGUI.PreviewRiskDataDlg import PreviewRiskDataDlg
+from QSExt.GUI.QtGUI.Ui_RiskDBDlg import Ui_RiskDBDlg
+from QSExt.GUI.QtGUI.PreviewRiskDataDlg import PreviewRiskDataDlg
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 
 class RiskDBDlg(QDialog, Ui_RiskDBDlg):

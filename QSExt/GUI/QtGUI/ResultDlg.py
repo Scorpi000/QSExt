@@ -20,15 +20,15 @@ import matplotlib.cm
 import seaborn as sns
 #sns.set()
 import plotly
-from traits.api import File, Enum, List
+from traits.api import File, Enum
 
 from QuantStudio import __QS_MainPath__, __QS_Error__, __QS_Object__
 from QuantStudio.Tools.FileFun import writeDictSeries2CSV, exportOutput2CSV, readCSV2StdDF
 from QuantStudio.Tools.DataTypeFun import getNestedDictItems, getNestedDictValue, removeNestedDictItem, swapaxesNestedDictDataFrame, setNestedDictValue
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName, joinList
 from QuantStudio.Tools import StrategyTestFun
-from QuantStudio.Tools.QtGUI.QtGUIFun import populateTableWithDataFrame, populateQTreeWidgetWithNestedDict
-from QuantStudio.Tools.QtGUI.Ui_ResultDlg import Ui_ResultDlg
+from QSExt.GUI.QtGUI.QtGUIFun import populateTableWithDataFrame, populateQTreeWidgetWithNestedDict
+from QSExt.GUI.QtGUI.Ui_ResultDlg import Ui_ResultDlg
 
 # 展示的数据类型 output: 嵌套的字典, 叶节点是 DataFrame
 

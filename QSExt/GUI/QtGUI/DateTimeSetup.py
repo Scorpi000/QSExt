@@ -7,8 +7,8 @@ import pandas as pd
 from PyQt5.QtCore import pyqtSlot, Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog, QFileDialog, QAction, QMenu
-from QuantStudio.Tools.QtGUI.Ui_DateTimeSetup import Ui_Dialog
 
+from QSExt.GUI.QtGUI.Ui_DateTimeSetup import Ui_Dialog
 from QuantStudio.FactorDataBase.FactorDB import FactorTable
 from QuantStudio.Tools import DateTimeFun
 from QuantStudio.Tools.FileFun import readCSV2Pandas

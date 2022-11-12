@@ -7,9 +7,9 @@ import pandas as pd
 from PyQt5.QtCore import pyqtSlot, Qt
 from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog, QFileDialog, QAction, QMenu
-from QuantStudio.Tools.QtGUI.Ui_IDSetup import Ui_IDSetupDlg
 
-from QuantStudio.Tools.QtGUI.DateTimeSetup import mergeSet
+from QSExt.GUI.QtGUI.Ui_IDSetup import Ui_IDSetupDlg
+from QSExt.GUI.QtGUI.DateTimeSetup import mergeSet
 from QuantStudio.FactorDataBase.FactorDB import FactorTable
 from QuantStudio.Tools.FileFun import readCSV2Pandas
 from QuantStudio.Tools.IDFun import suffixAShareID

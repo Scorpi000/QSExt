@@ -7,9 +7,9 @@ import pandas as pd
 from PyQt5.QtCore import pyqtSlot, QModelIndex
 from PyQt5.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QFileDialog
 
-from QuantStudio.Tools.QtGUI.Ui_PreviewFactorDlg import Ui_PreviewDlg
-from QuantStudio.Tools.QtGUI.DateTimeSetup import DateTimeSetupDlg
-from QuantStudio.Tools.QtGUI.IDSetup import IDSetupDlg
+from QSExt.GUI.QtGUI.Ui_PreviewFactorDlg import Ui_PreviewDlg
+from QSExt.GUI.QtGUI.DateTimeSetup import DateTimeSetupDlg
+from QSExt.GUI.QtGUI.IDSetup import IDSetupDlg
 
 class PreviewDlg(QDialog, Ui_PreviewDlg):
     def __init__(self, factor, parent=None):

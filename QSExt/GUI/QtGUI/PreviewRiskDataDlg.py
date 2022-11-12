@@ -6,7 +6,7 @@ import pandas as pd
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import QDialog, QMessageBox, QTableWidgetItem, QFileDialog, QAction
 
-from QuantStudio.Tools.QtGUI.Ui_PreviewRiskDataDlg import Ui_Dialog
+from QSExt.GUI.QtGUI.Ui_PreviewRiskDataDlg import Ui_Dialog
 from QuantStudio.RiskDataBase.RiskDB import FactorRT
 
 

@@ -45,7 +45,7 @@ class FactorDBDlg(__QS_Object__):
             "IDNum": widgets.IntText(description="证券数量", disabled=False, value=10),
             "TargetTable": widgets.Combobox(placeholder="请输入目标表", options=iTableNames, description="上传目标表", ensure_option=True, disabled=False, value=genAvailableName("NewTable", iTableNames)),
             "TargetFactor": widgets.Combobox(placeholder="请输入目标因子", options=[], description="上传目标因子", ensure_option=True, disabled=False, value="NewFactor"),
-            "Output": widgets.Output(layout={"overflow_x": "scroll"}),
+            "Output": widgets.Output(layout={"width": "800px", "overflow_x": "scroll"}),
             "FDBOutput": widgets.Output(),
             "ControlOutput": widgets.Output(),
         }
@@ -81,19 +81,18 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["FDBList"].observe(self.selectFDB, names="value")
         self.Widgets["TableList"].observe(self.selectTable, names="value")
         self.Widgets["Update"].click()
+    
     def frame(self):
         return self.Widgets["Frame"]
+    
     def selectFDB(self, change):
         iWidgets = self.Widgets
         iFDBName = change["new"]
         iFDB = self.FDBs[iFDBName]
         iFDB.connect()
         iTableNames = iFDB.TableNames
-        iFactorNames = iFDB.getTable(iTableNames[0]).FactorNames
         iWidgets["TableList"].options = iTableNames
-        iWidgets["TableList"].value = iTableNames[0]
-        iWidgets["FactorList"].options = iFactorNames
-        iWidgets["FactorList"].value = []
+        iWidgets["TableList"].value = (None if not iTableNames else iTableNames[0])
         iWidgets["TargetTable"].options = iTableNames
         iWidgets["TargetTable"].value = genAvailableName("NewTable", iTableNames)
         iWidgets["TargetFactor"].options = []
@@ -110,8 +109,12 @@ class FactorDBDlg(__QS_Object__):
         iWidgets = self.Widgets
         FDB = self.FDBs[iWidgets["FDBList"].value]
         iTableName = change["new"]
-        iWidgets["FactorList"].options = FDB.getTable(iTableName).FactorNames
-        iWidgets["FactorList"].value = []
+        if not iTableName:
+            iWidgets["FactorList"].options = FDB.getTable(iTableName).FactorNames
+            iWidgets["FactorList"].value = []
+        else:
+            iWidgets["FactorList"].options = []
+            iWidgets["FactorList"].value = []
     
     def getSelectedTableFactor(self):
         iWidgets = self.Widgets
@@ -157,14 +160,9 @@ class FactorDBDlg(__QS_Object__):
         iWidgets = self.Widgets
         FDB = self.FDBs[iWidgets["FDBList"].value]
         FDB.connect()
-        
         iTableNames = FDB.TableNames
         iWidgets["TableList"].options = iTableNames
-        if iTableNames:
-            iWidgets["TableList"].value = iTableNames[0]
-            iFactorNames = FDB.getTable(iTableNames[0]).FactorNames
-            iWidgets["FactorList"].options = iFactorNames
-            iWidgets["FactorList"].value = []
+        iWidgets["TableList"].value = (iTableNames[0] if iTableNames else None)
     
     def preview(self, b):
         iWidgets = self.Widgets
@@ -199,7 +197,10 @@ class FactorDBDlg(__QS_Object__):
         Data = self.readData(iIDNum, iStartDT, iEndDT)
         with iWidgets["Output"]:
             iWidgets["Output"].clear_output()
-            display(HTML(createDataFrameDownload(Data, name="FactorDataDownload")))
+            if Data is None:
+                print("请选择要预览的因子!")
+            else:
+                display(HTML(createDataFrameDownload(Data, name="FactorDataDownload")))
     
     def upload(self, f):
         iWidgets = self.Widgets
