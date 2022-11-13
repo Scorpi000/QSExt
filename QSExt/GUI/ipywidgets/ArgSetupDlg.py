@@ -48,9 +48,6 @@ class FloatWithInfWidget:
         self.Widgets["Finite"].disabled = (change["new"]!="有限值")
         self.Widgets["Finite"].layout.visibility = ("hidden" if self.Widgets["Finite"].disabled else "visible")
     
-    def frame(self):
-        return self.Frame
-    
     @property
     def value(self):
         if "Condition" not in self.Widgets:
@@ -64,10 +61,9 @@ class FloatWithInfWidget:
             return np.inf
 
 class ArgSetupDlg(__QS_Object__):
-    def __init__(self, args: QSArgs, output=None, msg_output=None, sys_args={}, config_file=None, **kwargs):
+    def __init__(self, args: QSArgs, msg_output=None, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
         self._Args = args
-        self._Output = output# 显示控件的 output
         self._MsgOutput = msg_output# 显示消息的 output
         self.Frame, self.Widgets = self.createArgWidgets(self._Args, {})
     
@@ -131,7 +127,7 @@ class ArgSetupDlg(__QS_Object__):
                 Step = (0.0001 if iTrait.single_step is None else iTrait.single_step)
                 Decimals = (4 if iTrait.decimals is None else iTrait.decimals)
                 widget_dict[iArgName] = FloatWithInfWidget(iArgVal, min_val=MinVal, max_val=MaxVal, step=Step, decimals=Decimals, disabled=iDisabled)
-                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName].frame()]))
+                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName].Frame]))
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
                 widget_dict[iArgName].on_value_change(self._on_value_change)
@@ -157,11 +153,7 @@ class ArgSetupDlg(__QS_Object__):
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
         return widgets.VBox(children=Frame), widget_dict
     
-    def frame(self):
-        return self.Frame
-
     def display(self, output=None):
-        if not output: output = self._Output
         if output:
             with output:
                 output.clear_output()

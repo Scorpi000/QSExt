@@ -6,7 +6,7 @@ import datetime as dt
 
 import pandas as pd
 import ipywidgets as widgets
-from IPython.display import display, HTML
+from IPython.display import display, HTML, clear_output
 
 from QuantStudio import __QS_Object__
 from QuantStudio.RiskDataBase.RiskDB import FactorRDB
@@ -54,7 +54,7 @@ class RiskDBDlg(__QS_Object__):
 
         }
         
-        self.Widgets["Frame"] = widgets.HBox(children=[
+        self.Frame = widgets.HBox(children=[
             self.Widgets["RDBOutput"], 
             widgets.VBox(children=[
                 self.Widgets["ControlOutput"], 
@@ -94,8 +94,14 @@ class RiskDBDlg(__QS_Object__):
         self.Widgets["TableList"].observe(self.selectTable, names="value")
         self.Widgets["Update"].click()
     
-    def frame(self):
-        return self.Widgets["Frame"]
+    def display(self, output=None):
+        if output:
+            with output:
+                output.clear_output()
+                display(self.Frame)
+        else:
+            clear_output()
+            display(self.Frame)
     
     def selectRDB(self, change):
         iWidgets = self.Widgets

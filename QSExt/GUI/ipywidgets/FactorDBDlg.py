@@ -6,7 +6,7 @@ import datetime as dt
 
 import pandas as pd
 import ipywidgets as widgets
-from IPython.display import display, HTML
+from IPython.display import display, HTML, clear_output
 
 from QuantStudio import __QS_Object__
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB
@@ -50,7 +50,7 @@ class FactorDBDlg(__QS_Object__):
             "ControlOutput": widgets.Output(),
         }
         
-        self.Widgets["Frame"] = widgets.HBox(children=[self.Widgets["FDBOutput"], widgets.VBox(children=[self.Widgets["ControlOutput"], self.Widgets["Output"]])])
+        self.Frame = widgets.HBox(children=[self.Widgets["FDBOutput"], widgets.VBox(children=[self.Widgets["ControlOutput"], self.Widgets["Output"]])])
         self.Widgets["FDBFrame"] = widgets.VBox(children=[
             widgets.Label(value="因子库"),
             self.Widgets["FDBList"],
@@ -82,8 +82,14 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["TableList"].observe(self.selectTable, names="value")
         self.Widgets["Update"].click()
     
-    def frame(self):
-        return self.Widgets["Frame"]
+    def display(self, output=None):
+        if output:
+            with output:
+                output.clear_output()
+                display(self.Frame)
+        else:
+            clear_output()
+            display(self.Frame)
     
     def selectFDB(self, change):
         iWidgets = self.Widgets
