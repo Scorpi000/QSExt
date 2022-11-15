@@ -8,7 +8,7 @@ import ipywidgets as widgets
 from ipyfilechooser import FileChooser
 from IPython.display import display, clear_output
 
-from QuantStudio import __QS_Object__, QSArgs, __QS_Error__
+from QuantStudio import __QS_Object__, QSArgs
 
 # 支持无穷大的 Float 控件
 class FloatWithInfWidget:

@@ -12,6 +12,8 @@ from QuantStudio import __QS_Error__
 from QSExt import  __QS_LibPath__, __QS_MainPath__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import FactorDB, FactorTable
 from QuantStudio.FactorDataBase.FDBFun import _QS_calcData_WideTable
+from QuantStudio.Tools.IDFun import suffixAShareID
+from QuantStudio.Tools.DateTimeFun import getDateTimeSeries
 
 # 将信息源文件中的表和字段信息导入信息文件
 def _importInfo(info_file, info_resource, logger, out_info=False):
@@ -115,6 +117,44 @@ class _AKSTable(FactorTable):
             return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
 
 
+class _DTTable(_AKSTable):
+    """DTTable"""
+    class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
+        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=0)
+    
+    def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
+        StartDT = dts[0] - dt.timedelta(args.get("回溯天数", self._QSArgs.LookBack))
+        DTs = getDateTimeSeries(StartDT, dts[0]) + dts[1:]
+        APIName = self._TableInfo.loc["DBTableName"]
+        ArgInfo = self._ArgInfo
+        DTArg = ArgInfo.index[ArgInfo["FieldType"]=="Date"][0]
+        APIArgs = {DTArg: None}
+        APIArgs.update(self._getAPIArgs(args=args))
+        RawData = []
+        for iDT in DTs:
+            APIArgs[DTArg] = iDT.strftime("%Y%m%d")
+            try:
+                iRawData = getattr(ak, APIName)(**APIArgs)
+            except:
+                continue
+            iRawData["QS_DT"] = iDT
+            RawData.append(iRawData)
+        IDField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="ID"][0]
+        if RawData:
+            RawData = pd.concat(RawData, axis=0, ignore_index=True)
+            RawData = RawData.rename(columns={IDField: "ID"}).reindex(columns=["ID", "QS_DT"]+factor_names)
+            RawData["ID"] = RawData["ID"].apply(suffixAShareID)
+            return RawData.sort_values(by=["ID", "QS_DT"])
+        else:
+            return pd.DataFrame(columns=["ID", "QS_DT"]+factor_names)
+    
+    def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
+        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType", args=args)
+        Args = self.Args.to_dict()
+        Args.update(args)
+        ErrorFmt = {"DuplicatedIndex":  "%s 的表 %s 无法保证唯一性 : {Error}, 可以尝试将 '多重映射' 参数取值调整为 True" % (self._FactorDB.Name, self.Name)}
+        return _QS_calcData_WideTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
+
 class _DTRangeTable(_AKSTable):
     """DTRangeTable"""
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
@@ -133,7 +173,10 @@ class _DTRangeTable(_AKSTable):
         RawData = []
         for iID in ids:
             APIArgs[IDArg] = ".".join(iID.split(".")[:-1])
-            iRawData = getattr(ak, APIName)(**APIArgs)
+            try:
+                iRawData = getattr(ak, APIName)(**APIArgs)
+            except:
+                continue
             iRawData["ID"] = iID
             RawData.append(iRawData)
         DTField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="Date"][0]
@@ -151,6 +194,7 @@ class _DTRangeTable(_AKSTable):
         Args.update(args)
         ErrorFmt = {"DuplicatedIndex":  "%s 的表 %s 无法保证唯一性 : {Error}, 可以尝试将 '多重映射' 参数取值调整为 True" % (self._FactorDB.Name, self.Name)}
         return _QS_calcData_WideTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
+
 
 class AKShareDB(FactorDB):
     """AKShareDB"""
@@ -191,23 +235,58 @@ class AKShareDB(FactorDB):
         raise __QS_Error__(Msg)
     # 给定起始日期和结束日期, 获取交易所交易日期
     def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
-        raise NotImplemented
+        DTs = ak.tool_trade_date_hist_sina().iloc[:, 0]
+        if start_date: DTs = DTs[DTs>=(start_date if isinstance(start_date, dt.date) else start_date.date())]
+        if end_date: DTs = DTs[DTs<=(end_date if isinstance(end_date, dt.date) else end_date.date())]
+        if kwargs.get("output_type", "datetime")=="date":
+            return DTs.tolist()
+        else:
+            return [dt.datetime.combine(iDT, dt.time(0)) for iDT in DTs]
     # 获取指定日 date 的股票 ID
     # exchange: 交易所(str)或者交易所列表(list(str))
     # date: 指定日, 默认值 None 表示今天
     # is_current: False 表示上市日期在指定日之前的股票, True 表示上市日期在指定日之前且尚未退市的股票
     # start_date: 起始日, 如果非 None, is_current=False 表示提取在 start_date 至 date 之间上市过的股票 ID, is_current=True 表示提取在 start_date 至 date 之间均保持上市的股票
     def getStockID(self, exchange=("SSE", "SZSE", "BSE"), date=None, is_current=True, start_date=None, **kwargs):
-        raise NotImplemented
+        if is_current:
+            Msg = f"暂不支持 is_current={is_current}"
+            self._QS_Logger.error(Msg)
+            raise __QS_Error__(Msg)
+        if date:
+            Msg = f"暂不支持 date={date}, 只能为 None"
+            self._QS_Logger.error(Msg)
+            raise __QS_Error__(Msg)
+        if start_date:
+            Msg = f"暂不支持 start_date={start_date}, 只能为 None"
+            self._QS_Logger.error(Msg)
+            raise __QS_Error__(Msg)
+        if set(exchange)=={"SSE", "SZSE", "BSE"}:
+            IDs = sorted(suffixAShareID(ak.stock_zh_a_spot_em()["代码"]))
+            return IDs
+        IDs = []
+        if "SSE" in exchange:
+            IDs = ak.stock_sh_a_spot_em()["代码"].tolist()
+        if "SZSE" in exchange:
+            IDs += ak.stock_sz_a_spot_em()["代码"].tolist()
+        if "BSE" in exchange:
+            IDs += ak.stock_bj_a_spot_em()["代码"].tolist()
+        IDs = sorted(suffixAShareID(IDs))
+        return IDs
+
+
 
 if __name__=="__main__":
     AKSDB = AKShareDB().connect()
     print(AKSDB.TableNames)
-
+    
+    #DTs = AKSDB.getTradeDay()
+    IDs = AKSDB.getStockID(is_current=False)    
+    
     #FT = AKSDB["历史行情数据-东财"]
-    FT = AKSDB.getTable("历史行情数据-东财", args={"adjust": "hfq"})
+    #FT = AKSDB.getTable("历史行情数据-东财", args={"adjust": "hfq"})
+    FT = AKSDB.getTable("两市停复牌")
 
-    Data = FT.readData(factor_names=["开盘", "收盘"], ids=["000001.SZ"], 
+    Data = FT.readData(factor_names=["停牌时间", "停牌原因"], ids=IDs, 
         dts=[dt.datetime(2022, 10, 28), dt.datetime(2022, 10, 31)])
     print(Data)
     

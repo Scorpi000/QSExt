@@ -504,7 +504,7 @@ class TinySoftDB(FactorDB):
         CodeStr = CodeStr.format(StartDate=start_date.strftime("%Y%m%d"), EndDate=end_date.strftime("%Y%m%d"))
         ErrorCode, Data, Msg = self._TSLPy.RemoteExecute(CodeStr,{})
         if ErrorCode!=0: raise __QS_Error__("TinySoft 执行错误: "+Msg.decode("gbk"))
-        if kwargs.get("output_type", "date")=="date":
+        if kwargs.get("output_type", "datetime")=="date":
             return list(map(lambda x: dt.date(*self._TSLPy.DecodeDate(x)), Data))
         else:
             return list(map(lambda x: dt.datetime(*self._TSLPy.DecodeDate(x)), Data))
