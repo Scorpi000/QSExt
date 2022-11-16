@@ -265,7 +265,7 @@ class RiskDBDlg(__QS_Object__):
         iWidgets = self.Widgets
         if not iWidgets["GetTextDlg"]["Showed"]:
             return showGetTextDlg(iWidgets["GetTextDlg"], parent=iWidgets["ControlFrame"], output_widget=iWidgets["ControlOutput"], ok_callback=lambda b: self.renameTable(itable), desc="请输入新表名: ", default_value=itable)
-        NewTableName = iWidgets["GetTextDlg"]["Text"].value
+        NewTableName = iWidgets["GetTextDlg"]["MainWidget"].value
         if NewTableName==itable: return
         RDB = self.RDBs[iWidgets["RDBList"].value]
         RDB.connect()

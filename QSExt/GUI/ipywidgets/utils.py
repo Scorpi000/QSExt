@@ -55,12 +55,12 @@ def showQuestionDlg(dlg, parent=None, output_widget=None, ok_callback=None, canc
         for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
             dlg["OkButton"].on_click(iCallback, remove=True)
         dlg["OkButton"].on_click(ok_callback)
-    if parent: dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     if cancel_callback:
         for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
             dlg["CancelButton"].on_click(iCallback, remove=True)
         dlg["CancelButton"].on_click(cancel_callback)
-    if parent: dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     if output_widget:
         with output_widget:
             output_widget.clear_output()
@@ -69,31 +69,61 @@ def showQuestionDlg(dlg, parent=None, output_widget=None, ok_callback=None, canc
 def createGetTextDlg(desc="", default_value="", ok_text="确定", cancel_text="取消"):
     Dlg = {
         "Showed": False,
-        "Text": widgets.Text(value=default_value, description=desc, disabled=False),
+        "MainWidget": widgets.Text(value=default_value, description=desc, disabled=False),
         "OkButton": widgets.Button(description=ok_text),
         "CancelButton": widgets.Button(description=cancel_text),
     }
     Dlg["Frame"] = widgets.VBox(children=[
-        Dlg["Text"],
+        Dlg["MainWidget"],
         widgets.HBox(children=[Dlg["OkButton"], Dlg["CancelButton"]])
     ])
     return Dlg
 
 def showGetTextDlg(dlg, parent=None, output_widget=None, ok_callback=None, cancel_callback=None, desc=None, default_value=None):
     if desc is not None:
-        dlg["Text"].description = desc
+        dlg["MainWidget"].description = desc
     if default_value is not None:
-        dlg["Text"].value = default_value
+        dlg["MainWidget"].value = default_value
     if ok_callback:
         for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
             dlg["OkButton"].on_click(iCallback, remove=True)
         dlg["OkButton"].on_click(ok_callback)
-    if parent: dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     if cancel_callback:
         for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
             dlg["CancelButton"].on_click(iCallback, remove=True)
         dlg["CancelButton"].on_click(cancel_callback)
-    if parent: dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    return showDlg(dlg, output_widget=output_widget)
+
+def createGetIntDlg(desc="", default_value=0, ok_text="确定", cancel_text="取消"):
+    Dlg = {
+        "Showed": False,
+        "MainWidget": widgets.IntText(value=default_value, description=desc, disabled=False),
+        "OkButton": widgets.Button(description=ok_text),
+        "CancelButton": widgets.Button(description=cancel_text),
+    }
+    Dlg["Frame"] = widgets.VBox(children=[
+        Dlg["MainWidget"],
+        widgets.HBox(children=[Dlg["OkButton"], Dlg["CancelButton"]])
+    ])
+    return Dlg
+
+def showGetIntDlg(dlg, parent=None, output_widget=None, ok_callback=None, cancel_callback=None, desc=None, default_value=None):
+    if desc is not None:
+        dlg["MainWidget"].description = desc
+    if default_value is not None:
+        dlg["MainWidget"].value = default_value
+    if ok_callback:
+        for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
+            dlg["OkButton"].on_click(iCallback, remove=True)
+        dlg["OkButton"].on_click(ok_callback)
+    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    if cancel_callback:
+        for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
+            dlg["CancelButton"].on_click(iCallback, remove=True)
+        dlg["CancelButton"].on_click(cancel_callback)
+    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     return showDlg(dlg, output_widget=output_widget)
 
 def createGetItemDlg(desc="", options=(), default_value=None, ok_text="确定", cancel_text="取消"):
@@ -120,42 +150,42 @@ def showGetItemDlg(dlg, parent=None, output_widget=None, ok_callback=None, cance
         for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
             dlg["OkButton"].on_click(iCallback, remove=True)
         dlg["OkButton"].on_click(ok_callback)
-    if parent: dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     if cancel_callback:
         for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
             dlg["CancelButton"].on_click(iCallback, remove=True)
         dlg["CancelButton"].on_click(cancel_callback)
-    if parent: dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     return showDlg(dlg, output_widget=output_widget)
 
 def createGetArgsDlg(qsargs, ok_text="确定", cancel_text="取消"):
     Dlg = {
         "Showed": False,
-        "ArgSetupDlg": ArgSetupDlg(qsargs),
+        "MainWidget": ArgSetupDlg(qsargs),
         "OkButton": widgets.Button(description=ok_text),
         "CancelButton": widgets.Button(description=cancel_text),
     }
     Dlg["Frame"] = widgets.VBox(children=[
-        Dlg["ArgSetupDlg"].Frame,
+        Dlg["MainWidget"].Frame,
         widgets.HBox(children=[Dlg["OkButton"], Dlg["CancelButton"]])
     ])
     return Dlg
 
 def showGetArgsDlg(dlg, parent=None, output_widget=None, ok_callback=None, cancel_callback=None, qsargs=None):
     if qsargs is not None:
-        dlg["ArgSetupDlg"] = ArgSetupDlg(qsargs)
+        dlg["MainWidget"] = ArgSetupDlg(qsargs)
         dlg["Frame"] = widgets.VBox(children=[
-            dlg["ArgSetupDlg"].Frame,
+            dlg["MainWidget"].Frame,
             widgets.HBox(children=[dlg["OkButton"], dlg["CancelButton"]])
         ])
     if ok_callback:
         for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
             dlg["OkButton"].on_click(iCallback, remove=True)
         dlg["OkButton"].on_click(ok_callback)
-    if parent: dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     if cancel_callback:
         for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
             dlg["CancelButton"].on_click(iCallback, remove=True)
         dlg["CancelButton"].on_click(cancel_callback)
-    if parent: dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
+    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
     return showDlg(dlg, output_widget=output_widget)

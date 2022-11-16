@@ -67,6 +67,10 @@ class ArgSetupDlg(__QS_Object__):
         self._MsgOutput = msg_output# 显示消息的 output
         self.Frame, self.Widgets = self.createArgWidgets(self._Args, {})
     
+    @property
+    def Args(self):
+        return self._Args
+    
     def createArgWidgets(self, args: QSArgs, widget_dict={}):
         Frame = []
         for iArgName in args.ArgNames:
