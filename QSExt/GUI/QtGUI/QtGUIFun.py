@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-import sys
-
-from PyQt5 import QtCore, QtGui, QtWidgets
-
-App = QtWidgets.QApplication(sys.argv)
+from PyQt5 import QtCore, QtWidgets
 
 # 用 DataFrame 填充 QTableWidget, 数据形式
 def populateTableWithDataFrame(table_widget, df):
@@ -36,48 +32,3 @@ def populateQTreeWidgetWithNestedDict(tree_widget, nested_dict):
             populateQTreeWidgetWithNestedDict(iParent, iValue)
     return 0
 
-# 以 GUI 的方式查看数据集
-def showOutput(output, plot_engine="matplotlib"):
-    from QuantStudio.Tools.QtGUI.ResultDlg import PlotlyResultDlg, MatplotlibResultDlg
-    if plot_engine=="plotly": Dlg = PlotlyResultDlg(None, output)
-    elif plot_engine=="matplotlib": Dlg = MatplotlibResultDlg(None, output)
-    Dlg.show()
-    App.exec_()
-    return 0
-# 以 GUI 的方式查看因子库
-def showFactorDB(fdb):
-    from QuantStudio.Tools.QtGUI.FactorDBDlg import FactorDBDlg
-    Dlg = FactorDBDlg(fdb)
-    Dlg.show()
-    App.exec_()
-    return 0
-# 以 GUI 的方式查看因子
-def showFactor(factor):
-    from QuantStudio.Tools.QtGUI.PreviewFactorDlg import PreviewDlg
-    Dlg = PreviewDlg(factor)
-    Dlg.show()
-    App.exec_()
-    return 0
-# 以 GUI 的方式查看风险库
-def showRiskDB(rdb):
-    from QuantStudio.Tools.QtGUI.RiskDBDlg import RiskDBDlg
-    Dlg = RiskDBDlg(rdb)
-    Dlg.show()
-    App.exec_()
-    return 0
-# 以 GUI 的方式设置日期时间
-def setDateTime(dts=[], dates=[], times=[], ft=None):
-    from QuantStudio.Tools.QtGUI.DateTimeSetup import DateTimeSetupDlg
-    Dlg = DateTimeSetupDlg(dts=dts, dates=dates, times=times, ft=ft)
-    Dlg.show()
-    App.exec_()
-    if Dlg.isChanged: return (Dlg.DateTimes, Dlg.Dates, Dlg.Times)
-    else: return (dts, dates, times)
-# 以 GUI 的方式设置 ID
-def setID(ids=[], ft=None):
-    from QuantStudio.Tools.QtGUI.IDSetup import IDSetupDlg
-    Dlg = IDSetupDlg(ids=ids, ft=ft)
-    Dlg.show()
-    App.exec_()
-    if Dlg.isChanged: return Dlg.IDs
-    else: return ids

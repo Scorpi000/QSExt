@@ -4,12 +4,12 @@ import os
 import numpy as np
 import pandas as pd
 from PyQt5.QtCore import pyqtSlot, QModelIndex
-from PyQt5.QtWidgets import QDialog, QTreeWidgetItem, QMessageBox, QInputDialog, QFileDialog, QApplication
-from QuantStudio.Tools.QtGUI.Ui_FactorDBDlg import Ui_FactorDBDlg
+from PyQt5.QtWidgets import QDialog, QTreeWidgetItem, QMessageBox, QInputDialog, QFileDialog
+from QSExt.GUI.QtGUI.Ui_FactorDBDlg import Ui_FactorDBDlg
 
 from QuantStudio.Tools.api import Panel
-from QuantStudio.Tools.QtGUI.PreviewFactorDlg import PreviewDlg
-from QuantStudio.Tools.QtGUI.ResultDlg import MatplotlibResultDlg
+from QSExt.GUI.QtGUI.PreviewFactorDlg import PreviewDlg
+from QSExt.GUI.QtGUI.ResultDlg import MatplotlibResultDlg
 from QuantStudio.Tools.FileFun import loadCSVFactorData
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB
@@ -276,6 +276,7 @@ if __name__=='__main__':
     HDB = QS.FactorDB.HDF5DB()
     HDB.connect()
     
+    from PyQt5.QtWidgets import QApplication
     app = QApplication(sys.argv)
     TestWindow = FactorDBDlg(HDB)
     TestWindow.show()

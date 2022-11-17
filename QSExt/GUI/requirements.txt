@@ -1,3 +1,0 @@
-# FactorCytoscape
-networkx
-ipycytoscape

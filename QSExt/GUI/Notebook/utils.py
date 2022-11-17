@@ -4,7 +4,7 @@ import base64
 from IPython.display import display, clear_output
 import ipywidgets as widgets
 
-from QSExt.GUI.ipywidgets.ArgSetupDlg import ArgSetupDlg
+from QSExt.GUI.Notebook.ArgSetupDlg import ArgSetupDlg
 
 def createDataFrameDownload(df, name="Download"):
     CSV = df.to_csv()

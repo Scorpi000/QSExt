@@ -13,7 +13,7 @@ from QuantStudio.RiskDataBase.RiskDB import FactorRDB
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.Tools.FileFun import listDirFile, loadCSVFactorData
 from QuantStudio.RiskModel.RiskModelFun import dropRiskMatrixNA
-from QSExt.GUI.ipywidgets.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
+from QSExt.GUI.Notebook.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
 
 # 风险库管理，基于 ipywidgets 的实现
 class RiskDBDlg(__QS_Object__):

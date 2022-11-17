@@ -12,7 +12,7 @@ from QuantStudio import __QS_Object__
 from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.Tools.FileFun import listDirFile, loadCSVFactorData
-from QSExt.GUI.ipywidgets.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
+from QSExt.GUI.Notebook.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
 
 # 因子库管理，基于 ipywidgets 的实现
 class FactorDBDlg(__QS_Object__):

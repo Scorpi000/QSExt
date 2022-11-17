@@ -15,7 +15,7 @@ import plotly
 from QuantStudio import __QS_Object__, QSArgs
 from QuantStudio.Tools.AuxiliaryFun import joinList, genAvailableName
 from QuantStudio.Tools.DataTypeFun import getNestedDictItems
-from QSExt.GUI.ipywidgets.utils import createDataFrameDownload, createGetItemDlg, showGetItemDlg, createGetArgsDlg, showGetArgsDlg, createGetIntDlg, showGetIntDlg, createQuestionDlg, showQuestionDlg
+from QSExt.GUI.Notebook.utils import createDataFrameDownload, createGetItemDlg, showGetItemDlg, createGetArgsDlg, showGetArgsDlg, createGetIntDlg, showGetIntDlg, createQuestionDlg, showQuestionDlg
 
 # 用嵌套字典填充 Tree
 def populateTreeWidgetWithNestedDict(parent, nested_dict, leaf_selected_callback=None, nonleaf_selected_callback=None):

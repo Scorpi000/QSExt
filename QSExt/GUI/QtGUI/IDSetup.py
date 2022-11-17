@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from PyQt5.QtCore import pyqtSlot, Qt
 from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QDialog, QMessageBox, QInputDialog, QFileDialog, QAction, QMenu
+from PyQt5.QtWidgets import QDialog, QMessageBox, QFileDialog, QMenu
 
 from QSExt.GUI.QtGUI.Ui_IDSetup import Ui_IDSetupDlg
 from QSExt.GUI.QtGUI.DateTimeSetup import mergeSet

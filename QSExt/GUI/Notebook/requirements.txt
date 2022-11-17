@@ -1,0 +1,8 @@
+ipywidgets
+ipyevents
+ipytree
+ipyfilechooser
+
+# FactorCytoscape
+networkx
+ipycytoscape
