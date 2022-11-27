@@ -22,7 +22,7 @@ def populateTreeWidgetWithNestedDict(parent, nested_dict, leaf_selected_callback
     Keys = sorted(nested_dict)
     for iKey in Keys:
         iValue = nested_dict[iKey]
-        iNode = Node(iKey)
+        iNode = Node(iKey, icon=("folder" if isinstance(iValue, dict) else "file"))
         parent.add_node(iNode)
         if isinstance(parent, Tree):
             iNode._QSKeys = (iKey,)

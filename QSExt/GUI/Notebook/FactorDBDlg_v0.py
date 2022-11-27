@@ -6,9 +6,6 @@ import datetime as dt
 
 import pandas as pd
 import ipywidgets as widgets
-from ipytree import Node, Tree
-from ipydatagrid import DataGrid
-from ipyevents import Event
 from IPython.display import display, HTML, clear_output
 
 from QuantStudio import __QS_Object__
@@ -17,8 +14,7 @@ from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.Tools.FileFun import listDirFile, loadCSVFactorData
 from QSExt.GUI.Notebook.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
 
-
-# 因子库管理
+# 因子库管理，基于 ipywidgets 的实现
 class FactorDBDlg(__QS_Object__):
     def __init__(self, fdbs, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
@@ -30,11 +26,14 @@ class FactorDBDlg(__QS_Object__):
         iFDBName = list(fdbs.keys())[0]
         iFDB = fdbs[iFDBName].connect()
         iTableNames = iFDB.TableNames
+        if not iTableNames:
+            iFactorNames = []
+        else:
+            iFactorNames = iFDB.getTable(iTableNames[0]).FactorNames
         self.Widgets = {
             "FDBList": widgets.Dropdown(options=list(fdbs.keys()), value=iFDBName, description="", disabled=False),
-            #"TableList": widgets.Select(options=iTableNames, value=(None if not iTableNames else iTableNames[0]), rows=20, description="", disabled=False),
-            #"FactorList": widgets.SelectMultiple(options=iFactorNames, value=[], rows=20, description="", disabled=False),
-            "FDBTree": self.populateTreeWidgetWithFactorDB(iFDB),
+            "TableList": widgets.Select(options=iTableNames, value=(None if not iTableNames else iTableNames[0]), rows=20, description="", disabled=False),
+            "FactorList": widgets.SelectMultiple(options=iFactorNames, value=[], rows=20, description="", disabled=False),
             "Delete": widgets.Button(description="删除", disabled=self.FDBAttrs[iFDBName].get("ReadOnly", True)),
             "Rename": widgets.Button(description="重命名", disabled=self.FDBAttrs[iFDBName].get("ReadOnly", True)),
             "Preview": widgets.Button(description="预览"),
@@ -47,20 +46,19 @@ class FactorDBDlg(__QS_Object__):
             "TargetTable": widgets.Combobox(placeholder="请输入目标表", options=iTableNames, description="上传目标表", ensure_option=True, disabled=False, value=genAvailableName("NewTable", iTableNames)),
             "TargetFactor": widgets.Combobox(placeholder="请输入目标因子", options=[], description="上传目标因子", ensure_option=True, disabled=False, value="NewFactor"),
             "Output": widgets.Output(layout={"width": "800px", "overflow_x": "scroll"}),
-            "MainDataGrid": DataGrid(dataframe=pd.DataFrame(columns=[""]), selection_mode="column"),# 显示数据的 DataGrid(ipydatagrid)
+            "FDBOutput": widgets.Output(),
             "ControlOutput": widgets.Output(),
         }
-        self.Events = {}
-        self.Events["FDBTreeDblClick"] = Event(source=self.Widgets["FDBTree"], watched_events=["dblclick"])
-        self.Events["FDBTreeDblClick"].on_dom_event(self.on_FDBTree_dblclicked)        
         
-        self.Frame = widgets.HBox(children=[
-            widgets.VBox(children=[
-                widgets.Label(value="因子库"),
-                self.Widgets["FDBList"],
-                self.Widgets["FDBTree"]
-            ]), 
-            widgets.VBox(children=[self.Widgets["ControlOutput"], self.Widgets["Output"]])])
+        self.Frame = widgets.HBox(children=[self.Widgets["FDBOutput"], widgets.VBox(children=[self.Widgets["ControlOutput"], self.Widgets["Output"]])])
+        self.Widgets["FDBFrame"] = widgets.VBox(children=[
+            widgets.Label(value="因子库"),
+            self.Widgets["FDBList"],
+            widgets.Label(value="因子表"),
+            self.Widgets["TableList"],
+            widgets.Label(value="因子"),
+            self.Widgets["FactorList"]
+        ])
         self.Widgets["ControlFrame"] = widgets.VBox(children=[
             widgets.HBox(children=[self.Widgets["Preview"], self.Widgets["StartDT"], self.Widgets["EndDT"], self.Widgets["IDNum"]]),
             widgets.HBox(children=[self.Widgets["Upload"], self.Widgets["TargetTable"], self.Widgets["TargetFactor"]]),
@@ -70,6 +68,8 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["QuestionDlg"] = createQuestionDlg(question="你真的确定这么干吗？")
         self.Widgets["GetTextDlg"] = createGetTextDlg(desc="请输入")
         
+        with self.Widgets["FDBOutput"]:
+            display(self.Widgets["FDBFrame"])
         with self.Widgets["ControlOutput"]:
             display(self.Widgets["ControlFrame"])
         self.Widgets["Update"].on_click(self.update)
@@ -79,41 +79,8 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["Rename"].on_click(self.rename)
         self.Widgets["Upload"].observe(self.upload, names="_counter")
         self.Widgets["FDBList"].observe(self.selectFDB, names="value")
+        self.Widgets["TableList"].observe(self.selectTable, names="value")
         self.Widgets["Update"].click()
-    
-    def on_FDBTree_selected(self, change):
-        if self.Widgets["FDBTree"]._QSDblClicked:
-            if change["new"]:
-                self.Widgets["FDBTree"]._QSDblClicked = False
-                return self.preview(self.Widgets["Preview"])    
-    
-    def on_FDBTree_dblclicked(self, e):
-        self.Widgets["FDBTree"]._QSDblClicked = True
-        
-    def on_NodeOpened_changed(self, change):
-        iWidgets = self.Widgets
-        iTableNode = change["owner"]
-        if change["new"]:
-            FDB = self.FDBs[iWidgets["FDBList"].value].connect()
-            iFT = FDB.getTable(iTableNode.name)
-            Nodes = []
-            for iFactorName in iFT.FactorNames:
-                iNode = Node(name=iFactorName, icon="file")
-                iNode._QSTable = iTableNode.name
-                iNode.observe(self.on_FDBTree_selected, names="selected")
-                Nodes.append(iNode)
-            iTableNode.nodes = Nodes
-        else:
-            iTableNode.nodes = [Node(name="", icon="", disabled=True)]
-    
-    def populateTreeWidgetWithFactorDB(self, fdb, tree_widget=None):
-        if not tree_widget: tree_widget = Tree()
-        for iTableName in fdb.TableNames:
-            iNode = Node(iTableName, nodes=[Node(name="", icon="", disabled=True)], opened=False, icon="folder")
-            iNode.observe(self.on_NodeOpened_changed, names="opened")
-            iNode.observe(self.on_FDBTree_selected, names="selected")
-            tree_widget.add_node(iNode)
-        return tree_widget
     
     def display(self, output=None):
         if output:
@@ -129,10 +96,9 @@ class FactorDBDlg(__QS_Object__):
         iFDBName = change["new"]
         iFDB = self.FDBs[iFDBName]
         iFDB.connect()
-        iWidgets["FDBTree"].nodes = []
-        self.populateTreeWidgetWithFactorDB(iFDB, tree_widget=iWidgets["FDBTree"])
-        
         iTableNames = iFDB.TableNames
+        iWidgets["TableList"].options = iTableNames
+        iWidgets["TableList"].value = (None if not iTableNames else iTableNames[0])
         iWidgets["TargetTable"].options = iTableNames
         iWidgets["TargetTable"].value = genAvailableName("NewTable", iTableNames)
         iWidgets["TargetFactor"].options = []
@@ -145,16 +111,22 @@ class FactorDBDlg(__QS_Object__):
         iWidgets["TargetTable"].disabled = iReadOnly
         iWidgets["TargetFactor"].disabled = iReadOnly
         
+    def selectTable(self, change):
+        iWidgets = self.Widgets
+        FDB = self.FDBs[iWidgets["FDBList"].value]
+        iTableName = change["new"]
+        if not iTableName:
+            iWidgets["FactorList"].options = FDB.getTable(iTableName).FactorNames
+            iWidgets["FactorList"].value = []
+        else:
+            iWidgets["FactorList"].options = []
+            iWidgets["FactorList"].value = []
+    
     def getSelectedTableFactor(self):
         iWidgets = self.Widgets
         TableFactor = {}
-        for iNode in iWidgets["FDBTree"].selected_nodes:
-            if not iNode.nodes:# 因子节点
-                iFactorNames = TableFactor.setdefault(iNode._QSTable, [])
-                if iNode.name not in iFactorNames: iFactorNames.append(iNode.name)
-            else:# 因子表节点
-                FDB = self.FDBs[iWidgets["FDBList"].value].connect()
-                TableFactor[iNode.name] = FDB.getTable(iNode.name).FactorNames
+        for iTableName in [iWidgets["TableList"].value]:
+            TableFactor[iTableName] = list(iWidgets["FactorList"].value)
         return TableFactor
     
     def readData(self, id_num=0, start_dt=None, end_dt=None):
@@ -194,9 +166,10 @@ class FactorDBDlg(__QS_Object__):
         iWidgets = self.Widgets
         FDB = self.FDBs[iWidgets["FDBList"].value]
         FDB.connect()
-        iWidgets["FDBTree"].nodes = []
-        self.populateTreeWidgetWithFactorDB(FDB, tree_widget=iWidgets["FDBTree"])
-        
+        iTableNames = FDB.TableNames
+        iWidgets["TableList"].options = iTableNames
+        iWidgets["TableList"].value = (iTableNames[0] if iTableNames else None)
+    
     def preview(self, b):
         iWidgets = self.Widgets
         with iWidgets["Output"]:
@@ -212,13 +185,11 @@ class FactorDBDlg(__QS_Object__):
             if Data is None:
                 print("请选择要预览的因子!")
             else:
-                iWidgets["MainDataGrid"].data = Data
-                display(iWidgets["MainDataGrid"])
-                #pd.set_option("display.max_rows", None)
-                #pd.set_option("display.max_columns", None)
-                #display(Data)
-                #pd.reset_option("display.max_rows")
-                #pd.reset_option("display.max_columns")
+                pd.set_option("display.max_rows", None)
+                pd.set_option("display.max_columns", None)
+                display(Data)
+                pd.reset_option("display.max_rows")
+                pd.reset_option("display.max_columns")
     
     def download(self, b):
         iWidgets = self.Widgets
@@ -252,7 +223,6 @@ class FactorDBDlg(__QS_Object__):
             File.write(iContent)
         iFactorData = loadCSVFactorData(iTmpFilePath)
         OldTableNames = FDB.TableNames
-        OldFactorNames = ([] if iTargetTable not in OldTableNames else FDB.getTable(iTargetTable).FactorNames)
         with iWidgets["Output"]:
             iWidgets["Output"].clear_output()
             try:
@@ -263,18 +233,8 @@ class FactorDBDlg(__QS_Object__):
             else:
                 print("上传成功!")
         if iTargetTable not in OldTableNames:
-            iTableNode = Node(name=iTargetTable)
-            iFactorNode = Node(name=iFactorName)
-            iFactorNode._QSTable = iTargetTable
-            iTableNode.add_node(iFactorNode)
-            iWidgets["FDBTree"].add_node(iTableNode)
-        elif iFactorName not in OldFactorNames:
-            iFactorNode = Node(name=iFactorName)
-            iFactorNode._QSTable = iTargetTable
-            for iTableNode in iWidgets["FDBTree"].nodes:
-                if iTableNode.name==iTargetTable:
-                    break
-            iTableNode.add_node(iFactorNode)
+            iWidgets["TableList"].options = FDB.TableNames
+            iWidgets["TableList"].value = iTargetTable
     
     def deleteTableFactor(self, b):
         iWidgets = self.Widgets
@@ -293,9 +253,9 @@ class FactorDBDlg(__QS_Object__):
                 with iWidgets["Output"]:
                     iWidgets["Output"].clear_output()
                     print(f"错误: {str(e)}")
-            return iWidgets["Update"].click()
+        return iWidgets["Update"].click()
     
-    def renameTable(self, itable, inode):
+    def renameTable(self, itable):
         iWidgets = self.Widgets
         if not iWidgets["GetTextDlg"]["Showed"]:
             return showGetTextDlg(iWidgets["GetTextDlg"], parent=iWidgets["ControlFrame"], output_widget=iWidgets["ControlOutput"], ok_callback=lambda b: self.renameTable(itable), desc="请输入新表名: ", default_value=itable)
@@ -314,11 +274,9 @@ class FactorDBDlg(__QS_Object__):
             with iWidgets["Output"]:
                 iWidgets["Output"].clear_output()
                 print(f"错误: {str(e)}")
-            return iWidgets["Update"].click()
-        else:
-            inode.name = NewTableName
+        return iWidgets["Update"].click()
     
-    def renameFactor(self, itable, ifactor, inode):
+    def renameFactor(self, itable, ifactor):
         iWidgets = self.Widgets
         if not iWidgets["GetTextDlg"]["Showed"]:
             return showGetTextDlg(iWidgets["GetTextDlg"], parent=iWidgets["ControlFrame"], output_widget=iWidgets["ControlOutput"], ok_callback=lambda b: self.renameFactor(itable, ifactor), desc="请输入新因子名: ", default_value=ifactor)
@@ -337,9 +295,7 @@ class FactorDBDlg(__QS_Object__):
             with iWidgets["Output"]:
                 iWidgets["Output"].clear_output()
                 print(f"错误: {str(e)}")
-            return iWidgets["Update"].click()
-        else:
-            inode.name = NewTableName            
+        return iWidgets["Update"].click()
     
     def rename(self, b):
         iWidgets = self.Widgets
@@ -351,12 +307,10 @@ class FactorDBDlg(__QS_Object__):
             return
         iTable = list(TableFactor.keys())[0]
         if not TableFactor[iTable]:# 用户选择了一张表
-            iNode = iWidgets["FDBTree"].selected_nodes[0]
-            return self.renameTable(iTable, iNode)
+            return self.renameTable(iTable)
         elif len(TableFactor[iTable])!=1:
             with iWidgets["Output"]:
                 print("请选择一个因子!")
             return
         else:# 用户选择了一个因子
-            iNode = iWidgets["FDBTree"].selected_nodes[0]
-            return self.renameFactor(iTable, TableFactor[iTable][0], iNode)
+            return self.renameFactor(iTable, TableFactor[iTable][0])
