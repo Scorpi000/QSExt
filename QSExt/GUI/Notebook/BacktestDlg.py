@@ -66,6 +66,7 @@ class BacktestDlg(__QS_Object__):
         EndDT = dt.datetime.combine(dt.date.today(), dt.time(0))
         Widgets["StartDatetimePicker"] = widgets.NaiveDatetimePicker(description="起始时点", value=EndDT-dt.timedelta(365), disabled=False)
         Widgets["EndDatetimePicker"] = widgets.NaiveDatetimePicker(description="结束时点", value=EndDT, disabled=False)
+        Widgets["SubprocessNumInt"] = widgets.IntText(value=0, description="子进程数")
         Widgets["OutputTypeDropdown"] = widgets.Dropdown(options=("报告", "结果集"))
         Widgets["RunButton"] = widgets.Button(description="RUN")
         Widgets["RunButton"].on_click(self.on_RunButton_clicked)
@@ -76,7 +77,7 @@ class BacktestDlg(__QS_Object__):
         Widgets["MainOutput"] = widgets.Output()       
         
         Frame = widgets.VBox(children=[
-            widgets.HBox(children=[Widgets["StartDatetimePicker"], Widgets["EndDatetimePicker"], Widgets["OutputTypeDropdown"], Widgets["RunButton"]]),
+            widgets.HBox(children=[Widgets["StartDatetimePicker"], Widgets["EndDatetimePicker"], Widgets["OutputTypeDropdown"], Widgets["SubprocessNumInt"], Widgets["RunButton"]]),
             widgets.HBox(children=[Widgets["ModuleTypeDropdown"], Widgets["ModuleDropdown"], Widgets["FTDropdown"], Widgets["AddModuleButton"], Widgets["DeleteModuleButton"]]),
             Widgets["ModuleTab"],
             Widgets["MainOutput"]
@@ -87,7 +88,7 @@ class BacktestDlg(__QS_Object__):
     def createModuleWidgets(self, module):
         iModuleWidgets = {
             "ModuleNameText": widgets.Text(description="名称", value=module.Name),
-            "ArgOutput": widgets.Output(),
+            "ArgOutput": widgets.Output(layout={"border": "1px solid black"}),
             "ArgDlg": ArgSetupDlg(module.Args),
             "Output": widgets.Output()
         }
@@ -133,7 +134,7 @@ class BacktestDlg(__QS_Object__):
         self.BacktestModel.Modules[TabIdx].Name = iModuleWidgets["ModuleNameText"].value
     
     def on_RunButton_clicked(self, b):
-        pass
+        self.BacktestModel.run()
 
 if __name__=="__main__":
     Dlg = BacktestDlg(fdbs={})

@@ -100,7 +100,7 @@ class ResultDlg(__QS_Object__):
         Widgets["ExportButton"].on_click(self.on_ExportButton_clicked)
         Widgets["UpdateButton"] = widgets.Button(description="刷新", layout={"width": ControlWidth})
         Widgets["UpdateButton"].on_click(self.on_UpdateButton_clicked)        
-        Widgets["MainOutput"] = widgets.Output(layout={'border': '1px solid black', "width": "750px", "height": "600px"})# 显示数据的 output
+        Widgets["MainOutput"] = widgets.Output(layout={"border": "1px solid black", "width": "750px", "height": "600px"})# 显示数据的 output
         if msg_output=="auto":
             Widgets["MsgOutput"] = widgets.Output()# 显示消息的 output
             Widgets["MsgClearButton"] = widgets.Button(description="清空")
