@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """公募基金特征因子"""
-import os
 import datetime as dt
 
 import numpy as np

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金资产配置因子"""
+"""公募基金资产配置"""
 import os
 import datetime as dt
 
@@ -111,9 +111,15 @@ def defFactor(args={}, debug=False):
     
     Factors += [CashWeight, StockWeight, BondWeight, AssetBackedWeight, FundWeight, MetalWeight, DerivativeWeight, ReturnSaleWeight]
     
-    TotalAsset = QS.FactorDB.PointOperation("total_asset", [Cash, Stock, Bond, Fund, Metal, Derivative, AssetBacked, ReturnSale,
-                                                            CashWeight, StockWeight, BondWeight, FundWeight, MetalWeight, DerivativeWeight, AssetBackedWeight, ReturnSaleWeight],
-                                            sys_args={"算子":TotalAssetFun, "运算时点": "多时点", "运算ID": "多ID"})
+    TotalAsset = QS.FactorDB.PointOperation(
+        "total_asset", 
+        [Cash, Stock, Bond, Fund, Metal, Derivative, AssetBacked, ReturnSale, CashWeight, StockWeight, BondWeight, FundWeight, MetalWeight, DerivativeWeight, AssetBackedWeight, ReturnSaleWeight],
+        sys_args={
+            "算子":TotalAssetFun, 
+            "运算时点": "多时点", 
+            "运算ID": "多ID"
+        }
+    )
     Factors.append(TotalAsset)
 
     UpdateArgs = {"因子表": "mf_cn_asset_portfolio",
