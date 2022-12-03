@@ -71,7 +71,7 @@ def defFactor(args={}, debug=False):
     # 基金风格稳定性
     
     # 组合平均 ROE, 盈市率, 净市率
-    FT = LDB.getTable("mf_cn_stock_component_penetrated", args={"回溯天数": np.inf, "因子值类型": "list"})
+    FT = LDB.getTable("mf_cn_stock_component_penetrated", args={"回溯天数": np.inf, "多重映射": True})
     ComponentCode = FT.getFactor("component_code")
     
     FT = LDB.getTable("stock_cn_day_bar_nafilled")

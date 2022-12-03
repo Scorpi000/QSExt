@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金资产配置穿透"""
+"""公募基金资产配置(穿透后)"""
 import os
 import datetime as dt
 
@@ -109,8 +109,7 @@ def defFactor(args={}, debug=False):
     DerivativeWeight = FT.getFactor("derivative_weight")
     AssetBackedWeight = FT.getFactor("asset_backed_weight")
     ReturnSaleWeight = FT.getFactor("return_sale_weight")
-
-    #FT = LDB.getTable("mf_cn_fund_component", args={"因子值类型":"list"})
+    
     FT = LDB.getTable("mf_cn_fund_component", args={"多重映射": True})
     FundComponentID = FT.getFactor("component_code")
     FundPositionAmt = FT.getFactor("amount")

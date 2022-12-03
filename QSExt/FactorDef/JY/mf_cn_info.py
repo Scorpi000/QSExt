@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金特征因子"""
+"""公募基金基本信息"""
 import datetime as dt
 
 import numpy as np
@@ -63,10 +63,12 @@ def defFactor(args={}, debug=False):
     IfFoF = fd.where(IfFoF, mask=(IfFoF!=2), other=0, factor_name="if_fof")
     Factors.append(IfFoF)
     
-    UpdateArgs = {"因子表": "mf_cn_info",
-                  "默认起始日": dt.datetime(2002,1,1),
-                  "最长回溯期": 3650,
-                  "IDs": "公募基金"}
+    UpdateArgs = {
+        "因子表": "mf_cn_info",
+        "默认起始日": dt.datetime(2002,1,1),
+        "最长回溯期": 3650,
+        "IDs": "公募基金"
+    }
     
     return (Factors, UpdateArgs)
 
