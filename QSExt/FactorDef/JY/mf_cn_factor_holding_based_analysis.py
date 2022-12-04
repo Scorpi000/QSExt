@@ -37,10 +37,6 @@ def defFactor(args={}, debug=False):
     Exist = LDB.getTable("mf_cn_status").getFactor("if_exist")
     Mask = (Exist==1)
     
-    # 基金分类
-    FT = LDB.getTable("mf_cn_type")
-    FundType = FT.getFactor("jy_type_second")
-    
     # 基金净值和日收益率
     FT = JYDB.getTable("公募基金复权净值")
     NetValueAdj = FT.getFactor("复权单位净值", args={"回溯天数": np.inf})
@@ -89,7 +85,7 @@ def defFactor(args={}, debug=False):
             "描述子截面": [None, ComponentIDs, ComponentIDs],
             "运算时点": "单时点",
             "输出形式": "全截面",
-            "数据类型": "double"     
+            "数据类型": "double"
         }
     )
     Factors.append(AvgEP)
@@ -104,7 +100,7 @@ def defFactor(args={}, debug=False):
             "描述子截面": [None, ComponentIDs, ComponentIDs],
             "运算时点": "单时点",
             "输出形式": "全截面",
-            "数据类型": "double"     
+            "数据类型": "double"
         }
     )
     Factors.append(AvgBP)
@@ -120,12 +116,10 @@ def defFactor(args={}, debug=False):
             "描述子截面": [None, ComponentIDs, ComponentIDs],
             "运算时点": "单时点",
             "输出形式": "全截面",
-            "数据类型": "double"     
+            "数据类型": "double"
         }
     )
     Factors.append(AvgROE)
-    
-    
     
     UpdateArgs = {
         "因子表": "mf_cn_factor_holding_based_analysis",

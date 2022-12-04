@@ -174,7 +174,7 @@ if __name__=="__main__":
     DTRuler = JYDB.getTradeDay(start_date=StartDT.date()-dt.timedelta(365), end_date=EndDT.date(), output_type="datetime")
     DTs = QS.Tools.DateTime.getMonthLastDateTime(DTs)
     DTRuler = QS.Tools.DateTime.getMonthLastDateTime(DTRuler)
-        
+    
     IDs = JYDB.getMutualFundID(is_current=False)
     #IDs = ["159956.OF"]
     
