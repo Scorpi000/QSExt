@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金选券择时因子"""
+"""基金经理选券择时因子"""
 import datetime as dt
 
 import numpy as np
@@ -167,22 +167,13 @@ def defFactor(args={}, debug=False):
     
     annual_period = args.get("annual_period", 252)# 年化周期数
     
-    JYDB = args["JYDB"]
+    JYDB = args["JYDB"].connect()
     LDB = args["LDB"]
     
-    # 基金是否存续
-    Exist = LDB.getTable("mf_cn_status").getFactor("if_exist")
-    Mask = (Exist==1)
+    IDs = JYDB.getTable("公募基金经理(新)(基金经理ID)", args={"多重映射": True}).getID()    
     
-    # 基金净值和收益率
-    FT = JYDB.getTable("公募基金复权净值")
-    NetValueAdj = FT.getFactor("复权单位净值", args={"回溯天数": np.inf})
-    NetValueAdj = fd.where(NetValueAdj, Mask, np.nan)
-    FundReturn = NetValueAdj / fd.lag(NetValueAdj, 1, 1) - 1
-    
-    # 基金基准收益率和主动收益率
-    FT = JYDB.getTable("公募基金基准收益率", args={"回溯天数", 0})
-    BenchmarkReturn = FT.getFactor("本日基金基准增长率") / 100
+    ReturnFT = LDB.getTable("mf_manager_cn_net_value", args={"回溯天数": 0})
+    BenchmarkReturnFT = LDB.getTable("mf_manager_cn_benchmark_net_value", args={"回溯天数": 0})    
     
     # 市场收益率
     MarketID = "000300.SH"# 市场指数
@@ -195,141 +186,146 @@ def defFactor(args={}, debug=False):
     rf = fd.disaggregate(FT.getFactor("指标数据") / 100 * 10 ** FT.getFactor("量纲系数"), aggr_ids=[RiskFreeRateID])# 无风险年利率
     RiskFreeRate = rf / 360
     
-    look_back_period = {"1y": 252, "3y": 756, "5y": 1260}# 回溯期
-    min_period_ratio = 0.67# 最小期数比例
-    for iLookBack, iLookBackPeriods in look_back_period.items():
-        iMinPeriod = max(int(iLookBackPeriods * min_period_ratio))
+    for iType in ["All"]+args["MFAllTypes"]:
+        ManagerReturn = ReturnFT.getFactor(f"daily_return_{args['rebalance']}_{args['weight']}_{iType}")
+        BenchmarkReturn = BenchmarkReturnFT.getFactor(f"daily_return_{args['rebalance']}_{args['weight']}_{iType}")
         
-        # ####################### 上(下)行捕获率 #######################
-        up_capture = QS.FactorDB.TimeOperation(
-            f"up_capture_{iLookBack}",
-            [FundReturn, MarketReturn],
-            sys_args={
-                "算子": up_capture_fun,
-                "参数": {
-                    "min_periods": iMinPeriod,
-                    "annual_period": annual_period,
-                    "up_limit_port": 0,
-                    "up_limit_benchmark": 0
-                },
-                "回溯期数": [iLookBackPeriods - 1, iLookBackPeriods - 1],
-                "运算时点": "单时点",
-                "运算ID": "多ID",
-                "数据类型": "double"
-            }
-        )
-        Factors.append(up_capture)
+        look_back_period = {"1y": 252, "3y": 756, "5y": 1260}# 回溯期
+        min_period_ratio = 0.67# 最小期数比例
+        for iLookBack, iLookBackPeriods in look_back_period.items():
+            iMinPeriod = max(int(iLookBackPeriods * min_period_ratio))
+            
+            # ####################### 上(下)行捕获率 #######################
+            up_capture = QS.FactorDB.TimeOperation(
+                f"up_capture_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, MarketReturn],
+                sys_args={
+                    "算子": up_capture_fun,
+                    "参数": {
+                        "min_periods": iMinPeriod,
+                        "annual_period": annual_period,
+                        "up_limit_port": 0,
+                        "up_limit_benchmark": 0
+                    },
+                    "回溯期数": [iLookBackPeriods - 1, iLookBackPeriods - 1],
+                    "运算时点": "单时点",
+                    "运算ID": "多ID",
+                    "数据类型": "double"
+                }
+            )
+            Factors.append(up_capture)
+            
+            down_capture = QS.FactorDB.TimeOperation(
+                f"down_capture_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, MarketReturn],
+                sys_args={
+                    "算子": down_capture_fun,
+                    "参数": {
+                        "min_periods": iMinPeriod,
+                        "annual_period": annual_period,
+                        "down_limit_port": 0,
+                        "down_limit_benchmark": 0
+                    },
+                    "回溯期数": [iLookBackPeriods - 1, iLookBackPeriods - 1],
+                    "运算时点": "单时点",
+                    "运算ID": "多ID",
+                    "数据类型": "double"
+                }
+            )
+            Factors.append(down_capture)
+            
+            # ####################### 择时收益 #######################
+            timing_return = QS.FactorDB.TimeOperation(
+                f"timing_return_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, RiskFreeRate, MarketReturn],
+                sys_args={
+                    "算子": timing_return_fun,
+                    "参数": {
+                        "min_periods": max(252, iMinPeriod),
+                        "sub_interval": 63
+                    },
+                    "回溯期数": [iLookBackPeriods - 1] * 3,
+                    "运算时点": "单时点",
+                    "运算ID": "多ID",
+                    "数据类型": "double"
+                }
+            )
+            Factors.append(timing_return)
+            
+            # ####################### MPT 模型 #######################
+            MPTModel = QS.FactorDB.TimeOperation(
+                f"MPTModel_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, BenchmarkReturn, RiskFreeRate],
+                sys_args={
+                    "算子": mpt_model_fun,
+                    "参数": {"min_periods": max(252, iMinPeriod)},
+                    "回溯期数": [iLookBackPeriods - 1] * 3,
+                    "运算时点": "单时点",
+                    "运算ID": "单ID",
+                    "数据类型": "object"
+                }
+            )
+            Factors.append(fd.fetch(MPTModel, pos=0, dtype="double", factor_name=f"mpt_alpha_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(MPTModel, pos=1, dtype="double", factor_name=f"mpt_beta_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(MPTModel, pos=2, dtype="double", factor_name=f"mpt_r2_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
         
-        down_capture = QS.FactorDB.TimeOperation(
-            f"down_capture_{iLookBack}",
-            [FundReturn, MarketReturn],
-            sys_args={
-                "算子": down_capture_fun,
-                "参数": {
-                    "min_periods": iMinPeriod,
-                    "annual_period": annual_period,
-                    "down_limit_port": 0,
-                    "down_limit_benchmark": 0
-                },
-                "回溯期数": [iLookBackPeriods - 1, iLookBackPeriods - 1],
-                "运算时点": "单时点",
-                "运算ID": "多ID",
-                "数据类型": "double"
-            }
-        )
-        Factors.append(down_capture)
-        
-        # ####################### 择时收益 #######################
-        timing_return = QS.FactorDB.TimeOperation(
-            f"timing_return_{iLookBack}",
-            [FundReturn, RiskFreeRate, MarketReturn],
-            sys_args={
-                "算子": timing_return_fun,
-                "参数": {
-                    "min_periods": max(252, iMinPeriod),
-                    "sub_interval": 63
-                },
-                "回溯期数": [iLookBackPeriods - 1] * 3,
-                "运算时点": "单时点",
-                "运算ID": "多ID",
-                "数据类型": "double"
-            }
-        )
-        Factors.append(timing_return)
-        
-        # ####################### MPT 模型 #######################
-        MPTModel = QS.FactorDB.TimeOperation(
-            f"MPTModel_{iLookBack}",
-            [FundReturn, BenchmarkReturn, RiskFreeRate],
-            sys_args={
-                "算子": mpt_model_fun,
-                "参数": {"min_periods": max(252, iMinPeriod)},
-                "回溯期数": [iLookBackPeriods - 1] * 3,
-                "运算时点": "单时点",
-                "运算ID": "单ID",
-                "数据类型": "object"
-            }
-        )
-        Factors.append(fd.fetch(MPTModel, pos=0, dtype="double", factor_name=f"mpt_alpha_{iLookBack}"))
-        Factors.append(fd.fetch(MPTModel, pos=1, dtype="double", factor_name=f"mpt_beta_{iLookBack}"))
-        Factors.append(fd.fetch(MPTModel, pos=2, dtype="double", factor_name=f"mpt_r2_{iLookBack}"))
-    
-        # ####################### T-M 模型 #######################
-        TMModel = QS.FactorDB.TimeOperation(
-            f"TMModel_{iLookBack}",
-            [FundReturn, MarketReturn, RiskFreeRate],
-            sys_args={
-                "算子": tm_model_fun,
-                "参数": {"min_periods": max(252, iMinPeriod)},
-                "回溯期数": [iLookBackPeriods - 1] * 3,
-                "运算时点": "单时点",
-                "运算ID": "单ID",
-                "数据类型": "object"
-            }
-        )
-        Factors.append(fd.fetch(TMModel, pos=0, dtype="double", factor_name=f"tm_alpha_{iLookBack}"))
-        Factors.append(fd.fetch(TMModel, pos=1, dtype="double", factor_name=f"tm_beta1_{iLookBack}"))
-        Factors.append(fd.fetch(TMModel, pos=2, dtype="double", factor_name=f"tm_beta2_{iLookBack}"))
-        
-        # ####################### H-M 模型 #######################
-        HMModel = QS.FactorDB.TimeOperation(
-            f"HMModel_{iLookBack}",
-            [FundReturn, MarketReturn, RiskFreeRate],
-            sys_args={
-                "算子": hm_model_fun,
-                "参数": {"min_periods": max(252, iMinPeriod)},
-                "回溯期数": [iLookBackPeriods - 1] * 3,
-                "运算时点": "单时点",
-                "运算ID": "单ID",
-                "数据类型": "object"
-            }
-        )
-        Factors.append(fd.fetch(HMModel, pos=0, dtype="double", factor_name=f"hm_alpha_{iLookBack}"))
-        Factors.append(fd.fetch(HMModel, pos=1, dtype="double", factor_name=f"hm_beta1_{iLookBack}"))
-        Factors.append(fd.fetch(HMModel, pos=2, dtype="double", factor_name=f"hm_beta2_{iLookBack}"))
-        
-        # ####################### C-L 模型 #######################
-        CLModel = QS.FactorDB.TimeOperation(
-            f"CLModel_{iLookBack}",
-            [FundReturn, MarketReturn, RiskFreeRate],
-            sys_args={
-                "算子": cl_model_fun,
-                "参数": {"min_periods": max(252, iMinPeriod)},
-                "回溯期数": [iLookBackPeriods - 1] * 3,
-                "运算时点": "单时点",
-                "运算ID": "单ID",
-                "数据类型": "object"
-            }
-        )
-        Factors.append(fd.fetch(CLModel, pos=0, dtype="double", factor_name=f"cl_alpha_{iLookBack}"))
-        Factors.append(fd.fetch(CLModel, pos=1, dtype="double", factor_name=f"cl_beta1_{iLookBack}"))
-        Factors.append(fd.fetch(CLModel, pos=2, dtype="double", factor_name=f"cl_beta2_{iLookBack}"))
+            # ####################### T-M 模型 #######################
+            TMModel = QS.FactorDB.TimeOperation(
+                f"TMModel_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, MarketReturn, RiskFreeRate],
+                sys_args={
+                    "算子": tm_model_fun,
+                    "参数": {"min_periods": max(252, iMinPeriod)},
+                    "回溯期数": [iLookBackPeriods - 1] * 3,
+                    "运算时点": "单时点",
+                    "运算ID": "单ID",
+                    "数据类型": "object"
+                }
+            )
+            Factors.append(fd.fetch(TMModel, pos=0, dtype="double", factor_name=f"tm_alpha_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(TMModel, pos=1, dtype="double", factor_name=f"tm_beta1_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(TMModel, pos=2, dtype="double", factor_name=f"tm_beta2_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            
+            # ####################### H-M 模型 #######################
+            HMModel = QS.FactorDB.TimeOperation(
+                f"HMModel_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, MarketReturn, RiskFreeRate],
+                sys_args={
+                    "算子": hm_model_fun,
+                    "参数": {"min_periods": max(252, iMinPeriod)},
+                    "回溯期数": [iLookBackPeriods - 1] * 3,
+                    "运算时点": "单时点",
+                    "运算ID": "单ID",
+                    "数据类型": "object"
+                }
+            )
+            Factors.append(fd.fetch(HMModel, pos=0, dtype="double", factor_name=f"hm_alpha_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(HMModel, pos=1, dtype="double", factor_name=f"hm_beta1_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(HMModel, pos=2, dtype="double", factor_name=f"hm_beta2_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            
+            # ####################### C-L 模型 #######################
+            CLModel = QS.FactorDB.TimeOperation(
+                f"CLModel_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}",
+                [ManagerReturn, MarketReturn, RiskFreeRate],
+                sys_args={
+                    "算子": cl_model_fun,
+                    "参数": {"min_periods": max(252, iMinPeriod)},
+                    "回溯期数": [iLookBackPeriods - 1] * 3,
+                    "运算时点": "单时点",
+                    "运算ID": "单ID",
+                    "数据类型": "object"
+                }
+            )
+            Factors.append(fd.fetch(CLModel, pos=0, dtype="double", factor_name=f"cl_alpha_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(CLModel, pos=1, dtype="double", factor_name=f"cl_beta1_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            Factors.append(fd.fetch(CLModel, pos=2, dtype="double", factor_name=f"cl_beta2_{iLookBack}_{args['rebalance']}_{args['weight']}_{iType}"))
+            
         
     UpdateArgs = {
-        "因子表": "mf_cn_factor_selection_timing",
+        "因子表": "mf_manager_cn_factor_selection_timing",
         "默认起始日": dt.datetime(2002,1,1),
         "最长回溯期": 3650,
-        "IDs": "公募基金"
+        "IDs": IDs
     }
     return Factors, UpdateArgs
 
@@ -344,15 +340,17 @@ if __name__=="__main__":
     TDB = QS.FactorDB.HDF5DB(logger=Logger)
     TDB.connect()
     
-    Args = {"JYDB": JYDB, "LDB": TDB}
+    SQLStr = "SELECT FundTypeName FROM mf_fundtype WHERE Standard=75 AND StandardLevel=2 ORDER BY DisclosureCode"
+    MFAllTypes = [iType[0] for iType in JYDB.fetchall(sql_str=SQLStr) if iType[0].find("其他")==-1]
+    
+    Args = {"JYDB": JYDB, "LDB": TDB, "MFType": "jy_type_second", "MFAllTypes": MFAllTypes, "weight": "ew", "rebalance": "m"}
     Factors, UpdateArgs = defFactor(args=Args, debug=True)
     
     StartDT, EndDT = dt.datetime(2010, 1, 1), dt.datetime(2021, 10, 20)
     DTs = JYDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date(), output_type="datetime")
     DTRuler = JYDB.getTradeDay(start_date=StartDT.date()-dt.timedelta(365), end_date=EndDT.date(), output_type="datetime")
     
-    IDs = JYDB.getMutualFundID(is_current=False)
-    #IDs = ["159956.OF"]
+    IDs = UpdateArgs["IDs"]
     
     CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
     CFT.addFactors(factor_list=Factors)

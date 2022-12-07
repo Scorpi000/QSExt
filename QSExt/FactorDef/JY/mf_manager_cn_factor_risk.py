@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """基金经理风险因子"""
-import os
-import re
 import datetime as dt
 
 import numpy as np

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金风险调整因子(基于日数据)"""
+"""公募基金风险调整因子"""
 import datetime as dt
 
 import numpy as np
@@ -97,18 +97,18 @@ def defFactor(args={}, debug=False):
     Exist = LDB.getTable("mf_cn_status").getFactor("if_exist")
     Mask = (Exist==1)
     
-    # 基金净值和日收益率
+    # 基金净值和收益率
     FT = JYDB.getTable("公募基金复权净值")
     NetValueAdj = FT.getFactor("复权单位净值", args={"回溯天数": np.inf})
     NetValueAdj = fd.where(NetValueAdj, Mask, np.nan)
     FundReturn = NetValueAdj / fd.lag(NetValueAdj, 1, 1) - 1
     
-    # 基金基准日收益率和主动日收益率
+    # 基金基准收益率和主动收益率
     FT = JYDB.getTable("公募基金基准收益率", args={"回溯天数", 0})
     BenchmarkReturn = FT.getFactor("本日基金基准增长率") / 100
     ActiveReturn = FundReturn - BenchmarkReturn
     
-    # 市场收益率, 日频
+    # 市场收益率
     MarketID = "000300.SH"# 市场指数
     FT = JYDB.getTable("指数行情", args={"回溯天数": 0})
     MarketReturn = fd.disaggregate(FT.getFactor("涨跌幅") / 100, aggr_ids=[MarketID])

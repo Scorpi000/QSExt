@@ -10,6 +10,16 @@ Factorize = QS.FactorDB.Factorize
 fd = QS.FactorDB.FactorTools
 
 
+def ifListed(f, idt, iid, x, args):
+    ListDate, StatusChg = x
+    Listed = np.zeros(ListDate.shape)
+    DTs = np.array([idt]).T.repeat(ListDate.shape[1], axis=1).astype("datetime64")
+    Listed[ListDate<=DTs] = 1
+    StatusChg[StatusChg!=4] = np.nan
+    StatusChg = pd.DataFrame(StatusChg).fillna(method="pad").values
+    Listed[StatusChg==4] = 0
+    return Listed
+
 def ifTrading(f, idt, iid, x, args):
     Close, SuspendDate, SuspendTime = x
     DTs = np.array([idt]).T.repeat(Close.shape[1], axis=1)
@@ -33,10 +43,22 @@ def defFactor(args={}):
     JYDB = args["JYDB"]
     LDB = args["LDB"]
     
+    ListDate = JYDB.getTable("A股证券主表").getFactor("上市日期")
+    StatusChg = JYDB.getTable("上市状态更改").getFactor("变更类型", args={"回溯天数": np.inf})
+    IfListed = QS.FactorDB.PointOperation(
+        "if_listed",
+        [ListDate, StatusChg],
+        sys_args={
+            "算子": ifListed,
+            "运算时点": "多时点",
+            "运算ID": "多ID"
+        }
+    )
+    
     # 市场行情
     FT = JYDB.getTable("股票行情表现", args={"回溯天数": 0})
     NullClose = FT.getFactor("收盘价")
-    AvgPrice = FT.getFactor("均价", new_name="avg")
+    AvgPrice = FT.getFactor("均价")
     Turnover = FT.getFactor("换手率(%)", new_name="turnover")
     Chg = FT.getFactor("涨跌幅(%)") / 100
     TotalCap = FT.getFactor("总市值(万元)", args={"回溯天数": np.inf})
@@ -46,8 +68,21 @@ def defFactor(args={}):
     FT = JYDB.getTable("停牌复牌表", args={"只填起始日": False, "多重映射": False})
     SuspendDate = FT.getFactor("停牌日期")
     SuspendTime = FT.getFactor("停牌时间")
-    IfTrading = QS.FactorDB.PointOperation("if_trading", [NullClose, SuspendDate, SuspendTime], sys_args={"算子": ifTrading, "运算时点": "多时点", "运算ID": "多ID"})
+    IfTrading = QS.FactorDB.PointOperation(
+        "if_trading", 
+        [NullClose, SuspendDate, SuspendTime], 
+        sys_args={
+            "算子": ifTrading, 
+            "运算时点": "多时点", 
+            "运算ID": "多ID"
+        }
+    )
     Factors.append(IfTrading)
+    
+    FT = JYDB.getTable("复权因子表")
+    AdjFactor = FT.getFactor("比例复权因子", args={"回溯天数": np.inf})
+    AdjFactor = fd.where(AdjFactor, fd.notnull(AdjFactor), 1, factor_name="adj_factor")
+    Factors.append(AdjFactor)
     
     FT = JYDB.getTable("日行情表")
     PreClose, Open, High, Low = FT.getFactor("昨收盘(元)"), FT.getFactor("今开盘(元)"), FT.getFactor("最高价(元)"), FT.getFactor("最低价(元)")
@@ -56,22 +91,25 @@ def defFactor(args={}):
     Close = FT.getFactor("收盘价(元)", args={"回溯天数": np.inf, "筛选条件": "{Table}.ClosePrice>0"})
     IfListed = LDB.getTable("stock_cn_info").getFactor("if_listed")
     Mask = (IfListed==1)
-    Close = fd.where(Close, Mask, np.nan, factor_name="close")
+    Close = fd.where(Close, Mask, np.nan)
+    AdjClose = Factorize(Close * AdjFactor, factor_name="close")
     
-    Factors.append(fd.where(Open, (Open > 0), Close, factor_name="open"))
-    Factors.append(fd.where(High, (High > 0), Close, factor_name="high"))
-    Factors.append(fd.where(Low, (Low > 0), Close, factor_name="low"))
-    Factors.extend([Close, AvgPrice, Volume, Amount, Turnover])
+    Factors.append(fd.where(Open * AdjFactor, (Open > 0), Close, factor_name="open"))
+    Factors.append(fd.where(High * AdjFactor, (High > 0), Close, factor_name="high"))
+    Factors.append(fd.where(Low * AdjFactor, (Low > 0), Close, factor_name="low"))
+    Factors.append(AdjClose)
+    Factors.append(Factorize(AvgPrice * AdjFactor, factor_name="avg"))
+    Factors.extend([Volume, Amount, Turnover])
     Factors.append(fd.where(TotalCap, Mask, np.nan, factor_name="total_cap"))
     Factors.append(fd.where(FloatCap, Mask, np.nan, factor_name="float_cap"))
     
     PreClose = fd.where(PreClose, (PreClose > 0), Close / (1+Chg))
     PreClose = fd.where(PreClose, (PreClose > 0), np.nan, factor_name="pre_close")
-    Factors.append(PreClose)
+    Factors.append(Factorize(PreClose * AdjFactor, factor_name="pre_close"))
     Factors.append(Factorize(Close / PreClose - 1, "chg_rate"))
     
     UpdateArgs = {
-        "因子表": "stock_cn_day_bar_nafilled",
+        "因子表": "stock_cn_day_bar_adj_backward_nafilled",
         "默认起始日": dt.datetime(2002, 1, 1),
         "最长回溯期": 365,
         "IDs": "股票"

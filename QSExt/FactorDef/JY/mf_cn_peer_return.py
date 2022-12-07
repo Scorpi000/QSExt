@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""公募基金基准历史收益率"""
+"""公募基金同类平均收益率"""
 import os
 import re
 import datetime as dt
@@ -10,70 +10,13 @@ import pandas as pd
 import QuantStudio.api as QS
 fd = QS.FactorDB.FactorTools
 Factorize = QS.FactorDB.Factorize
+from .mf_cn_benchmark_return import return_week_fun, return_month_fun, calculate_return_this_week, calculate_return_this_month, calculate_return_this_quarter, calculate_return_this_year
 
-def roll_back_months(idt, n):
-    nYear, nMonth = (n-1) // 12, (n-1) % 12
-    TargetYear = idt.year - nYear
-    TargetMonth = idt.month - nMonth
-    TargetYear -= (TargetMonth<=0)
-    TargetMonth += (TargetMonth<=0) * 12
-    TargetDT = dt.datetime(TargetYear, TargetMonth, 1) - dt.timedelta(1)
-    return dt.datetime(TargetDT.year, TargetDT.month, min(idt.day, TargetDT.day))
+def peer_return_fun(f, idt, iid, x, args):
+    Data = pd.DataFrame({"Return": x[0], "Cate": x[1]}, index=iid)
+    PeerReturn = Data.groupby(by=["Cate"]).mean().rename(columns={"Return": "PeerReturn"})
+    return Data.merge(PeerReturn, how="left", left_on=["Cate"], right_index=True)["PeerReturn"].loc[iid].values
 
-# 计算本周以来的收益率
-def calculate_return_this_week(f, idt, iid, x, args):
-    Idx = np.array(idt, dtype="O").searchsorted(idt[-1] - dt.timedelta(idt[-1].weekday()))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-# 计算本月以来的收益率
-def calculate_return_this_month(f, idt, iid, x, args):
-    Idx = np.array(idt, dtype="O").searchsorted(dt.datetime(idt[-1].year, idt[-1].month, 1))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-# 计算本季以来的收益率
-def calculate_return_this_quarter(f, idt, iid, x, args):
-    Idx = np.array(idt, dtype="O").searchsorted(dt.datetime(idt[-1].year, (idt[-1].month-1) // 3 * 3 + 1, 1))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-# 计算今年以来的收益率
-def calculate_return_this_year(f, idt, iid, x, args):
-    Idx = np.array(idt, dtype="O").searchsorted(dt.datetime(idt[-1].year, 1, 1))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-def return_week_fun(f, idt, iid, x, args):
-    Idx = np.array(idt).searchsorted(idt[-1] - dt.timedelta(args["n_period"]*7-1))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-def return_month_fun(f, idt, iid, x, args):
-    Idx = np.array(idt).searchsorted(roll_back_months(idt[-1], args["n_period"])+dt.timedelta(1))
-    Mask = (np.sum(pd.notnull(x[0][Idx:, :]), axis=0)==0)
-    Rslt = np.nanprod(1 + x[0][Idx:, :], axis=0) - 1
-    Rslt[Mask] = np.nan
-    return Rslt
-
-
-# args 应该包含的参数
-# JYDB: 聚源因子库对象
 def defFactor(args={}, debug=False):
     Factors = []
     
@@ -84,13 +27,29 @@ def defFactor(args={}, debug=False):
     Exist = LDB.getTable("mf_cn_status").getFactor("if_exist")
     Mask = (Exist==1)
     
-    FT = JYDB.getTable("公募基金基准收益率", args={"回溯天数":0})
-    DailyReturn = Factorize(FT.getFactor("本日基金基准增长率") / 100, factor_name="daily_return")
-    Factors.append(DailyReturn)
-    DailyReturn = fd.where(DailyReturn, Mask, np.nan)
+    # 基金分类
+    FT = LDB.getTable("mf_cn_type")
+    FundType = FT.getFactor("jy_type_second")
     
-    # 成立以来收益率
-    Factors.append(Factorize(FT.getFactor("基金成立以来基准增长率") / 100, factor_name="return_for_since"))
+    # 基金净值
+    FT = JYDB.getTable("公募基金复权净值")
+    NetValueAdj = FT.getFactor("复权单位净值", args={"回溯天数": np.inf})
+    NetValueAdj = fd.where(NetValueAdj, Mask, np.nan)
+    FundReturn = NetValueAdj / fd.lag(NetValueAdj, 1, 1) - 1
+    
+    # 单期收益率
+    PeerReturn = QS.FactorDB.SectionOperation(
+        "daily_return",
+        [FundReturn, FundType],
+        sys_args={
+            "算子": peer_return_fun,
+            "参数": {},
+            "运算时点": "单时点",
+            "输出形式": "全截面",
+            "数据类型": "double"
+        }
+    )
+    Factors.append(PeerReturn)
     
     # 历史收益率
     look_back_period = ['1w', '2w', '3w', '1m', '2m', '3m', '6m', '1y', '2y', '3y', '5y']# 回溯期
@@ -100,7 +59,7 @@ def defFactor(args={}, debug=False):
         if period_type=="w":
             iFactor = QS.FactorDB.TimeOperation(
                 f"return_{time_node}",
-                [DailyReturn],
+                [PeerReturn],
                 sys_args={
                     "算子": return_week_fun,
                     "参数": {"n_period": n_period},
@@ -113,7 +72,7 @@ def defFactor(args={}, debug=False):
         elif period_type=="m":
             iFactor = QS.FactorDB.TimeOperation(
                 f"return_{time_node}",
-                [DailyReturn],
+                [PeerReturn],
                 sys_args={
                     "算子": return_month_fun,
                     "参数": {"n_period": n_period},
@@ -126,7 +85,7 @@ def defFactor(args={}, debug=False):
         elif period_type=="q":
             iFactor = QS.FactorDB.TimeOperation(
                 f"return_{time_node}",
-                [DailyReturn],
+                [PeerReturn],
                 sys_args={
                     "算子": return_month_fun,
                     "参数": {"n_period": n_period},
@@ -139,7 +98,7 @@ def defFactor(args={}, debug=False):
         elif period_type=="y":
             iFactor = QS.FactorDB.TimeOperation(
                 f"return_{time_node}",
-                [DailyReturn],
+                [PeerReturn],
                 sys_args={
                     "算子": return_month_fun,
                     "参数": {"n_period": n_period*12},
@@ -156,7 +115,7 @@ def defFactor(args={}, debug=False):
     # 本周收益率
     Return = QS.FactorDB.TimeOperation(
         "return_this_week",
-        [DailyReturn],
+        [PeerReturn],
         sys_args={
             "算子": calculate_return_this_week,
             "参数": {},
@@ -171,7 +130,7 @@ def defFactor(args={}, debug=False):
     # 本月收益率
     Return = QS.FactorDB.TimeOperation(
         "return_this_month",
-        [DailyReturn],
+        [PeerReturn],
         sys_args={
             "算子": calculate_return_this_month,
             "参数": {},
@@ -186,7 +145,7 @@ def defFactor(args={}, debug=False):
     # 本季收益率
     Return = QS.FactorDB.TimeOperation(
         "return_this_quarter",
-        [DailyReturn],
+        [PeerReturn],
         sys_args={
             "算子": calculate_return_this_quarter,
             "参数": {},
@@ -201,7 +160,7 @@ def defFactor(args={}, debug=False):
     # 本年收益率
     Return = QS.FactorDB.TimeOperation(
         "return_this_year",
-        [DailyReturn],
+        [PeerReturn],
         sys_args={
             "算子": calculate_return_this_year,
             "参数": {},
@@ -213,7 +172,7 @@ def defFactor(args={}, debug=False):
     )
     Factors.append(Return)
     
-    UpdateArgs = {"因子表": "mf_cn_benchmark_return",
+    UpdateArgs = {"因子表": "mf_cn_peer_return",
                   "默认起始日": dt.datetime(2002,1,1),
                   "最长回溯期": 365*10,
                   "IDs": "公募基金"}
