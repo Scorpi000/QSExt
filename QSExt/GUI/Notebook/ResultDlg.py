@@ -15,7 +15,8 @@ import plotly
 from QuantStudio import __QS_Object__, QSArgs
 from QuantStudio.Tools.AuxiliaryFun import joinList, genAvailableName
 from QuantStudio.Tools.DataTypeFun import getNestedDictItems
-from QSExt.GUI.Notebook.utils import createDataFrameDownload, createGetItemDlg, showGetItemDlg, createGetArgsDlg, showGetArgsDlg, createGetIntDlg, showGetIntDlg, createQuestionDlg, showQuestionDlg
+from QSExt.GUI.Notebook.ArgSetupDlg import ArgSetupDlg
+from QSExt.GUI.Notebook.utils import createDataFrameDownload, createGetItemDlg, showGetItemDlg, createGetIntDlg, showGetIntDlg, createQuestionDlg, showQuestionDlg
 
 # 用嵌套字典填充 Tree
 def populateTreeWidgetWithNestedDict(parent, nested_dict, leaf_selected_callback=None, nonleaf_selected_callback=None):
@@ -144,7 +145,7 @@ class ResultDlg(__QS_Object__):
         Widgets["QuestionDlg"] = createQuestionDlg()
         Widgets["GetIntDlg"] = createGetIntDlg()
         Widgets["GetItemDlg"] = createGetItemDlg()
-        Widgets["GetArgsDlg"] = createGetArgsDlg(QSArgs())
+        Widgets["GetPlotArgsDlg"] = None
         
         with Widgets["MainOutput"]:
             display(Widgets["MainDataGrid"])
@@ -416,19 +417,22 @@ class ResultDlg(__QS_Object__):
     
     def plotLine(self, plot_data=None):
         iWidgets = self.Widgets
-        if not iWidgets["GetArgsDlg"]["Showed"]:
+        if (not iWidgets["GetPlotArgsDlg"]) or (not iWidgets["GetPlotArgsDlg"]._Showed):
             iWidgets["ControlFrame"].layout.visibility = "hidden"
             # 获取绘图数据
             PlotResult, Msg = self.getSelectedDF(all_num=True)
             if PlotResult is None:
                 return self.showMsg(Msg)
             iPlotArgs = PlotArgs(PlotResult.columns)
-            return showGetArgsDlg(iWidgets["GetArgsDlg"], parent=None, output_widget=iWidgets["DlgOutput"], 
-                                  ok_callback=lambda b: self.plotLine(PlotResult),
-                                  cancel_callback=lambda b: setattr(iWidgets["ControlFrame"].layout, "visibility", "visible"),
-                                  qsargs=iPlotArgs)
+            iWidgets["GetPlotArgsDlg"] = ArgSetupDlg(iPlotArgs, modal=True)
+            return iWidgets["GetPlotArgsDlg"].showModalDlg(
+                parent=None, 
+                output_widget=iWidgets["DlgOutput"], 
+                ok_callback=lambda b: self.plotLine(PlotResult), 
+                cancel_callback=lambda b: setattr(iWidgets["ControlFrame"].layout, "visibility", "visible")
+            )
         # 设置绘图模式
-        iPlotArgs = iWidgets["GetArgsDlg"]["MainWidget"].Args
+        iPlotArgs = iWidgets["GetPlotArgsDlg"].Args
         PlotMode, PlotAxes = [], []
         for i in range(plot_data.shape[1]):
             PlotMode.append(getattr(iPlotArgs, f"Mode{i}"))

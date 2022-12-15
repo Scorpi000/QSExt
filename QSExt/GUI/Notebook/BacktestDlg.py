@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""回测模型"""
 import inspect
 import datetime as dt
 
@@ -12,7 +13,12 @@ from QSExt.GUI.Notebook.ArgSetupDlg import ArgSetupDlg
 
 class BacktestDlg(__QS_Object__):
     def __init__(self, model=None, fts=[], sys_args={}, config_file=None, **kwargs):
-        self.FTs = {iFT.Name: iFT for iFT in fts}
+        super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
+        if isinstance(fts, dict):
+            self.FTs = fts
+        else:
+            self.FTs = {iFT.Name: iFT for iFT in fts}
+        self._kwargs = kwargs
         if model:
             self.BacktestModel = model
         else:
@@ -30,7 +36,7 @@ class BacktestDlg(__QS_Object__):
         
         self.Frame, self.Widgets = self.createWidgets()
         self.Output = {}
-    
+        
     def showMsg(self, msg, clear=True):
         if clear: self.Widgets["MainOutput"].clear_output()
         with self.Widgets["MainOutput"]:
@@ -89,7 +95,7 @@ class BacktestDlg(__QS_Object__):
         iModuleWidgets = {
             "ModuleNameText": widgets.Text(description="名称", value=module.Name),
             "ArgOutput": widgets.Output(layout={"border": "1px solid black"}),
-            "ArgDlg": ArgSetupDlg(module.Args),
+            "ArgDlg": ArgSetupDlg(module.Args, fts=self.FTs, **self._kwargs),
             "Output": widgets.Output()
         }
         iModuleWidgets["ModuleNameText"].observe(self.on_ModuleNameText_changed, names="value")

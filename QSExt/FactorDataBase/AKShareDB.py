@@ -236,8 +236,8 @@ class AKShareDB(FactorDB):
     # 给定起始日期和结束日期, 获取交易所交易日期
     def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
         DTs = ak.tool_trade_date_hist_sina().iloc[:, 0]
-        if start_date: DTs = DTs[DTs>=(start_date if isinstance(start_date, dt.date) else start_date.date())]
-        if end_date: DTs = DTs[DTs<=(end_date if isinstance(end_date, dt.date) else end_date.date())]
+        if start_date: DTs = DTs[DTs>=(start_date.date() if isinstance(start_date, dt.datetime) else start_date)]
+        if end_date: DTs = DTs[DTs<=(end_date.date() if isinstance(end_date, dt.datetime) else end_date)]
         if kwargs.get("output_type", "datetime")=="date":
             return DTs.tolist()
         else:
@@ -279,8 +279,8 @@ if __name__=="__main__":
     AKSDB = AKShareDB().connect()
     print(AKSDB.TableNames)
     
-    #DTs = AKSDB.getTradeDay()
-    IDs = AKSDB.getStockID(is_current=False)    
+    DTs = AKSDB.getTradeDay(start_date=dt.datetime(2022, 1, 1), end_date=dt.datetime(2022, 1, 31))
+    #IDs = AKSDB.getStockID(is_current=False)    
     
     #FT = AKSDB["历史行情数据-东财"]
     #FT = AKSDB.getTable("历史行情数据-东财", args={"adjust": "hfq"})

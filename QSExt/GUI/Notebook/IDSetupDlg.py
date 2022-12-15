@@ -1,55 +1,24 @@
 # -*- coding: utf-8 -*-
-"""时点设置"""
+"""ID设置(TODO)"""
 import datetime as dt
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output
 
 from QuantStudio import __QS_Object__
-import QuantStudio.Tools.DateTimeFun as DTTools
-from QSExt.GUI.Notebook.utils import exitDlg
+from QSExt.GUI.Notebook.DateTimeSetupDlg import mergeSet
 
-def mergeSet(set1, set2, merge_type):
-    if callable(merge_type): return merge_type(set1, set2)
-    elif merge_type=="覆盖": return set1
-    elif merge_type=="并集": return set1.union(set2)
-    elif merge_type=="交集": return set1.intersection(set2)
-    elif merge_type=="左差右": return set1.difference(set2)
-    elif merge_type=="右差左": return set2.difference(set1)
-    elif merge_type=="对称差": return set1.symmetric_difference(set2)
-    else: raise Exception(f"不支持的合并类型: {merge_type}")
-
-class DateTimeSetupDlg(__QS_Object__):
-    def __init__(self, dts=[], modal=False, trading_day_fun=None, fts=[], sys_args={}, config_file=None, **kwargs):
+class IDSetupDlg(__QS_Object__):
+    def __init__(self, ids=[], id_fun={}, fts=[], sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
-        self._Modal, self._Showed = modal, False
-        self.OldDTs = dts
-        self.TradingDayFun = trading_day_fun
+        self.OldIDs = ids
+        self.IDFun = id_fun
         if isinstance(fts, dict):
             self.FTs = fts
         else:
             self.FTs = {iFT.Name: iFT for iFT in fts}
-        
         self.Frame, self.Widgets = self.createWidgets(self.OldDTs)
         self.Output = {}
-    
-    def showModalDlg(self, parent=None, output_widget=None, ok_callback=None, cancel_callback=None):
-        self._Showed = True
-        iWidgets = self.Widgets
-        if ok_callback:
-            for iCallback in iWidgets["OkButton"]._click_handlers.callbacks[:]:
-                iWidgets["OkButton"].on_click(iCallback, remove=True)
-            iWidgets["OkButton"].on_click(ok_callback)
-        iWidgets["OkButton"].on_click(lambda b: exitDlg(self, output_widget=output_widget, parent=parent))
-        if cancel_callback:
-            for iCallback in iWidgets["CancelButton"]._click_handlers.callbacks[:]:
-                iWidgets["CancelButton"].on_click(iCallback, remove=True)
-            iWidgets["CancelButton"].on_click(cancel_callback)
-        iWidgets["CancelButton"].on_click(lambda b: exitDlg(self, output_widget=output_widget, parent=parent))
-        if output_widget:
-            with output_widget:
-                output_widget.clear_output()
-                display(self.Frame)
     
     def showMsg(self, msg, clear=True):
         if clear: self.Widgets["MainOutput"].clear_output()
@@ -98,8 +67,7 @@ class DateTimeSetupDlg(__QS_Object__):
         Widgets["DateTypeDropdown"].observe(self.on_DateTypeDropdown_changed, names="value")
         Widgets["FTDropdown"] = widgets.Dropdown(description="因子表", options=sorted(self.FTs), layout={"visibility": ("visible" if self.FTs else "hidden")})
         Widgets["MergeDropdown"] = widgets.Dropdown(description="合并类型", options=("覆盖", "并集", "交集", "左差右", "右差左", "对称差"))
-        Widgets["ChangeButton"] = widgets.Button(description="重采样>>")
-        Widgets["ChangeButton"].on_click(self.on_ChangeButton_clicked)
+        Widgets["ChangeButton"] = widgets.Button(description="重采样")
         Widgets["SelectButton"] = widgets.Button(description=">>")
         Widgets["SelectButton"].on_click(self.on_SelectButton_clicked)
         Widgets["DeleteButton"] = widgets.Button(description="删除")
@@ -116,7 +84,7 @@ class DateTimeSetupDlg(__QS_Object__):
                 widgets.HBox(children=[Widgets["DateTypeDropdown"], Widgets["FTDropdown"]]),
                 widgets.HBox(children=[Widgets["PeriodTypeDropdown"], Widgets["PeriodInt"], Widgets["ChangeButton"]]),
                 widgets.HBox(children=[Widgets["MergeDropdown"], Widgets["SelectButton"]]),
-                widgets.HBox(children=([Widgets["DeleteButton"], Widgets["RestoreButton"], Widgets["CancelButton"], Widgets["OkButton"]] if self._Modal else [Widgets["DeleteButton"], Widgets["RestoreButton"]]))
+                widgets.HBox(children=[Widgets["DeleteButton"], Widgets["RestoreButton"], Widgets["CancelButton"], Widgets["OkButton"]])
             ], layout={"width": "450px"}),
             Widgets["DatetimeList"]
         ])
@@ -173,14 +141,8 @@ class DateTimeSetupDlg(__QS_Object__):
         DTs = self.resampleDTs(DTs, iWidgets["PeriodTypeDropdown"].value, period=iWidgets["PeriodInt"].value)
         DTs = mergeSet(set(DTs), set(self.value), merge_type=iWidgets["MergeDropdown"].value)
         iWidgets["DatetimeList"].options = sorted(DTs)
-        iWidgets["DatetimeList"].value = []
-    
-    def on_ChangeButton_clicked(self, b):
-        iWidgets = self.Widgets
-        DTs = self.resampleDTs(self.value, iWidgets["PeriodTypeDropdown"].value, period=iWidgets["PeriodInt"].value)
-        iWidgets["DatetimeList"].options = sorted(DTs)
-        iWidgets["DatetimeList"].value = []
-    
+        iWidgets["DatetimeList"].value = []        
+        
     def on_DeleteButton_clicked(self, b):
         iWidgets = self.Widgets
         iWidgets["DatetimeList"].options = sorted(set(iWidgets["DatetimeList"].options).difference(iWidgets["DatetimeList"].value))

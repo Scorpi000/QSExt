@@ -9,6 +9,8 @@ from ipyfilechooser import FileChooser
 from IPython.display import display, clear_output
 
 from QuantStudio import __QS_Object__, QSArgs
+from QSExt.GUI.Notebook.DateTimeSetupDlg import DateTimeSetupDlg
+from QSExt.GUI.Notebook.utils import exitDlg
 
 # 支持无穷大的 Float 控件
 class FloatWithInfWidget:
@@ -60,12 +62,68 @@ class FloatWithInfWidget:
         elif SelectedValue=="正无穷":
             return np.inf
 
+# 求值 Textarea 控件
+class EvalTextareaWidget:
+    def __init__(self, value, description="", disabled=False, msg_output=None):
+        self._MsgOutput = msg_output
+        self.Widgets = {}
+        self.Widgets["Textarea"] = widgets.Textarea(value=str(value), disabled=disabled, tooltip="eval")
+        self.Widgets["OkButton"] = widgets.Button(description="确定", disabled=True)
+        self.Frame = widgets.HBox(children=[widgets.Label(value=description), self.Widgets["Textarea"], self.Widgets["OkButton"]])
+    
+    def on_value_change(self, handler):
+        self._ValueChangeHandler = handler
+        self.Widgets["Textarea"].observe(self._on_value_change, names="value")
+        self.Widgets["OkButton"].on_click(self._on_OkButton_clicked)
+        
+    def _on_value_change(self, change):
+        self.Widgets["OkButton"].disabled = False
+
+    def _on_OkButton_clicked(self, b):
+        change = {"owner": self, "old": self._QSArgs[self._QSArgName]}
+        try:
+            change["new"] = self.value
+        except Exception as e:
+            self.Widgets["OkButton"].disabled = False
+            if self._MsgOutput:
+                with self._MsgOutput:
+                    print(f"求值失败: {e}")
+            else:
+                print(f"求值失败: {e}")
+        else:
+            self.Widgets["OkButton"].disabled = True
+            return self._ValueChangeHandler(change)
+    
+    @property
+    def value(self):
+        return eval(self.Widgets["Textarea"].value)
+        
 class ArgSetupDlg(__QS_Object__):
-    def __init__(self, args: QSArgs, msg_output=None, sys_args={}, config_file=None, **kwargs):
+    def __init__(self, args: QSArgs, modal=False, msg_output=None, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
+        self._Modal, self._Showed = modal, False
         self._Args = args
         self._MsgOutput = msg_output# 显示消息的 output
+        self._kwargs = kwargs
         self.Frame, self.Widgets = self.createArgWidgets(self._Args, {})
+    
+    def showModalDlg(self, parent=None, output_widget=None, ok_callback=None, cancel_callback=None):
+        self._Showed = True
+        iWidgets = self.Widgets
+        if ok_callback:
+            for iCallback in iWidgets["OkButton"]._click_handlers.callbacks[:]:
+                iWidgets["OkButton"].on_click(iCallback, remove=True)
+            iWidgets["OkButton"].on_click(ok_callback)
+        iWidgets["OkButton"].on_click(lambda b: exitDlg(self, output_widget=output_widget, parent=parent))
+        if cancel_callback:
+            for iCallback in iWidgets["CancelButton"]._click_handlers.callbacks[:]:
+                iWidgets["CancelButton"].on_click(iCallback, remove=True)
+            iWidgets["CancelButton"].on_click(cancel_callback)
+        iWidgets["CancelButton"].on_click(lambda b: exitDlg(self, output_widget=output_widget, parent=parent))
+        if output_widget:
+            with output_widget:
+                output_widget.clear_output()
+                display(self.Frame)
     
     @property
     def Args(self):
@@ -136,12 +194,14 @@ class ArgSetupDlg(__QS_Object__):
                 widget_dict[iArgName]._QSArgs = args
                 widget_dict[iArgName].on_value_change(self._on_value_change)
             elif iArgType=="DateTimeList":# traits: List(dt.datetime)
-                widget_dict[iArgName] = widgets.Textarea(value=str(iArgVal), disabled=iDisabled, tooltip="List(dt.datetime)")
-                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
-                widget_dict[iArgName]._QSValueFun = eval
+                #widget_dict[iArgName] = widgets.Textarea(value=str(iArgVal), disabled=iDisabled, tooltip="List(dt.datetime)")
+                #Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
+                widget_dict[iArgName] = DateTimeSetupDlg(dts=iArgVal, **self._kwargs)
+                Frame.append(widgets.Accordion(children=[widget_dict[iArgName].Frame], titles=(iArgName,)))
+                #widget_dict[iArgName]._QSValueFun = eval
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
-                widget_dict[iArgName].observe(self._on_value_change, names="value")
+                widget_dict[iArgName].on_value_change(self._on_value_change)
             elif iArgType=="IDList":# traits: ListStr
                 widget_dict[iArgName] = widgets.Textarea(value=str(iArgVal), disabled=iDisabled, tooltip="ListStr")
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
@@ -149,13 +209,30 @@ class ArgSetupDlg(__QS_Object__):
                 widget_dict[iArgName]._QSArgName = iArgName
                 widget_dict[iArgName]._QSArgs = args
                 widget_dict[iArgName].observe(self._on_value_change, names="value")
+            elif iArgType=="IDFilter":# traits: Str
+                widget_dict[iArgName] = widgets.Textarea(value=str(iArgVal), disabled=iDisabled, tooltip="IDFilter")
+                Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
+                widget_dict[iArgName]._QSArgName = iArgName
+                widget_dict[iArgName]._QSArgs = args
+                widget_dict[iArgName].observe(self._on_value_change, names="value")
+            elif iArgType=="Dict":# traits: Dict
+                widget_dict[iArgName] = EvalTextareaWidget(iArgVal, description=iArgName, disabled=iDisabled, msg_output=self._MsgOutput)
+                Frame.append(widget_dict[iArgName].Frame)
+                widget_dict[iArgName]._QSArgName = iArgName
+                widget_dict[iArgName]._QSArgs = args
+                widget_dict[iArgName].on_value_change(self._on_value_change)
             elif iArgType=="ArgObject":
                 iFrame, widget_dict[iArgName] = self.createArgWidgets(iArgVal, {})
                 Frame.append(widgets.Accordion(children=[iFrame], titles=(iArgName,)))
             else:
                 widget_dict[iArgName] = widgets.Label(value=f"暂不支持修改的参数类型: {iTrait.arg_type}, 请在程序里修改!")
                 Frame.append(widgets.HBox(children=[widgets.Label(value=iArgName), widget_dict[iArgName]]))
-        return widgets.VBox(children=Frame), widget_dict
+        if self._Modal:
+            widget_dict["OkButton"] = widgets.Button(description="确定")
+            widget_dict["CancelButton"] = widgets.Button(description="取消")
+            return widgets.VBox(children=Frame+[widgets.HBox(children=[widget_dict["OkButton"], widget_dict["CancelButton"]])]), widget_dict
+        else:
+            return widgets.VBox(children=Frame), widget_dict
     
     def display(self, output=None):
         if output:

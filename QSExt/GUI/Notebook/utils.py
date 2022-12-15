@@ -4,8 +4,6 @@ import base64
 from IPython.display import display, clear_output
 import ipywidgets as widgets
 
-from QSExt.GUI.Notebook.ArgSetupDlg import ArgSetupDlg
-
 def createDataFrameDownload(df, name="Download"):
     CSV = df.to_csv()
     b64 = base64.b64encode(CSV.encode())
@@ -25,7 +23,10 @@ def showDlg(dlg, output_widget=None):
         display(dlg["Frame"])
 
 def exitDlg(dlg, output_widget=None, parent=None):
-    dlg["Showed"] = False
+    if isinstance(dlg, dict):
+        dlg["Showed"] = False
+    else:
+        dlg._Showed = False
     if output_widget:
         with output_widget:
             output_widget.clear_output()
@@ -146,38 +147,6 @@ def showGetItemDlg(dlg, parent=None, output_widget=None, ok_callback=None, cance
         dlg["MainWidget"].options = options
     if default_value is not None:
         dlg["MainWidget"].value = default_value
-    if ok_callback:
-        for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
-            dlg["OkButton"].on_click(iCallback, remove=True)
-        dlg["OkButton"].on_click(ok_callback)
-    dlg["OkButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
-    if cancel_callback:
-        for iCallback in dlg["CancelButton"]._click_handlers.callbacks[:]:
-            dlg["CancelButton"].on_click(iCallback, remove=True)
-        dlg["CancelButton"].on_click(cancel_callback)
-    dlg["CancelButton"].on_click(lambda b: exitDlg(dlg, output_widget=output_widget, parent=parent))
-    return showDlg(dlg, output_widget=output_widget)
-
-def createGetArgsDlg(qsargs, ok_text="确定", cancel_text="取消"):
-    Dlg = {
-        "Showed": False,
-        "MainWidget": ArgSetupDlg(qsargs),
-        "OkButton": widgets.Button(description=ok_text),
-        "CancelButton": widgets.Button(description=cancel_text),
-    }
-    Dlg["Frame"] = widgets.VBox(children=[
-        Dlg["MainWidget"].Frame,
-        widgets.HBox(children=[Dlg["OkButton"], Dlg["CancelButton"]])
-    ])
-    return Dlg
-
-def showGetArgsDlg(dlg, parent=None, output_widget=None, ok_callback=None, cancel_callback=None, qsargs=None):
-    if qsargs is not None:
-        dlg["MainWidget"] = ArgSetupDlg(qsargs)
-        dlg["Frame"] = widgets.VBox(children=[
-            dlg["MainWidget"].Frame,
-            widgets.HBox(children=[dlg["OkButton"], dlg["CancelButton"]])
-        ])
     if ok_callback:
         for iCallback in dlg["OkButton"]._click_handlers.callbacks[:]:
             dlg["OkButton"].on_click(iCallback, remove=True)
