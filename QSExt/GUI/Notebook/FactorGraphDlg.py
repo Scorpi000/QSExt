@@ -5,13 +5,15 @@ import ipywidgets as widgets
 from IPython.display import display, clear_output
 
 from QuantStudio import __QS_Object__
+from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB
+from QuantStudio.FactorDataBase.FactorOperation import DerivativeFactor
 
 __CSS__ = [
     {
         "selector": "node.Factor",
         "style": {
             "color": "black",
-            "background-color": "steelblue",
+            "background-color": "DeepSkyBlue",
             "label": "data(label)",
             "font-family": "helvetica",
             "font-size": "10px",
@@ -20,10 +22,16 @@ __CSS__ = [
         }
     },
     {
+        "selector": "node.DerivativeFactor",
+        "style": {
+            "background-color": "SteelBlue",
+        }
+    },
+    {
         "selector": "node.FactorTable",
         "style": {
             "color": "black",
-            "background-color": "green",
+            "background-color": "LightGreen",
             "label": "data(label)",
             "font-family": "helvetica",
             "font-size": "10px",
@@ -34,15 +42,9 @@ __CSS__ = [
     {
         "selector": "node.CustomFT",
         "style": {
-            "color": "black",
-            "background-color": "orange",
-            "label": "data(label)",
-            "font-family": "helvetica",
-            "font-size": "10px",
-            "text-valign": "center",
-            "text-halign": "center",
+            "background-color": "ForestGreen",
         }
-    },    
+    },
     {
         "selector": "node.FactorDB",
         "style": {
@@ -53,6 +55,12 @@ __CSS__ = [
             "font-size": "10px",
             "text-valign": "center",
             "text-halign": "center",
+        }
+    },
+    {
+        "selector": "node.WritableFactorDB",
+        "style": {
+            "background-color": "orange",
         }
     },    
     #{
@@ -109,10 +117,12 @@ class FactorGraphDlg(__QS_Object__):
         for iCFT in cfts: self.addCustomFT(self._nxGraph, iCFT)
         self.Frame, self.Widgets = self.createWidgets()
         self.Widgets["Graph"].graph.add_graph_from_networkx(self._nxGraph, directed=True)
+        self.updateGraph()
     
     def createWidgets(self):
         Widgets = {}
         
+        Widgets["GraphOutput"] = widgets.Output(layout={"width": "80%"})
         Widgets["InfoOutput"] = widgets.Output()
         #Widgets["FactorCheckbox"] = widgets.Checkbox(description="因子", indent=False, value=True)
         #Widgets["FactorCheckbox"].observe(self._on_FactorCheckbox_changed, names="value")
@@ -131,18 +141,18 @@ class FactorGraphDlg(__QS_Object__):
         #Widgets["Graph"].on("node", "mouseover", lambda node: QSNode.on_Node_clicked(node, Nodes, Widgets["InfoOutput"]))
         
         Frame = widgets.HBox(children=[
-            Widgets["Graph"],
+            Widgets["GraphOutput"],
             widgets.VBox(children=[
                 widgets.HBox(children=[Widgets["FactorTableCheckbox"], Widgets["FactorDBCheckbox"]]),
                 Widgets["InfoOutput"]
-            ], layout={"width": "300px"}),
+            ], layout={"width": "20%"}),
         ])
         
         return Frame, Widgets    
     
     def showMsg(self, msg, clear=True):
-        if clear: self.Widgets["MainOutput"].clear_output()
-        with self.Widgets["MainOutput"]:
+        if clear: self.Widgets["InfoOutput"].clear_output()
+        with self.Widgets["InfoOutput"]:
             if isinstance(msg, str):
                 print(msg)
             else:
@@ -155,12 +165,17 @@ class FactorGraphDlg(__QS_Object__):
                 display(self.Frame)
         else:
             clear_output()
-            display(self.Frame)    
+            display(self.Frame)
+    
+    def updateGraph(self):
+        self.Widgets["GraphOutput"].clear_output()
+        with self.Widgets["GraphOutput"]:
+            display(self.Widgets["Graph"])
     
     def addCustomFT(self, g, cft):
         iID = str(id(cft))
         if iID not in self._FTNodes:
-            FTNode = QSNode(qs_obj=cft, classes="CustomFT")
+            FTNode = QSNode(qs_obj=cft, classes="FactorTable CustomFT")
             self._FTNodes[iID] = FTNode
             g.add_node(FTNode)
         else:
@@ -175,7 +190,10 @@ class FactorGraphDlg(__QS_Object__):
         for i, iFactor in enumerate(factor_list):
             iID = str(id(iFactor))
             if iID not in self._FactorNodes:
-                iFactorNode = QSNode(iFactor, classes="Factor")
+                if isinstance(iFactor, DerivativeFactor):
+                    iFactorNode = QSNode(iFactor, classes="Factor DerivativeFactor")
+                else:
+                    iFactorNode = QSNode(iFactor, classes="Factor")
                 self._FactorNodes[iID] = iFactorNode
                 g.add_node(iFactorNode)
             else:
@@ -195,10 +213,13 @@ class FactorGraphDlg(__QS_Object__):
                 iFTNode = self._FTNodes[iFTID]
             g.add_edge(iFactorNode, iFTNode)
             iFDB = iFT.FactorDB
-            if iFDB is not None: continue
+            if iFDB is None: continue
             iFDBID = str(id(iFDB))
             if iFDBID not in self._FDBNodes:
-                iFDBNode = QSNode(iFDB, classes="FactorDB")
+                if isinstance(iFDB, WritableFactorDB):
+                    iFDBNode = QSNode(iFDB, classes="FactorDB WritableFactorDB")
+                else:
+                    iFDBNode = QSNode(iFDB, classes="FactorDB")                    
                 self._FDBNodes[iFDBID] = iFDBNode
                 g.add_node(iFDBNode)
             else:
@@ -221,21 +242,23 @@ class FactorGraphDlg(__QS_Object__):
         iWidgets = self.Widgets
         if change["new"]:
             iWidgets["Graph"].graph.clear()
-            self.Widgets["Graph"].graph.add_graph_from_networkx(self._nxGraph, directed=True)
+            iWidgets["Graph"].graph.add_graph_from_networkx(self._nxGraph, directed=True)
             if not iWidgets["FactorDBCheckbox"].value:
                 self.removeFDBNode()
         else:
             self.removeFTNode()
+        self.updateGraph()
     
     def _on_FactorDBCheckbox_changed(self, change):
         iWidgets = self.Widgets
         if change["new"]:
             iWidgets["Graph"].graph.clear()
-            self.Widgets["Graph"].graph.add_graph_from_networkx(self._nxGraph, directed=True)
+            iWidgets["Graph"].graph.add_graph_from_networkx(self._nxGraph, directed=True)
             if not iWidgets["FactorTableCheckbox"].value:
                 self.removeFTNode()
         else:
             self.removeFDBNode()
+        self.updateGraph()
     
 if __name__=="__main__":
     import QuantStudio.api as QS
