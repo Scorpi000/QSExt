@@ -31,8 +31,7 @@ class DateTimeSetupDlg(__QS_Object__):
             self.FTs = {iFT.Name: iFT for iFT in fts}
         
         self.Frame, self.Widgets = self.createWidgets(self.OldDTs)
-        self.Output = {}
-    
+        
     def showModalDlg(self, parent=None, output_widget=None, ok_callback=None, cancel_callback=None):
         self._Showed = True
         iWidgets = self.Widgets
