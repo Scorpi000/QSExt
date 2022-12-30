@@ -1,7 +1,10 @@
+plotly
+nbformat
 ipywidgets
 ipyevents
 ipytree
 ipyfilechooser
+ipydatagrid
 
 # FactorCytoscape
 networkx

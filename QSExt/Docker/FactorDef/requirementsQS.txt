@@ -1,7 +1,7 @@
 numpy
 pandas
 scipy
-cvxpy
+#cvxpy
 matplotlib
 statsmodels
 h5py
