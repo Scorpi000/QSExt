@@ -16,13 +16,15 @@ from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB
 from QuantStudio.Tools.AuxiliaryFun import genAvailableName
 from QuantStudio.Tools.FileFun import listDirFile, loadCSVFactorData
 from QSExt.GUI.Notebook.utils import createQuestionDlg, showQuestionDlg, createGetTextDlg, showGetTextDlg, createDataFrameDownload
-
+from QSExt.GUI.Notebook.FactorGraphDlg import FactorGraphDlg
+from QSExt.Tools.FactorFun import loadFactorDef
 
 # 因子库管理
 class FactorDBDlg(__QS_Object__):
-    def __init__(self, fdbs, sys_args={}, config_file=None, **kwargs):
+    def __init__(self, fdbs, context={}, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
         self.FDBs = fdbs
+        self._Context = context
         self.FDBAttrs = {iFDBName: {"ReadOnly": not isinstance(iFDB, WritableFactorDB)} for iFDBName, iFDB in fdbs.items()}
         self.EndDT = dt.datetime.combine(dt.date.today(), dt.time(0))
         self._TmpDir = tempfile.TemporaryDirectory()
@@ -41,6 +43,7 @@ class FactorDBDlg(__QS_Object__):
             "Upload": widgets.FileUpload(accept=".csv", multiple=False),
             "Update": widgets.Button(description="刷新"),
             "Download": widgets.Button(description="下载"),
+            "FactorDef": widgets.Button(description="因子定义"),
             "StartDT": widgets.DatePicker(description="起始日期", disabled=False, value=(self.EndDT - dt.timedelta(31)).date()),
             "EndDT": widgets.DatePicker(description="截止日期", disabled=False, value=self.EndDT.date()),
             "IDNum": widgets.IntText(description="证券数量", disabled=False, value=10),
@@ -64,7 +67,7 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["ControlFrame"] = widgets.VBox(children=[
             widgets.HBox(children=[self.Widgets["Preview"], self.Widgets["StartDT"], self.Widgets["EndDT"], self.Widgets["IDNum"]]),
             widgets.HBox(children=[self.Widgets["Upload"], self.Widgets["TargetTable"], self.Widgets["TargetFactor"]]),
-            widgets.HBox(children=[self.Widgets["Download"], self.Widgets["Delete"], self.Widgets["Rename"], self.Widgets["Update"]])
+            widgets.HBox(children=[self.Widgets["Download"], self.Widgets["Delete"], self.Widgets["Rename"], self.Widgets["Update"], self.Widgets["FactorDef"]])
         ])
         
         self.Widgets["QuestionDlg"] = createQuestionDlg(question="你真的确定这么干吗？")
@@ -77,6 +80,7 @@ class FactorDBDlg(__QS_Object__):
         self.Widgets["Download"].on_click(self.download)
         self.Widgets["Delete"].on_click(self.deleteTableFactor)
         self.Widgets["Rename"].on_click(self.rename)
+        self.Widgets["FactorDef"].on_click(self.showFactorDef)
         self.Widgets["Upload"].observe(self.upload, names="_counter")
         self.Widgets["FDBList"].observe(self.selectFDB, names="value")
         self.Widgets["Update"].click()
@@ -159,8 +163,7 @@ class FactorDBDlg(__QS_Object__):
     
     def readData(self, id_num=0, start_dt=None, end_dt=None):
         iWidgets = self.Widgets
-        FDB = self.FDBs[iWidgets["FDBList"].value]
-        FDB.connect()
+        FDB = self.FDBs[iWidgets["FDBList"].value].connect()
         TableFactor = self.getSelectedTableFactor()
         if (len(TableFactor)==0): return None
         
@@ -214,11 +217,6 @@ class FactorDBDlg(__QS_Object__):
             else:
                 iWidgets["MainDataGrid"].data = Data
                 display(iWidgets["MainDataGrid"])
-                #pd.set_option("display.max_rows", None)
-                #pd.set_option("display.max_columns", None)
-                #display(Data)
-                #pd.reset_option("display.max_rows")
-                #pd.reset_option("display.max_columns")
     
     def download(self, b):
         iWidgets = self.Widgets
@@ -339,7 +337,7 @@ class FactorDBDlg(__QS_Object__):
                 print(f"错误: {str(e)}")
             return iWidgets["Update"].click()
         else:
-            inode.name = NewTableName            
+            inode.name = NewFactorName
     
     def rename(self, b):
         iWidgets = self.Widgets
@@ -360,3 +358,22 @@ class FactorDBDlg(__QS_Object__):
         else:# 用户选择了一个因子
             iNode = iWidgets["FDBTree"].selected_nodes[0]
             return self.renameFactor(iTable, TableFactor[iTable][0], iNode)
+
+    def showFactorDef(self, b):
+        iWidgets = self.Widgets
+        iWidgets["Output"].clear_output()
+        TableFactor = self.getSelectedTableFactor()
+        if len(TableFactor) != 1:
+            with iWidgets["Output"]:
+                print("请选择一张表!")
+            return
+        TableName = list(TableFactor)[0]
+        FDB = self.FDBs[iWidgets["FDBList"].value].connect()
+        FT = FDB.getTable(TableName)
+        Factors = loadFactorDef(FT, self._Context)
+        if not Factors:
+            with iWidgets["Output"]:
+                print("没有找到因子定义信息!")
+            return
+        self._FactorGraphDlg = FactorGraphDlg(factor_list=Factors, context=self._Context)
+        self._FactorGraphDlg.display(iWidgets["Output"])
