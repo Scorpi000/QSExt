@@ -195,3 +195,31 @@ def TRIX(p, n_tr=12, m=20, return_pos=None):
     TRIX[1:] = (TR[1:]/TR[:-1]-1)*100
     MATRIX = MA(TRIX, m)
     return (TRIX, MATRIX, TR)
+
+# 计算 zigzag 波段
+# wealth_seq: array((N,))
+# 返回：[(开始位置，结束位置，上升(1)或者下跌(-1)的状态标识)]
+def calcZigzag(wealth_seq, up_rate=0.1, down_rate=-0.1):
+    iStartIdx, iStatus = 0, 0
+    iMaxIdx, iMinIdx = 0, 0
+    Ranges = []
+    for i in range(1, wealth_seq.shape[0]):
+        iNV = wealth_seq[i]
+        if iStatus <= 0:# 当前处于下跌行情
+            if iNV < wealth_seq[iMinIdx]:
+                iMinIdx = i
+            if iNV / wealth_seq[iMinIdx] - 1 >= up_rate:# 进入上涨行情
+                if iMinIdx > iStartIdx: Ranges.append((iStartIdx, iMinIdx, -1))
+                iStartIdx = iMinIdx
+                iMaxIdx = i
+                iStatus = 1
+        if iStatus >= 0:# 当前处于上涨行情
+            if iNV > wealth_seq[iMaxIdx]:
+                iMaxIdx = i
+            if iNV / wealth_seq[iMaxIdx] - 1 <= down_rate:# 进入下跌行情
+                if iMaxIdx > iStartIdx: Ranges.append((iStartIdx, iMaxIdx, 1))
+                iStartIdx = iMaxIdx
+                iMinIdx = i
+                iStatus = -1
+    Ranges.append((iStartIdx, i, iStatus))
+    return Ranges
