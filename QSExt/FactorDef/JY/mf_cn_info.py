@@ -11,7 +11,7 @@ Factorize = QS.FactorDB.Factorize
 
 def strCode(f, idt, iid, x, args):
     Mask = pd.isnull(x[0])
-    d = x[0].astype(np.int).astype(np.str).astype("O")
+    d = x[0].astype(int).astype(str).astype("O")
     d[Mask] = None
     return d
 

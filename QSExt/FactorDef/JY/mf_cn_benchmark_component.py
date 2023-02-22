@@ -20,7 +20,7 @@ def adjustDT(f, idt, iid, x, args):
 
 def calc_weight(f, idt, iid, x, args):
     if isinstance(x[0], list) and isinstance(x[1], list):
-        return np.nanmean(np.array(x, dtype=np.float), axis=0).tolist()
+        return np.nanmean(np.array(x, dtype=float), axis=0).tolist()
     else:
         return None
 

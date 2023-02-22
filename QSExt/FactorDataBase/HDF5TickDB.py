@@ -315,7 +315,7 @@ class HDF5TickDB(WritableFactorDB):
                         iGroup.create_dataset("DateTime", shape=(iData.shape[0],), maxshape=(None,), data=iData.index)
                         for jFactorName, jDataType in data_type.items():
                             if jDataType=="double":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=float, fillvalue=np.nan, data=iData[jFactorName].values)
                             elif jDataType=="string":
                                 iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                             elif jDataType=="object":
@@ -335,7 +335,7 @@ class HDF5TickDB(WritableFactorDB):
                         iGroup.create_dataset("DateTime", shape=(iData.shape[0],), maxshape=(None,), data=iData.index)
                         for jFactorName, jDataType in data_type.items():
                             if jDataType=="double":
-                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=float, fillvalue=np.nan, data=iData[jFactorName].values)
                             elif jDataType=="string":
                                 iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                             elif jDataType=="object":
@@ -360,7 +360,7 @@ class HDF5TickDB(WritableFactorDB):
                         for jFactorName, jDataType in data_type.items():
                             if jFactorName not in iGroup:
                                 if jDataType=="double":
-                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=np.float, fillvalue=np.nan, data=iData[jFactorName].values)
+                                    iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=float, fillvalue=np.nan, data=iData[jFactorName].values)
                                 elif jDataType=="string":
                                     iGroup.create_dataset(jFactorName, shape=(iData.shape[0],), maxshape=(None,), dtype=StrDataType, fillvalue=None, data=iData[jFactorName].values)
                                 elif jDataType=="object":

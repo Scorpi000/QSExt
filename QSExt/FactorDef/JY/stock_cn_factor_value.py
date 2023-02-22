@@ -4,6 +4,7 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 
 import QuantStudio.api as QS
 fd = QS.FactorDB.FactorTools
@@ -46,7 +47,7 @@ def ValueBiasRegressFun(f, idt, iid, x, args):
     return (Rslt.params[0], Rslt.params[1], Rslt.params[2])
 
 def ValueBiasFun(f, idt, iid, x, args):
-    DataType = np.dtype([("0", np.float), ("1", np.float), ("2", np.float)])
+    DataType = np.dtype([("0", float), ("1", float), ("2", float)])
     x = x[0].astype(DataType)
     a, l, b = x["0"], x["1"], x["2"]
     l[l==0] = np.nan

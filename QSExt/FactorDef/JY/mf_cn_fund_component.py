@@ -19,7 +19,7 @@ def filterReportType(f, idt, iid, x, args):
 # 同一个报告期, 如果有中报或者年报, 取中报或年报, 否则取季报
 def mask(f, idt, iid, x, args):
     if not isinstance(x[1], list): return x[0]
-    return np.array(x[0])[np.array(x[1], dtype=np.bool)].tolist()
+    return np.array(x[0])[np.array(x[1], dtype=bool)].tolist()
 
 def adjustDT(f, idt, iid, x, args):
     if isinstance(x[0], list):
