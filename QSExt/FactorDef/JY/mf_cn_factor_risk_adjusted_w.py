@@ -10,7 +10,7 @@ from scipy.stats import linregress
 import QuantStudio.api as QS
 fd = QS.FactorDB.FactorTools
 Factorize = QS.FactorDB.Factorize
-from .mf_cn_factor_risk_adjusted import m2_measure_fun, stutzer_index_fun, 
+from .mf_cn_factor_risk_adjusted import m2_measure_fun, stutzer_index_fun
 
 
 def defFactor(args={}, debug=False):

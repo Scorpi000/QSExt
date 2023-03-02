@@ -144,11 +144,18 @@ class GoGoalDB(QSSQLObject, FactorDB):
             return [iRslt[0] for iRslt in Rslt]
 
     # 获取私募基金 ID
+    # kwargs: type_standard: 分类标准代码, 比如 105: 按策略类型分类
+    #         type：类型代码, 比如 105100100: 股票多头
+    #         conditions: 筛选条件, dict
     def getPrivateFundID(self, date=None, is_current=True, start_date=None, **kwargs):
+        type_standard, type = kwargs.get("type_standard", None), kwargs.get("type", None)
         if date is None: date = dt.date.today()
         if start_date is not None: start_date = start_date.strftime("%Y-%m-%d")
         SQLStr = "SELECT CAST({Prefix}t_fund_info.fund_id AS CHAR) AS ID FROM {Prefix}t_fund_info "
+        if type_standard is not None: SQLStr += "INNER JOIN t_fund_type_mapping ON {Prefix}t_fund_info.fund_id = {Prefix}t_fund_type_mapping.fund_id "
         SQLStr += "WHERE {Prefix}t_fund_info.foundation_date <= '{Date}' "
+        if type_standard is not None: SQLStr += f"AND {{Prefix}}t_fund_type_mapping.typestandard_code = {type_standard} "
+        if type is not None: SQLStr += f"AND {{Prefix}}t_fund_type_mapping.type_code = {type}"
         if start_date is not None:
             SQLStr += "AND (({Prefix}t_fund_info.end_date IS NULL) OR ({Prefix}t_fund_info.end_date >= '{StartDate}')) "
         if is_current:
@@ -170,6 +177,53 @@ class GoGoalDB(QSSQLObject, FactorDB):
                 SQLStr += f"AND {{Prefix}}t_fund_info.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"), StartDate=start_date)))
+        if Rslt.shape[0] > 0:
+            return Rslt[:, 0].tolist()
+        else:
+            return []
+
+    # 获取私募机构 ID
+    # kwargs: conditions: 筛选条件, dict
+    def getPrivateOrgID(self, date=None, **kwargs):
+        if date is None: date = dt.date.today()
+        SQLStr = "SELECT CAST({Prefix}t_fund_org.org_id AS CHAR) AS ID FROM {Prefix}t_fund_org "
+        SQLStr += "WHERE {Prefix}t_fund_org.found_date <= '{Date}' "
+        Conditions, FactorInfo = kwargs.get("conditions", {}), self._FactorInfo.loc["机构信息表"]
+        for iField, iVals in Conditions.items():
+            iDBField = FactorInfo.loc[iField, "DBFieldName"]
+            if isinstance(iVals[0], str):
+                iValStr = "'" + "', '".join(str(jVal) for jVal in iVals if pd.notnull(jVal)) + "'"
+            else:
+                iValStr = ", ".join(str(jVal) for jVal in iVals if pd.notnull(jVal))
+            if None in iVals:
+                SQLStr += f"AND ({{Prefix}}t_fund_org.{iDBField} IS NULL OR {{Prefix}}t_fund_org.{iDBField} IN ({iValStr})) "
+            else:
+                SQLStr += f"AND {{Prefix}}t_fund_org.{iDBField} IN ({iValStr}) "
+        SQLStr += "ORDER BY ID"
+        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"))))
+        if Rslt.shape[0] > 0:
+            return Rslt[:, 0].tolist()
+        else:
+            return []
+
+    # 获取私募基金经理 ID
+    # kwargs: conditions: 筛选条件, dict
+    def getPrivateManagerID(self, **kwargs):
+        SQLStr = "SELECT CAST({Prefix}t_fund_manager.user_id AS CHAR) AS ID FROM {Prefix}t_fund_manager "
+        SQLStr += "WHERE {Prefix}t_fund_manager.user_id IS NOT NULL "
+        Conditions, FactorInfo = kwargs.get("conditions", {}), self._FactorInfo.loc["投资经理信息表"]
+        for iField, iVals in Conditions.items():
+            iDBField = FactorInfo.loc[iField, "DBFieldName"]
+            if isinstance(iVals[0], str):
+                iValStr = "'" + "', '".join(str(jVal) for jVal in iVals if pd.notnull(jVal)) + "'"
+            else:
+                iValStr = ", ".join(str(jVal) for jVal in iVals if pd.notnull(jVal))
+            if None in iVals:
+                SQLStr += f"AND ({{Prefix}}t_fund_manager.{iDBField} IS NULL OR {{Prefix}}t_fund_manager.{iDBField} IN ({iValStr})) "
+            else:
+                SQLStr += f"AND {{Prefix}}t_fund_manager.{iDBField} IN ({iValStr}) "
+        SQLStr += "ORDER BY ID"
+        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix)))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
         else:
