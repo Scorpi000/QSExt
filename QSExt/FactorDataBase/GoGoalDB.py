@@ -1,22 +1,17 @@
 # coding=utf-8
 """朝阳永续数据库"""
-import re
 import os
 import json
-import shelve
 import datetime as dt
 
 import numpy as np
 import pandas as pd
-from traits.api import Enum, Int, Str, List, ListStr, Dict, Callable, File
+from traits.api import Str, Dict, File
 
-from QuantStudio.Tools.api import Panel
-from QuantStudio.Tools.SQLDBFun import genSQLInCondition
-from QuantStudio.Tools.FileFun import getShelveFileSuffix
 from QuantStudio.Tools.QSObjects import QSSQLObject
 from QuantStudio import __QS_Error__, __QS_LibPath__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import FactorDB
-from QuantStudio.FactorDataBase.FDBFun import adjustDataDTID, SQL_Table, SQL_FeatureTable, SQL_WideTable, SQL_MappingTable, SQL_NarrowTable, SQL_TimeSeriesTable, SQL_ConstituentTable, SQL_FinancialTable
+from QuantStudio.FactorDataBase.FDBFun import SQL_FeatureTable, SQL_WideTable, SQL_MappingTable, SQL_NarrowTable, SQL_TimeSeriesTable, SQL_ConstituentTable, SQL_FinancialTable
 
 __QS_MainPath__ = os.path.abspath(os.path.split(os.path.realpath(__file__))[0]+os.sep+"..")
 
