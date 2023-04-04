@@ -19,8 +19,8 @@ __QS_MainPath__ = os.path.abspath(os.path.split(os.path.realpath(__file__))[0]+o
 def _importInfo(info_file, info_resource, logger, out_info=False):
     Suffix = info_resource.split(".")[-1]
     if Suffix in ("xlsx", "xls"):
-        TableInfo = pd.read_excel(info_resource, "TableInfo").set_index(["TableName"])
-        FactorInfo = pd.read_excel(info_resource, "FactorInfo").set_index(['TableName', 'FieldName'])
+        TableInfo = pd.read_excel(info_resource, "TableInfo", engine="openpyxl").set_index(["TableName"])
+        FactorInfo = pd.read_excel(info_resource, "FactorInfo", engine="openpyxl").set_index(['TableName', 'FieldName'])
     elif Suffix == "json":
         Info = json.load(open(info_resource, "r"))
         TableInfo = pd.DataFrame(Info["TableInfo"]).T
