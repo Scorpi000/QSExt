@@ -30,5 +30,5 @@ setuptools.setup(
     install_requires=[
         "QuantStudio",
     ],
-    package_data={"QuantStudio": ["Resource/*"]}
+    package_data={"QSExt": ["Resource/*"]}
 )
