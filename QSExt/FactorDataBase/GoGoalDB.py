@@ -19,8 +19,8 @@ __QS_MainPath__ = os.path.abspath(os.path.split(os.path.realpath(__file__))[0]+o
 def _importInfo(info_file, info_resource, logger, out_info=False):
     Suffix = info_resource.split(".")[-1]
     if Suffix in ("xlsx", "xls"):
-        TableInfo = pd.read_excel(info_resource, "TableInfo").set_index(["TableName"])
-        FactorInfo = pd.read_excel(info_resource, "FactorInfo").set_index(['TableName', 'FieldName'])
+        TableInfo = pd.read_excel(info_resource, "TableInfo", engine="openpyxl").set_index(["TableName"])
+        FactorInfo = pd.read_excel(info_resource, "FactorInfo", engine="openpyxl").set_index(['TableName', 'FieldName'])
     elif Suffix == "json":
         Info = json.load(open(info_resource, "r"))
         TableInfo = pd.DataFrame(Info["TableInfo"]).T
@@ -142,8 +142,9 @@ class GoGoalDB(QSSQLObject, FactorDB):
     # kwargs: type_standard: 分类标准代码, 比如 105: 按策略类型分类
     #         type：类型代码, 比如 105100100: 股票多头
     #         conditions: 筛选条件, dict
+    #         min_nv_cnt: 最小净值数量, None 表示不限制
     def getPrivateFundID(self, date=None, is_current=True, start_date=None, **kwargs):
-        type_standard, type = kwargs.get("type_standard", None), kwargs.get("type", None)
+        type_standard, type, min_nv_cnt = kwargs.get("type_standard", None), kwargs.get("type", None), kwargs.get("min_nv_cnt", None)
         if date is None: date = dt.date.today()
         if start_date is not None: start_date = start_date.strftime("%Y-%m-%d")
         SQLStr = "SELECT CAST({Prefix}t_fund_info.fund_id AS CHAR) AS ID FROM {Prefix}t_fund_info "
@@ -172,6 +173,19 @@ class GoGoalDB(QSSQLObject, FactorDB):
                 SQLStr += f"AND {{Prefix}}t_fund_info.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"), StartDate=start_date)))
+        if min_nv_cnt is not None:
+            Prefix = self._QSArgs.TablePrefix
+            SQLStr = f"""
+                SELECT {Prefix}t_fund_nv_data_zyyx.fund_id, COUNT(*) AS cnt
+                FROM {Prefix}t_fund_nv_data_zyyx
+                WHERE {Prefix}t_fund_nv_data_zyyx.statistic_date <= '{date.strftime("%Y-%m-%d")}'
+                {"" if start_date is None else f"AND {Prefix}t_fund_nv_data_zyyx.statistic_date >= '{start_date}'"}
+                AND {Prefix}t_fund_nv_data_zyyx.swanav IS NOT NULL
+                GROUP BY {Prefix}t_fund_nv_data_zyyx.fund_id
+                HAVING cnt >= {min_nv_cnt}
+            """
+            IDs = set(np.array(self.fetchall(SQLStr))[:, 0].astype(str))
+            return sorted(set(Rslt[:, 0]).intersection(IDs))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
         else:

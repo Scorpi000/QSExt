@@ -9,12 +9,6 @@ import QuantStudio.api as QS
 Factorize = QS.FactorDB.Factorize
 fd = QS.FactorDB.FactorTools
 
-UpdateArgs = {
-    "因子表": "stock_cn_info",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
 def ifListed(f, idt, iid, x, args):
     ListDate, StatusChg = x
@@ -61,7 +55,7 @@ def defFactor(args={}):
     ListDayNum = QS.FactorDB.PointOperation("listed_days", [ListDate], sys_args={"算子": ListDayNumFun, "运算时点": "多时点", "运算ID": "多ID"})
     Factors.append(ListDayNum)
     
-    StatusChg = JYDB.getTable("上市状态更改").getFactor("变更类型", args={"回溯天数", np.inf})
+    StatusChg = JYDB.getTable("上市状态更改").getFactor("变更类型", args={"回溯天数": np.inf})
     IfListed = QS.FactorDB.PointOperation("if_listed", [ListDate, StatusChg], sys_args={"算子": ifListed, "运算时点": "多时点", "运算ID": "多ID"})
     Factors.append(IfListed)
     
@@ -73,17 +67,23 @@ def defFactor(args={}):
     Factors.append(FT.getFactor("省份_R", new_name="province"))
     Factors.append(FT.getFactor("地区代码_R", new_name="city"))
     
-    return Factors
+    UpdateArgs = {
+        "因子表": "stock_cn_info",
+        "默认起始日": dt.datetime(2002, 1, 1),
+        "最长回溯期": 365,
+        "IDs": "股票"
+    }
+    return Factors, UpdateArgs
 
 
 if __name__=="__main__":
     import logging
     Logger = logging.getLogger()
     
-    JYDB = QS.FactorDB.JYDB()
+    JYDB = QS.FactorDB.JYDB(logger=Logger)
     JYDB.connect()
     
-    TDB = QS.FactorDB.HDF5DB()
+    TDB = QS.FactorDB.HDF5DB(logger=Logger)
     TDB.connect()
     
     StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
@@ -93,7 +93,7 @@ if __name__=="__main__":
     IDs = JYDB.getStockID()
     
     Args = {"JYDB": JYDB}
-    Factors = defFactor(args=Args)
+    Factors, UpdateArgs = defFactor(args=Args)
     
     CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
     CFT.addFactors(factor_list=Factors)
@@ -103,7 +103,7 @@ if __name__=="__main__":
     TargetTable = CFT.Name
     CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs,
         factor_db=TDB, table_name=TargetTable,
-        if_exists="update", subprocess_num=20)
+        if_exists="update", subprocess_num=4)
     
     TDB.disconnect()
     JYDB.disconnect()
