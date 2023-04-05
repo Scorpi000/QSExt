@@ -19,7 +19,7 @@ def ifTrading(f, idt, iid, x, args):
     IfTrading[Mask & (pd.isnull(Close) | pd.notnull(SuspendDate))] = 0
     try:
         IfTrading[Mask & pd.notnull(Close) & (SuspendTime != "9:30:00") & (SuspendDate == DTs.astype(SuspendDate.dtype))] = 1
-    else:
+    except:
         IfTrading[Mask & pd.notnull(Close) & (SuspendTime != "9:30:00") & (SuspendDate == DTs)] = 1
     IfTrading[IfTrading != 1] = np.nan
     return IfTrading
@@ -84,17 +84,17 @@ if __name__=="__main__":
     import logging
     Logger = logging.getLogger()
     
-    JYDB = QS.FactorDB.JYDB()
+    JYDB = QS.FactorDB.JYDB(logger=Logger)
     JYDB.connect()
     
-    TDB = QS.FactorDB.HDF5DB()
+    TDB = QS.FactorDB.HDF5DB(logger=Logger)
     TDB.connect()
     
     StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
     DTs = JYDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date())
     DTRuler = JYDB.getTradeDay(start_date=StartDT.date() - dt.timedelta(365), end_date=EndDT.date())
     
-    IDs = JYDB.getStockID()
+    IDs = JYDB.getStockID(is_current=False)
     
     Args = {"JYDB": JYDB, "LDB": TDB}
     Factors, UpdateArgs = defFactor(args=Args)
@@ -107,7 +107,7 @@ if __name__=="__main__":
     TargetTable = CFT.Name
     CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs,
         factor_db=TDB, table_name=TargetTable,
-        if_exists="update", subprocess_num=20)
+        if_exists="update", subprocess_num=4)
     
     TDB.disconnect()
     JYDB.disconnect()
