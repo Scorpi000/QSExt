@@ -138,7 +138,7 @@ def defFactor(args={}):
         "因子表": "mf_cn_multi_factor_classic",
         "默认起始日": dt.datetime(2002, 1, 1),
         "最长回溯期": 365,
-        "IDs": "股票"
+        "IDs": "公募基金"
     }
     
     return Factors, UpdateArgs
