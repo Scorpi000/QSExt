@@ -188,7 +188,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"), StartDate=start_date)))
         if min_nv_cnt is not None:
-            IDs = self.getPrivateFundNVCntID(start_date=start_date, end_date=end_date, min_nv_cnt=min_nv_cnt)
+            IDs = self.getPrivateFundNVCntID(start_date=start_date, end_date=date, min_nv_cnt=min_nv_cnt)
             return sorted(set(Rslt[:, 0]).intersection(IDs))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
