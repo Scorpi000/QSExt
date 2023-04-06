@@ -137,6 +137,20 @@ class GoGoalDB(QSSQLObject, FactorDB):
             return [iRslt[0].date() for iRslt in Rslt]
         else:
             return [iRslt[0] for iRslt in Rslt]
+    
+    # 根据净值数量获取私募基金 ID
+    def getPrivateFundNVCntID(self, start_date, end_date, min_nv_cnt=1):
+        Prefix = self._QSArgs.TablePrefix
+        SQLStr = f"""
+            SELECT {Prefix}t_fund_nv_data_zyyx.fund_id, COUNT(*) AS cnt
+            FROM {Prefix}t_fund_nv_data_zyyx
+            WHERE {Prefix}t_fund_nv_data_zyyx.statistic_date <= '{end_date.strftime("%Y-%m-%d")}'
+            {"" if start_date is None else f"AND {Prefix}t_fund_nv_data_zyyx.statistic_date >= '{start_date}'"}
+            AND {Prefix}t_fund_nv_data_zyyx.swanav IS NOT NULL
+            GROUP BY {Prefix}t_fund_nv_data_zyyx.fund_id
+            HAVING cnt >= {min_nv_cnt}
+        """
+        return sorted(np.array(self.fetchall(SQLStr))[:, 0].astype(str))
 
     # 获取私募基金 ID
     # kwargs: type_standard: 分类标准代码, 比如 105: 按策略类型分类
@@ -174,17 +188,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"), StartDate=start_date)))
         if min_nv_cnt is not None:
-            Prefix = self._QSArgs.TablePrefix
-            SQLStr = f"""
-                SELECT {Prefix}t_fund_nv_data_zyyx.fund_id, COUNT(*) AS cnt
-                FROM {Prefix}t_fund_nv_data_zyyx
-                WHERE {Prefix}t_fund_nv_data_zyyx.statistic_date <= '{date.strftime("%Y-%m-%d")}'
-                {"" if start_date is None else f"AND {Prefix}t_fund_nv_data_zyyx.statistic_date >= '{start_date}'"}
-                AND {Prefix}t_fund_nv_data_zyyx.swanav IS NOT NULL
-                GROUP BY {Prefix}t_fund_nv_data_zyyx.fund_id
-                HAVING cnt >= {min_nv_cnt}
-            """
-            IDs = set(np.array(self.fetchall(SQLStr))[:, 0].astype(str))
+            IDs = self.getPrivateFundNVCntID(start_date=start_date, end_date=end_date, min_nv_cnt=min_nv_cnt)
             return sorted(set(Rslt[:, 0]).intersection(IDs))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
