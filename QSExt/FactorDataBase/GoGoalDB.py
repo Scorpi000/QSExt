@@ -194,9 +194,29 @@ class GoGoalDB(QSSQLObject, FactorDB):
             return Rslt[:, 0].tolist()
         else:
             return []
-
+    
+    # 获取给定类型的私募机构 ID
+    # org_type: 机构类型, 比如 100043：投资顾问
+    # type_standard: 产品分类标准代码, 比如 105: 按策略类型分类
+    # type：产品类型代码, 比如 105100100: 股票多头
+    def getPrivateOrgTypeID(self, org_type, type_standard=None, type=None, **kwargs):
+        Prefix = self._QSArgs.TablePrefix
+        SQLStr = f"""
+            SELECT CAST({Prefix}t_fund_org_mapping.org_id AS CHAR) AS ID
+            FROM {Prefix}t_fund_org_mapping
+            {"" if type_standard is None else f"INNER JOIN {Prefix}t_fund_type_mapping ON {Prefix}t_fund_org_mapping.fund_id = {Prefix}t_fund_type_mapping.fund_id"}
+            WHERE {Prefix}t_fund_org_mapping.org_type_code = {org_type} 
+            {"" if type_standard is None else f"AND {Prefix}t_fund_type_mapping.typestandard_code = {type_standard}"}
+            {"" if type is None else f"AND {Prefix}t_fund_type_mapping.type_code = {type}"}
+            ORDER BY ID
+        """
+        return np.array(self.fetchall(SQLStr))[:, 0].tolist()
+    
     # 获取私募机构 ID
     # kwargs: conditions: 筛选条件, dict
+    #         org_type：类型代码, 比如 100043：投资顾问
+    #         type_standard: 产品分类标准代码, 比如 105: 按策略类型分类
+    #         type：产品类型代码, 比如 105100100: 股票多头
     def getPrivateOrgID(self, date=None, **kwargs):
         if date is None: date = dt.date.today()
         SQLStr = "SELECT CAST({Prefix}t_fund_org.org_id AS CHAR) AS ID FROM {Prefix}t_fund_org "
@@ -214,17 +234,40 @@ class GoGoalDB(QSSQLObject, FactorDB):
                 SQLStr += f"AND {{Prefix}}t_fund_org.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"))))
+        if kwargs.get("org_type", None) is not None:
+            IDs = self.getPrivateOrgTypeID(**kwargs)
+            return sorted(set(Rslt[:, 0]).intersection(IDs))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
         else:
             return []
+    
+    # 获取给定类型的私募基金经理 ID
+    # type_standard: 产品分类标准代码, 比如 105: 按策略类型分类
+    # type：产品类型代码, 比如 105100100: 股票多头
+    def getPrivateManagerTypeID(self, type_standard=None, type=None, **kwargs):
+        Prefix = self._QSArgs.TablePrefix
+        SQLStr = f"""
+            SELECT CAST({Prefix}t_fund_manager_mapping.user_id AS CHAR) AS ID
+            FROM {Prefix}t_fund_manager_mapping
+            {"" if type_standard is None else f"INNER JOIN {Prefix}t_fund_type_mapping ON {Prefix}t_fund_manager_mapping.fund_id = {Prefix}t_fund_type_mapping.fund_id"}
+            WHERE TRUE
+            {"" if type_standard is None else f"AND {Prefix}t_fund_type_mapping.typestandard_code = {type_standard}"}
+            {"" if type is None else f"AND {Prefix}t_fund_type_mapping.type_code = {type}"}
+            ORDER BY ID
+        """
+        return np.array(self.fetchall(SQLStr))[:, 0].tolist()
 
     # 获取私募基金经理 ID
     # kwargs: conditions: 筛选条件, dict
+    #         type_standard: 产品分类标准代码, 比如 105: 按策略类型分类
+    #         type：产品类型代码, 比如 105100100: 股票多头
     def getPrivateManagerID(self, **kwargs):
         SQLStr = "SELECT CAST({Prefix}t_fund_manager.user_id AS CHAR) AS ID FROM {Prefix}t_fund_manager "
         SQLStr += "WHERE {Prefix}t_fund_manager.user_id IS NOT NULL "
         Conditions, FactorInfo = kwargs.get("conditions", {}), self._FactorInfo.loc["投资经理信息表"]
+        if not Conditions:
+            return self.getPrivateManagerTypeID(**kwargs)
         for iField, iVals in Conditions.items():
             iDBField = FactorInfo.loc[iField, "DBFieldName"]
             if isinstance(iVals[0], str):
