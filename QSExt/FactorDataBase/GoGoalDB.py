@@ -280,6 +280,9 @@ class GoGoalDB(QSSQLObject, FactorDB):
                 SQLStr += f"AND {{Prefix}}t_fund_manager.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix)))
+        if kwargs.get("type_standard", None) is not None:
+            IDs = self.getPrivateManagerTypeID(**kwargs)
+            return sorted(set(Rslt[:, 0]).intersection(IDs))
         if Rslt.shape[0] > 0:
             return Rslt[:, 0].tolist()
         else:
