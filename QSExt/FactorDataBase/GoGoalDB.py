@@ -202,7 +202,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
     def getPrivateOrgTypeID(self, org_type, type_standard=None, type=None, **kwargs):
         Prefix = self._QSArgs.TablePrefix
         SQLStr = f"""
-            SELECT CAST({Prefix}t_fund_org_mapping.org_id AS CHAR) AS ID
+            SELECT DISTINCT(CAST({Prefix}t_fund_org_mapping.org_id AS CHAR)) AS ID
             FROM {Prefix}t_fund_org_mapping
             {"" if type_standard is None else f"INNER JOIN {Prefix}t_fund_type_mapping ON {Prefix}t_fund_org_mapping.fund_id = {Prefix}t_fund_type_mapping.fund_id"}
             WHERE {Prefix}t_fund_org_mapping.org_type_code = {org_type} 
@@ -220,7 +220,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
     def getPrivateOrgID(self, date=None, **kwargs):
         if date is None: date = dt.date.today()
         SQLStr = "SELECT CAST({Prefix}t_fund_org.org_id AS CHAR) AS ID FROM {Prefix}t_fund_org "
-        SQLStr += "WHERE {Prefix}t_fund_org.found_date <= '{Date}' "
+        SQLStr += "WHERE ({Prefix}t_fund_org.found_date IS NULL OR {Prefix}t_fund_org.found_date <= '{Date}') "
         Conditions, FactorInfo = kwargs.get("conditions", {}), self._FactorInfo.loc["机构信息表"]
         for iField, iVals in Conditions.items():
             iDBField = FactorInfo.loc[iField, "DBFieldName"]
@@ -248,7 +248,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
     def getPrivateManagerTypeID(self, type_standard=None, type=None, **kwargs):
         Prefix = self._QSArgs.TablePrefix
         SQLStr = f"""
-            SELECT CAST({Prefix}t_fund_manager_mapping.user_id AS CHAR) AS ID
+            SELECT DISTINCT(CAST({Prefix}t_fund_manager_mapping.user_id AS CHAR)) AS ID
             FROM {Prefix}t_fund_manager_mapping
             {"" if type_standard is None else f"INNER JOIN {Prefix}t_fund_type_mapping ON {Prefix}t_fund_manager_mapping.fund_id = {Prefix}t_fund_type_mapping.fund_id"}
             WHERE TRUE
