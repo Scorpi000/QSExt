@@ -6,12 +6,12 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
-from traits.api import Str, Dict, File
+from traits.api import Str, Dict, File, Int
 
 from QuantStudio.Tools.QSObjects import QSSQLObject
 from QuantStudio import __QS_Error__, __QS_LibPath__, __QS_ConfigPath__
 from QuantStudio.FactorDataBase.FactorDB import FactorDB
-from QuantStudio.FactorDataBase.FDBFun import SQL_FeatureTable, SQL_WideTable, SQL_MappingTable, SQL_NarrowTable, SQL_TimeSeriesTable, SQL_ConstituentTable, SQL_FinancialTable
+from QuantStudio.FactorDataBase.FDBFun import SQL_Table, SQL_FeatureTable, SQL_WideTable, SQL_MappingTable, SQL_NarrowTable, SQL_TimeSeriesTable, SQL_ConstituentTable, SQL_FinancialTable
 
 __QS_MainPath__ = os.path.abspath(os.path.split(os.path.realpath(__file__))[0]+os.sep+"..")
 
@@ -71,6 +71,74 @@ def _identifyDataType(field_data_type):
         return "object"
     else:
         return "string"
+
+# 获取给定目标年月日的时点，如果超过本月的最后一天，则返回该月的最后一天
+def _getTargetMonthDay(year, month, day):
+    if day <= 28:
+        return dt.datetime(year, month, day)
+    LastDay = dt.datetime(year + (month + 1) // 13, month % 12 + 1, 1) - dt.timedelta(1)
+    return dt.datetime(year, month, min(day, LastDay.day))
+
+class SQL_YearMonthMappingTable(SQL_MappingTable):
+    class __QS_ArgClass__(SQL_MappingTable.__QS_ArgClass__):
+        TargetDay = Int(1, label="目标日", arg_type="Integer", order=4)
+        def __QS_initArgs__(self):
+            SQL_Table.__QS_ArgClass__.__QS_initArgs__(self)
+            self.EndDTIncluded = False
+
+    def __init__(self, name, fdb, sys_args={}, table_prefix="", table_info=None, factor_info=None, security_info=None, exchange_info=None, **kwargs):
+        super().__init__(name=name, fdb=fdb, sys_args=sys_args, table_prefix=table_prefix, table_info=table_info, factor_info=factor_info, security_info=security_info, exchange_info=exchange_info, **kwargs)
+        self._QS_IgnoredGroupArgs = self._QS_IgnoredGroupArgs + ("结束时点字段", "时点字段")
+
+    def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
+        if dts is not None:
+            StartDT, EndDT = dts[0], dts[-1]
+        else:
+            StartDT = EndDT = None
+        FactorInfo = self._FactorInfo
+        YearField = self._DBTableName + "." + FactorInfo[FactorInfo["FieldType"] == "Year"]["DBFieldName"].iloc[0]
+        MonthField = self._DBTableName + "." + FactorInfo[FactorInfo["FieldType"] == "Month"]["DBFieldName"].iloc[0]
+        EndYearField = self._DBTableName + "." + FactorInfo[FactorInfo["FieldType"] == "EndYear"]["DBFieldName"].iloc[0]
+        EndMonthField = self._DBTableName + "." + FactorInfo[FactorInfo["FieldType"] == "EndMonth"]["DBFieldName"].iloc[0]
+        # 形成SQL语句, ID, 开始日期, 结束日期, 因子数据
+        SQLStr = "SELECT " + self._getIDField(args=args) + " AS ID, "
+        SQLStr += YearField + " AS QS_Year, "
+        SQLStr += MonthField + " AS QS_Month, "
+        SQLStr += EndYearField + " AS QS_EndYear, "
+        SQLStr += EndMonthField + " AS QS_EndMonth, "
+        FieldSQLStr, SETableJoinStr = self._genFieldSQLStr(factor_names)
+        SQLStr += FieldSQLStr + " "
+        SQLStr += self._genFromSQLStr(setable_join_str=SETableJoinStr, args=args) + " "
+        SQLStr += self._genIDSQLStr(ids, init_keyword="WHERE", args=args) + " "
+        SQLStr += self._genConditionSQLStr(use_main_table=True, args=args) + " "
+        if StartDT is not None:
+            SQLStr += "AND ((" + EndYearField + ">=" + StartDT.strftime("%Y") + ") "
+            SQLStr += "OR (" + EndYearField + " IS NULL)) "
+        if EndDT is not None:
+            SQLStr += "AND ((" + YearField + "<=" + EndDT.strftime("%Y") + ") "
+            SQLStr += "OR (" + YearField + " IS NULL)) "
+        SQLStr += "ORDER BY ID, QS_Year, QS_Month"
+        RawData = self._FactorDB.fetchall(SQLStr)
+        if not RawData: return pd.DataFrame(columns=["ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
+        RawData = pd.DataFrame(np.array(RawData, dtype="O"), columns=["ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
+        RawData["ID"] = self.__QS_restoreID__(RawData["ID"])
+        RawData = self._adjustRawDataByRelatedField(RawData, factor_names)
+        return RawData
+    def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
+        raw_data["QS_Year"] = raw_data["QS_Year"].where(pd.notnull(raw_data["QS_Year"]), 1990).astype(int)
+        raw_data["QS_Month"] = raw_data["QS_Month"].where(pd.notnull(raw_data["QS_Month"]), 1).astype(int)
+        TargetDay = args.get("目标日", self._QSArgs.TargetDay)
+        raw_data["QS_起始日"] = raw_data.loc[:, ["QS_Year", "QS_Month"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
+        raw_data.pop("QS_Year")
+        raw_data.pop("QS_Month")
+        Today = dt.datetime.today()
+        raw_data["QS_EndYear"] = raw_data["QS_EndYear"].where(pd.notnull(raw_data["QS_EndYear"]), Today.year + 1).astype(int)
+        raw_data["QS_EndMonth"] = raw_data["QS_EndMonth"].where(pd.notnull(raw_data["QS_EndMonth"]), 12).astype(int)
+        raw_data["QS_结束日"] = raw_data.loc[:, ["QS_EndYear", "QS_EndMonth"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
+        raw_data.pop("QS_EndYear")
+        raw_data.pop("QS_EndMonth")
+        return super().__QS_calcData__(raw_data, factor_names, ids, dts, args=args)
+
 
 
 class GoGoalDB(QSSQLObject, FactorDB):
