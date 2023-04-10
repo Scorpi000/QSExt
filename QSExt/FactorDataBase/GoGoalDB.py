@@ -125,18 +125,26 @@ class SQL_YearMonthMappingTable(SQL_MappingTable):
         RawData = self._adjustRawDataByRelatedField(RawData, factor_names)
         return RawData
     def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
-        raw_data["QS_Year"] = raw_data["QS_Year"].where(pd.notnull(raw_data["QS_Year"]), 1990).astype(int)
-        raw_data["QS_Month"] = raw_data["QS_Month"].where(pd.notnull(raw_data["QS_Month"]), 1).astype(int)
-        TargetDay = args.get("目标日", self._QSArgs.TargetDay)
-        raw_data["QS_起始日"] = raw_data.loc[:, ["QS_Year", "QS_Month"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
-        raw_data.pop("QS_Year")
-        raw_data.pop("QS_Month")
-        Today = dt.datetime.today()
-        raw_data["QS_EndYear"] = raw_data["QS_EndYear"].where(pd.notnull(raw_data["QS_EndYear"]), Today.year + 1).astype(int)
-        raw_data["QS_EndMonth"] = raw_data["QS_EndMonth"].where(pd.notnull(raw_data["QS_EndMonth"]), 12).astype(int)
-        raw_data["QS_结束日"] = raw_data.loc[:, ["QS_EndYear", "QS_EndMonth"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
-        raw_data.pop("QS_EndYear")
-        raw_data.pop("QS_EndMonth")
+        if raw_data.shape[0]==0:
+            raw_data.pop("QS_Year")
+            raw_data.pop("QS_Month")
+            raw_data.pop("QS_EndYear")
+            raw_data.pop("QS_EndMonth")
+            raw_data["QS_起始日"] = pd.Series(dtype="O")
+            raw_data["QS_结束日"] = pd.Series(dtype="O")
+        else:
+            raw_data["QS_Year"] = raw_data["QS_Year"].where(pd.notnull(raw_data["QS_Year"]), 1990).astype(int)
+            raw_data["QS_Month"] = raw_data["QS_Month"].where(pd.notnull(raw_data["QS_Month"]), 1).astype(int)
+            TargetDay = args.get("目标日", self._QSArgs.TargetDay)
+            raw_data["QS_起始日"] = raw_data.loc[:, ["QS_Year", "QS_Month"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
+            raw_data.pop("QS_Year")
+            raw_data.pop("QS_Month")
+            Today = dt.datetime.today()
+            raw_data["QS_EndYear"] = raw_data["QS_EndYear"].where(pd.notnull(raw_data["QS_EndYear"]), Today.year + 1).astype(int)
+            raw_data["QS_EndMonth"] = raw_data["QS_EndMonth"].where(pd.notnull(raw_data["QS_EndMonth"]), 12).astype(int)
+            raw_data["QS_结束日"] = raw_data.loc[:, ["QS_EndYear", "QS_EndMonth"]].apply(lambda s: _getTargetMonthDay(s.iloc[0], s.iloc[1], TargetDay), axis=1)
+            raw_data.pop("QS_EndYear")
+            raw_data.pop("QS_EndMonth")
         return super().__QS_calcData__(raw_data, factor_names, ids, dts, args=args)
 
 
