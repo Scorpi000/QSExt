@@ -88,7 +88,7 @@ class SQL_YearMonthMappingTable(SQL_MappingTable):
 
     def __init__(self, name, fdb, sys_args={}, table_prefix="", table_info=None, factor_info=None, security_info=None, exchange_info=None, **kwargs):
         super().__init__(name=name, fdb=fdb, sys_args=sys_args, table_prefix=table_prefix, table_info=table_info, factor_info=factor_info, security_info=security_info, exchange_info=exchange_info, **kwargs)
-        self._QS_IgnoredGroupArgs = self._QS_IgnoredGroupArgs + ("结束时点字段", "时点字段")
+        self._QS_IgnoredGroupArgs = self._QS_IgnoredGroupArgs + ("结束时点字段", "时点字段", "目标日")
 
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         if dts is not None:
