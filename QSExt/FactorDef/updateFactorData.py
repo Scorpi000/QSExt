@@ -2,10 +2,13 @@
 """更新因子数据"""
 import os
 import importlib
+import argparse
 import logging
 logging.root.setLevel(logging.NOTSET)
 import datetime as dt
 
+from dateutil.parser import parser
+import dateparser
 import click
 
 import QuantStudio.api as QS
@@ -35,6 +38,87 @@ def loadModule(module_name, file_path):
     ModuleSpec.loader.exec_module(Module)
     return Module
 
+# 解析日期时间
+# 时点格式, 是否去掉空格
+__DTFmt__ = [
+    ("%Y年%m月%d日%H:%M:%S", True),
+    ("%Y年%m月%d日%H:%M", True),
+    ("%Y年%m月%d日%H时", True),
+    ("%Y年%m月%d日", True),
+    ("%m月%d日%H:%M", True),
+]
+def parseDateTime(dt_str):
+    if not isinstance(dt_str, str): return None
+    dt_str = dt_str.strip()
+    for iFmt, iDropWhiteSpace in __DTFmt__:
+        try:
+            if iDropWhiteSpace:
+                iDT = dt.datetime.strptime(dt_str.replace(" ", ""), iFmt)
+            else:
+                iDT = dt.datetime.strptime(dt_str, iFmt)
+            if iDT.year==1900:
+                iDT = dt.datetime(dt.date.today().year, iDT.month, iDT.day, iDT.hour, iDT.minute, iDT.second, iDT.microsecond)
+            return iDT
+        except:
+            pass
+    try:
+        return parse(dt_str, ignoretz=True)
+    except:
+        pass
+    iDT = dateparser.parse(dt_str.replace(" ", ""))
+    if iDT is None:
+        iDT = dateparser.parse(dt_str)
+    return iDT
+
+def getFactorUpdateArgs():
+    Parser = argparse.ArgumentParser(description="解析因子脚本更新参数")
+    Parser.add_argument("-d", "--debug", type=str, default="y", help="debug 模式, [y]es or [n]o")
+    Parser.add_argument("-tbl", "--table", type=str, default=None, help="数据写入的目标因子表")
+    Parser.add_argument("-sdt", "--start_dt", type=str, default=None, help="起始时点, 格式: %Y-%m-%d 或者 %Y%m%d")
+    Parser.add_argument("-edt", "--end_dt", type=str, default=None, help="结束时点, 格式: %Y-%m-%d 或者 %Y%m%d")
+    Parser.add_argument("-slb", "--start_look_back", type=int, default=0, help="起始时点的回溯天数")
+    Parser.add_argument("-elb", "--end_look_back", type=int, default=0, help="结束时点的回溯天数")
+    Parser.add_argument("-ids", "--ids", type=str, default=None, help="证券代码列表, 以逗号分隔, 比如: 000001.SZ,000002.SZ")
+    Parser.add_argument("-um", "--update_method", type=str, default="update", help="更新方式")
+    Parser.add_argument("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
+    Parser.add_argument("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
+    Parser.add_argument("-ll", "--log_level", type=str, default="INFO", help="log level")
+    Parser.add_argument("-ld", "--log_dir", type=str, default="", help="日志输出的文件目录")
+
+    InputArgs = Parser.parse_args()
+    Args = {
+        "debug": (InputArgs.debug.lower() in ("y", "yes")),
+        "ids": InputArgs.ids,
+        "start_dt": parseDateTime(InputArgs.start_dt) if InputArgs.start_dt else None,
+        "end_dt": parseDateTime(InputArgs.end_dt) if InputArgs.end_dt else None,
+        "update_method": InputArgs.update_method,
+        "process_num": InputArgs.process_num,
+        "def_args": eval(InputArgs.def_args) if InputArgs.def_args else {},
+        "log_level": InputArgs.log_level,
+        "log_dir": InputArgs.log_dir
+    }
+    Today = dt.datetime.combine(dt.date.today(), dt.time(0))
+    if (Args["start_dt"] is None) and (Args["end_dt"] is None):
+        if Args["debug"]:
+            Args["start_dt"] = dt.datetime(Today.year - 1, 12, 1)
+            Args["end_dt"] = dt.datetime(Today.year - 1, 12, 31)
+        else:
+            Args["start_dt"] = dt.datetime(Today.year - 3, 1, 1)
+            Args["end_dt"] = Today
+    elif Args["start_dt"] is None:
+        if Args["debug"]:
+            Args["start_dt"] = Args["end_dt"] - dt.timedelta(30)
+        else:
+            Args["start_dt"] = dt.datetime(Args["end_dt"].year - 3, 1, 1)
+    elif Args["end_dt"] is None:
+        if Args["debug"]:
+            Args["end_dt"] = Args["start_dt"] + dt.timedelta(30)
+        else:
+            Args["end_dt"] = Today
+    Args["start_dt"] -= dt.timedelta(InputArgs.start_look_back)
+    Args["end_dt"] -= dt.timedelta(InputArgs.end_look_back)
+    return Args
+
 @click.command()
 @click.argument("def_file")
 @click.option("-tbl", "--table_name", type=str, default=None, help="目标因子表")
@@ -43,7 +127,7 @@ def loadModule(module_name, file_path):
 @click.option("-slb", "--start_look_back", type=int, default=0, help="起始时点的回溯天数")
 @click.option("-elb", "--end_look_back", type=int, default=0, help="结束时点的回溯天数")
 @click.option("-ids", "--ids", type=str, default="", help="证券代码列表, 以逗号分隔, 比如: 000001.SZ,000002.SZ")
-@click.option("-um", "--update_method", type=click.Choice(["update", "append", "update_notnull"]), default="update", help="更新方式")
+@click.option("-um", "--update_method", type=str, default="update", help="更新方式")
 @click.option("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
 @click.option("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
 @click.option("-sdb", "--sdb", type=str, default="LDB:HDF5DB", help="需要传入定义函数的源因子库, 多个以逗号分隔, 格式: 名称:因子库类, 比如: JYDB:JYDB,LDB:HDF5DB")
