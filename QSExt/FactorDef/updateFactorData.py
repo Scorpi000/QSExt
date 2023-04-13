@@ -7,7 +7,7 @@ import logging
 logging.root.setLevel(logging.NOTSET)
 import datetime as dt
 
-from dateutil.parser import parser
+from dateutil.parser import parse
 import dateparser
 import click
 
@@ -73,7 +73,7 @@ def parseDateTime(dt_str):
 def getFactorUpdateArgs():
     Parser = argparse.ArgumentParser(description="解析因子脚本更新参数")
     Parser.add_argument("-d", "--debug", type=str, default="y", help="debug 模式, [y]es or [n]o")
-    Parser.add_argument("-tbl", "--table", type=str, default=None, help="数据写入的目标因子表")
+    Parser.add_argument("-tbl", "--table_name", type=str, default=None, help="数据写入的目标因子表")
     Parser.add_argument("-sdt", "--start_dt", type=str, default=None, help="起始时点, 格式: %Y-%m-%d 或者 %Y%m%d")
     Parser.add_argument("-edt", "--end_dt", type=str, default=None, help="结束时点, 格式: %Y-%m-%d 或者 %Y%m%d")
     Parser.add_argument("-slb", "--start_look_back", type=int, default=0, help="起始时点的回溯天数")
@@ -88,6 +88,7 @@ def getFactorUpdateArgs():
     InputArgs = Parser.parse_args()
     Args = {
         "debug": (InputArgs.debug.lower() in ("y", "yes")),
+        "table_name": InputArgs.table_name,
         "ids": InputArgs.ids,
         "start_dt": parseDateTime(InputArgs.start_dt) if InputArgs.start_dt else None,
         "end_dt": parseDateTime(InputArgs.end_dt) if InputArgs.end_dt else None,
