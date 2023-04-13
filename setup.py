@@ -29,6 +29,8 @@ setuptools.setup(
     ],
     install_requires=[
         "QuantStudio",
+        "dateparser",
+        "click"
     ],
     package_data={"QSExt": ["Resource/*"]}
 )
