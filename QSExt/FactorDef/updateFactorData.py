@@ -16,20 +16,22 @@ from QuantStudio.FactorDataBase.FactorDB import FactorDB
 def getLogger(log_dir, log_level):
     logging.root.setLevel(logging.NOTSET)
     Fmt = "QSFactor - %(asctime)s - %(levelname)s : %(message)s"
-    Logger = logging.getLogger()
     if isinstance(log_dir, str) and os.path.isdir(log_dir):
         LogFile = os.path.join(log_dir, "QSFactor_"+dt.date.today().strftime("%Y%m%d")+".log")
         LogHandler = logging.FileHandler(LogFile, mode="a")
         LogHandler.setLevel(log_level)
         LogHandler.setFormatter(logging.Formatter(Fmt))
+        Logger = logging.getLogger()
         Logger.addHandler(LogHandler)
     else:
         # LogHandler = logging.StreamHandler()
         # LogHandler.setLevel(log_level)
         # LogHandler.setFormatter(logging.Formatter(Fmt))
+        # Logger = logging.getLogger()
         # Logger.addHandler(LogHandler)
         logging.basicConfig(level=log_level, format=Fmt)
-        Logger.setLevel(log_level)
+        Logger = logging.getLogger()
+        # Logger.setLevel(log_level)
     return Logger
 
 def loadModule(module_name, file_path):
