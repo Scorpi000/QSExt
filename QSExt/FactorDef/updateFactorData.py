@@ -4,7 +4,6 @@ import os
 import importlib
 import argparse
 import logging
-logging.root.setLevel(logging.NOTSET)
 import datetime as dt
 
 from dateutil.parser import parse
@@ -15,6 +14,7 @@ import QuantStudio.api as QS
 from QuantStudio.FactorDataBase.FactorDB import FactorDB
 
 def getLogger(log_dir, log_level):
+    logging.root.setLevel(logging.NOTSET)
     Fmt = "QSFactor - %(asctime)s - %(levelname)s : %(message)s"
     Logger = logging.getLogger()
     if isinstance(log_dir, str) and os.path.isdir(log_dir):
@@ -70,7 +70,7 @@ def parseDateTime(dt_str):
         iDT = dateparser.parse(dt_str)
     return iDT
 
-def getFactorUpdateArgs():
+def getFactorUpdateArgs(tdb):
     Parser = argparse.ArgumentParser(description="解析因子脚本更新参数")
     Parser.add_argument("-d", "--debug", type=str, default="y", help="debug 模式, [y]es or [n]o")
     Parser.add_argument("-tbl", "--table_name", type=str, default=None, help="数据写入的目标因子表")
@@ -90,7 +90,6 @@ def getFactorUpdateArgs():
         "debug": (InputArgs.debug.lower() in ("y", "yes")),
         "table_name": InputArgs.table_name,
         "ids": InputArgs.ids,
-        "start_dt": parseDateTime(InputArgs.start_dt) if InputArgs.start_dt else None,
         "end_dt": parseDateTime(InputArgs.end_dt) if InputArgs.end_dt else None,
         "update_method": InputArgs.update_method,
         "process_num": InputArgs.process_num,
@@ -98,6 +97,13 @@ def getFactorUpdateArgs():
         "log_level": InputArgs.log_level,
         "log_dir": InputArgs.log_dir
     }
+    if InputArgs.start_dt=="max_dt":
+        FT = tdb.getTable(Args["table_name"])
+        Args["start_dt"] = FT.getDateTime()[-1] + dt.timedelta(1)
+    elif not InputArgs.start_dt:
+        Args["start_dt"] = parseDateTime(InputArgs.start_dt)
+    else:
+        Args["start_dt"] = None
     Today = dt.datetime.combine(dt.date.today(), dt.time(0))
     if (Args["start_dt"] is None) and (Args["end_dt"] is None):
         if Args["debug"]:
