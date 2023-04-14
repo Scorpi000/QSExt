@@ -102,7 +102,7 @@ def getFactorUpdateArgs(tdb):
     if InputArgs.start_dt=="max_dt":
         FT = tdb.getTable(Args["table_name"])
         Args["start_dt"] = FT.getDateTime()[-1] + dt.timedelta(1)
-    elif not InputArgs.start_dt:
+    elif InputArgs.start_dt:
         Args["start_dt"] = parseDateTime(InputArgs.start_dt)
     else:
         Args["start_dt"] = None
