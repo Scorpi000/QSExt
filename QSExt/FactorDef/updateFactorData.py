@@ -31,7 +31,7 @@ def getLogger(log_dir, log_level):
         # Logger.addHandler(LogHandler)
         logging.basicConfig(level=log_level, format=Fmt)
         Logger = logging.getLogger()
-        # Logger.setLevel(log_level)
+        Logger.setLevel(log_level)
     return Logger
 
 def loadModule(module_name, file_path):
