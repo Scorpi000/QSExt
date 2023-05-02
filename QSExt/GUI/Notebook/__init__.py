@@ -7,8 +7,8 @@ from QSExt.GUI.Notebook.ResultDlg import ResultDlg
 
 # 管理因子库
 def manageFactorDB(fdbs, context={}, output=None):
-    Dlg = FactorDBDlg(fdbs)
-    Dlg.display(output=output, context=context)
+    Dlg = FactorDBDlg(fdbs, context=context)
+    Dlg.display(output=output)
     return Dlg
 
 # 管理风险库
