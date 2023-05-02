@@ -6,9 +6,9 @@ from QSExt.GUI.Notebook.ArgSetupDlg import ArgSetupDlg
 from QSExt.GUI.Notebook.ResultDlg import ResultDlg
 
 # 管理因子库
-def manageFactorDB(fdbs, output=None):
+def manageFactorDB(fdbs, context={}, output=None):
     Dlg = FactorDBDlg(fdbs)
-    Dlg.display(output=output)
+    Dlg.display(output=output, context=context)
     return Dlg
 
 # 管理风险库
