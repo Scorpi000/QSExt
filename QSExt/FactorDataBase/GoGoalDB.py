@@ -79,7 +79,17 @@ def _getTargetMonthDay(year, month, day):
     LastDay = dt.datetime(year + (month + 1) // 13, month % 12 + 1, 1) - dt.timedelta(1)
     return dt.datetime(year, month, min(day, LastDay.day))
 
-class SQL_YearMonthMappingTable(SQL_MappingTable):
+class _GoGoal_SQL_Table(SQL_Table):
+    def __QS_adjustID__(self, ids):
+        return [(".".join(iID.split(".")[:-1]) if iID.find(".")!=-1 else iID) for iID in ids]
+    def __QS_restoreID__(self, ids):
+        if self._TableInfo["SecurityType"]=="A股":
+            Mapping = {"0": ".SZ", "3": ".SZ", "6": ".SH"}
+            return [iID+Mapping.get(iID[0], ".BJ") for iID in ids]
+        else:
+            return ids
+
+class _YearMonthMappingTable(_GoGoal_SQL_Table, SQL_MappingTable):
     class __QS_ArgClass__(SQL_MappingTable.__QS_ArgClass__):
         TargetDay = Int(1, label="目标日", arg_type="Integer", order=4)
         def __QS_initArgs__(self):
@@ -147,7 +157,33 @@ class SQL_YearMonthMappingTable(SQL_MappingTable):
             raw_data.pop("QS_EndMonth")
         return super().__QS_calcData__(raw_data, factor_names, ids, dts, args=args)
 
+class _WideTable(_GoGoal_SQL_Table, SQL_WideTable):
+    """朝阳永续宽因子表"""
+    pass
 
+class _NarrowTable(_GoGoal_SQL_Table, SQL_NarrowTable):
+    """朝阳永续窄因子表"""
+    pass
+
+class _FeatureTable(_GoGoal_SQL_Table, SQL_FeatureTable):
+    """朝阳永续特征因子表"""
+    pass
+
+class _TimeSeriesTable(_GoGoal_SQL_Table, SQL_TimeSeriesTable):
+    """朝阳永续时序因子表"""
+    pass
+
+class _MappingTable(_GoGoal_SQL_Table, SQL_MappingTable):
+    """朝阳永续映射因子表"""
+    pass
+
+class _ConstituentTable(_GoGoal_SQL_Table, SQL_ConstituentTable):
+    """朝阳永续成份因子表"""
+    pass
+ 
+class _FinancialTable(_GoGoal_SQL_Table, SQL_FinancialTable):
+    """朝阳永续财务因子表"""
+    pass
 
 class GoGoalDB(QSSQLObject, FactorDB):
     """朝阳永续数据库"""
@@ -189,7 +225,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
                 Args.update(DefaultArgs)
                 Args.update(args)
                 TableInfo, FactorInfo = self._TableInfo.loc[table_name], self._FactorInfo.loc[table_name]
-                return eval(f"SQL_{TableClass}(name='{table_name}', fdb=self, sys_args=Args, table_prefix=self._QSArgs.TablePrefix, table_info=TableInfo, factor_info=FactorInfo, logger=self._QS_Logger)")
+                return eval(f"_{TableClass}(name='{table_name}', fdb=self, sys_args=Args, table_prefix=self._QSArgs.TablePrefix, table_info=TableInfo, factor_info=FactorInfo, logger=self._QS_Logger)")
         Msg = ("因子库 '%s' 目前尚不支持因子表: '%s'" % (self.Name, table_name))
         self._QS_Logger.error(Msg)
         raise __QS_Error__(Msg)
