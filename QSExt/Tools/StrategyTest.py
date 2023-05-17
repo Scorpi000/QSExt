@@ -1,8 +1,5 @@
 # coding=utf-8
-from itertools import product
-from sre_constants import IN
-from turtle import position
-from typing import Optional, Union
+from typing import Optional
 import datetime as dt
 
 import numpy as np
