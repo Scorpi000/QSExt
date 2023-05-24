@@ -243,7 +243,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
         SQLStr += "AND {Prefix}qt_trade_date.is_trade_date=1 "
         SQLStr += f"AND {{Prefix}}qt_trade_date.exchange={ExchangeMap[exchange]} "
         SQLStr += "ORDER BY {Prefix}qt_trade_date.trade_date"
-        SQLStr = SQLStr.format(Prefix=self._QSArgs.TablePrefix, StartDate=start_date.strftime("%Y-%m-%d"), EndDate=end_date.strftime("%Y-%m-%d"))
+        SQLStr = SQLStr.format(Prefix=self._QSArgs.TablePrefix, StartDate=start_date.strftime("%Y-%m-%d %H:%M:%S"), EndDate=end_date.strftime("%Y-%m-%d %H:%M:%S"))
         Rslt = self.fetchall(SQLStr)
         if kwargs.get("output_type", "datetime") == "date":
             return [iRslt[0].date() for iRslt in Rslt]
@@ -256,7 +256,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
         SQLStr = f"""
             SELECT {Prefix}t_fund_nv_data_zyyx.fund_id, COUNT(*) AS cnt
             FROM {Prefix}t_fund_nv_data_zyyx
-            WHERE {Prefix}t_fund_nv_data_zyyx.statistic_date <= '{end_date.strftime("%Y-%m-%d")}'
+            WHERE {Prefix}t_fund_nv_data_zyyx.statistic_date <= '{end_date.strftime("%Y-%m-%d %H:%M:%S")}'
             {"" if start_date is None else f"AND {Prefix}t_fund_nv_data_zyyx.statistic_date >= '{start_date}'"}
             AND {Prefix}t_fund_nv_data_zyyx.swanav IS NOT NULL
             GROUP BY {Prefix}t_fund_nv_data_zyyx.fund_id
@@ -272,7 +272,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
     def getPrivateFundID(self, date=None, is_current=True, start_date=None, **kwargs):
         type_standard, type, min_nv_cnt = kwargs.get("type_standard", None), kwargs.get("type", None), kwargs.get("min_nv_cnt", None)
         if date is None: date = dt.date.today()
-        if start_date is not None: start_date = start_date.strftime("%Y-%m-%d")
+        if start_date is not None: start_date = start_date.strftime("%Y-%m-%d %H:%M:%S")
         SQLStr = "SELECT CAST({Prefix}t_fund_info.fund_id AS CHAR) AS ID FROM {Prefix}t_fund_info "
         if type_standard is not None: SQLStr += "INNER JOIN t_fund_type_mapping ON {Prefix}t_fund_info.fund_id = {Prefix}t_fund_type_mapping.fund_id "
         SQLStr += "WHERE {Prefix}t_fund_info.foundation_date <= '{Date}' "
@@ -298,7 +298,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
             else:
                 SQLStr += f"AND {{Prefix}}t_fund_info.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
-        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"), StartDate=start_date)))
+        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d %H:%M:%S"), StartDate=start_date)))
         if min_nv_cnt is not None:
             IDs = self.getPrivateFundNVCntID(start_date=start_date, end_date=date, min_nv_cnt=min_nv_cnt)
             return sorted(set(Rslt[:, 0]).intersection(IDs))
@@ -345,7 +345,7 @@ class GoGoalDB(QSSQLObject, FactorDB):
             else:
                 SQLStr += f"AND {{Prefix}}t_fund_org.{iDBField} IN ({iValStr}) "
         SQLStr += "ORDER BY ID"
-        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d"))))
+        Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self._QSArgs.TablePrefix, Date=date.strftime("%Y-%m-%d %H:%M:%S"))))
         if kwargs.get("org_type", None) is not None:
             IDs = self.getPrivateOrgTypeID(**kwargs)
             return sorted(set(Rslt[:, 0]).intersection(IDs))
