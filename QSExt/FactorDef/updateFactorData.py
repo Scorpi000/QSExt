@@ -13,12 +13,13 @@ import click
 import QuantStudio.api as QS
 from QuantStudio.FactorDataBase.FactorDB import FactorDB
 
-def getLogger(log_dir, log_level):
+def getLogger(log_file=None, log_dir=None, log_level=logging.INFO):
     logging.root.setLevel(logging.NOTSET)
     Fmt = "QSFactor - %(asctime)s - %(levelname)s : %(message)s"
-    if isinstance(log_dir, str) and os.path.isdir(log_dir):
-        LogFile = os.path.join(log_dir, "QSFactor_"+dt.date.today().strftime("%Y%m%d")+".log")
-        LogHandler = logging.FileHandler(LogFile, mode="a")
+    if (log_file is None) and isinstance(log_dir, str) and os.path.isdir(log_dir):
+        log_file = os.path.join(log_dir, "QSFactor_"+dt.date.today().strftime("%Y%m%d")+".log")
+    if log_file is not None:
+        LogHandler = logging.FileHandler(log_file, mode="a")
         LogHandler.setLevel(log_level)
         LogHandler.setFormatter(logging.Formatter(Fmt))
         Logger = logging.getLogger()
