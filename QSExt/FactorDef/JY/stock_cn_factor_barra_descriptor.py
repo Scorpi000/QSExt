@@ -1,22 +1,21 @@
 # coding=utf-8
 """Barra 模型描述子"""
-import datetime as dt
 
+import datetime as dt
+import os
+# import logging
 import numpy as np
 import pandas as pd
-
 import QuantStudio.api as QS
+from datacare.utils.logger import base_log as Logger
+# from datacare.utils.stib_ids import getExcludeSTIBStockID
+from datacare.qs_config import JYDBConfig, HDF5DBConfig, StockDBConfig
+from datacare.utils.table import STOCK_CN_INFO_HISTORY, STOCK_CN_QUOTE_ADJ_NO_NAFILLED, STOCK_CN_BARRA_DESCRIPTOR
+
 fd = QS.FactorDB.FactorTools
 Factorize = QS.FactorDB.Factorize
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_barra_descriptor",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
-
-def IndustryMapFun(f, idt, iid, x, args):
+def IndustryWindMapFun(f, idt, iid, x, args):
     IndustryCode = x[0]
     IndustryCode[pd.isnull(IndustryCode)] = "None"
     Rslt = np.empty(IndustryCode.shape,dtype='O')
@@ -105,9 +104,8 @@ def NLSIZEFun(f, idt, iid, x, args):
     return NLSIZE
 
 def BETAFun(f, idt, iid, x, args):
-    RiskFreeRate = args["无风险日利率"][0].ix[idt].values
-    ExcessReturn = x[0]-RiskFreeRate
-    MarketExcessReturn = x[1]-RiskFreeRate
+    ExcessReturn = x[0]-x[2]
+    MarketExcessReturn = x[1]-x[2]
     WindowLen = ExcessReturn.shape[0]
     Weight = f.UserData.get("指数权重")
     if Weight is None:
@@ -134,10 +132,8 @@ def RSTRFun(f, idt, iid, x, args):
         f.UserData['指数权重'] = Weight
     Return = x[0][:WindowLen,:]
     Return[Return<=-1] = np.nan
-    RiskFreeReturn = args["无风险日利率"][0].ix[idt].values
-    RiskFreeReturn = RiskFreeReturn[:WindowLen]
+    RiskFreeReturn = x[1][:WindowLen]
     RiskFreeReturn[pd.isnull(RiskFreeReturn) | (RiskFreeReturn<=-1)] = 0.0
-    RiskFreeReturn = np.reshape(RiskFreeReturn, (RiskFreeReturn.shape[0], 1)).repeat(Return.shape[1], axis=1)
     Mask = (~np.isnan(Return))
     TotalWeight = np.sum(Mask.T*Weight,axis=1)
     Rslt = np.nansum((np.log(1+Return)-np.log(1+RiskFreeReturn)).T*Weight, axis=1)
@@ -145,8 +141,7 @@ def RSTRFun(f, idt, iid, x, args):
     return Rslt / TotalWeight
 
 def DASTDFun(f, idt, iid, x, args):
-    RiskFreeRate = args["无风险日利率"][0].ix[idt].values.reshape((x[0].shape[0], 1)).repeat(x[0].shape[1], axis=1)
-    ExcessReturn = x[0]-RiskFreeRate
+    ExcessReturn = x[0]-x[1]
     WindowLen = ExcessReturn.shape[0]
     Weight = f.UserData.get("指数权重")
     if Weight is None:
@@ -162,12 +157,11 @@ def DASTDFun(f, idt, iid, x, args):
 
 def CMRAFun(f, idt, iid, x, args):
     MReturn = x[0]
-    RiskFreeRate = args["无风险月利率"][0].ix[idt].values.reshape((x[0].shape[0], 1)).repeat(x[0].shape[1], axis=1)
     MonthInds = np.arange(0,args['T1']*(args['T']-1)+1,args['T1'])
+    RiskFreeRate = x[1][MonthInds, :]
+    RiskFreeRate[RiskFreeRate<=-1] = np.nan
     MReturn = MReturn[MonthInds,:]
     MReturn[MReturn<=-1] = np.nan
-    RiskFreeRate = RiskFreeRate[MonthInds,:]
-    RiskFreeRate[RiskFreeRate<=-1] = np.nan
     Temp = np.log(MReturn+1)-np.log(RiskFreeRate+1)
     Mask = np.isnan(Temp)
     NaMask = (np.sum(~Mask,axis=0)/args["T"]<args['非空率'])
@@ -181,10 +175,9 @@ def CMRAFun(f, idt, iid, x, args):
     return Rslt
 
 def EPSILONFun(f, idt, iid, x, args):
-    RiskFreeRate = args["无风险日利率"][0].ix[idt].values
-    ExcessReturn = x[0]-RiskFreeRate
+    ExcessReturn = x[0]-x[3]
     iExcessReturn = ExcessReturn[-1]
-    MarketExcessReturn = x[1]-RiskFreeRate
+    MarketExcessReturn = x[1]-x[3]
     iMarketExcessReturn = MarketExcessReturn[-1]
     WindowLen = ExcessReturn.shape[0]
     Weight = f.UserData.get("指数权重")
@@ -220,10 +213,10 @@ def HSIGMAFun(f, idt, iid, x, args):
 
 def STOMFun(f, idt, iid, x, args):
     Turnover = x[0]
-    IfTrading = x[1]
+    TradeStatus = x[1]
     WindowLen = Turnover.shape[0]
     Rslt = np.log(np.nansum(Turnover,axis=0))
-    Mask = (np.sum(IfTrading==1, axis=0)/WindowLen<args['非空率'])
+    Mask = (np.sum((TradeStatus==1), axis=0) / WindowLen < args['非空率'])
     Rslt[Mask] = np.nan
     return Rslt
 
@@ -236,108 +229,131 @@ def STOQFun(f, idt, iid, x, args):
     Rslt[NotNANum<args['非空数']] = np.nan
     return Rslt
 
-def defFactor(args={}):
+# args 应该包含的参数
+# LDB: 本地因子库对象
+# JYDB: 聚源因子库对象
+# ND_RF：无风险利率的全年计息天数, 默认 360
+def defFactor(args={}, debug=False):
     Factors = []
-
-    WDB = args["WDB"]
-    LDB = args["LDB"]
-
+    
+    JYDB = args["JYDB"]
+    StockDB = args["LDB"]
+    ND_RF = args.get("ND_RF", 360)
+    
     # ### 行情因子 #################################################################################
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    IfTrading = FT.getFactor("if_trading")
-    DayTurnover = FT.getFactor("turnover")
-    TotalCap = FT.getFactor("total_cap")
-    DayReturn = FT.getFactor("chg_rate")
-    FT = LDB.getTable("stock_cn_info")
-    ST = FT.getFactor("st")
+    FT = StockDB.getTable(STOCK_CN_QUOTE_ADJ_NO_NAFILLED)
+    DayTurnover = FT.getFactor("turnover_rate")# %
+    TotalCap = FT.getFactor("total_market_cap")# 万元
+    DayReturn = FT.getFactor("chg")
+    IsTrading = FT.getFactor("if_trading")
+    
+    FT = StockDB.getTable(STOCK_CN_INFO_HISTORY)
+    ST = FT.getFactor("special_trade")
     ListDayNum = FT.getFactor("listed_days")
     IsListed = FT.getFactor("if_listed")
-
-
-    # ### 财务因子 #################################################################################
-    FT = WDB.getTable("中国A股盈利预测汇总")
-    PredictedEarnings = FT.getFactor("净利润平均值(万元)", args={"计算方法":"Fwd12M", "周期":"263001000", "回溯天数":180})# 万元
-    PredictedEarningsFY0 = FT.getFactor("净利润平均值(万元)", args={"计算方法":"FY0", "周期":"263001000", "回溯天数":180})# 万元
-    PredictedEarningsFY2 = FT.getFactor("净利润平均值(万元)", args={"计算方法":"FY2", "周期":"263001000", "回溯天数":180})# 万元
-
-    CashEarnings_TTM = WDB.getTable("中国A股现金流量表").getFactor("经营活动产生的现金流量净额", args={"计算方法":"TTM", "报告期":"所有"})
-
-    FT = WDB.getTable("中国A股利润表")
-    Earnings_TTM = FT.getFactor("净利润(不含少数股东损益)", args={"计算方法":"TTM", "报告期":"所有"})
-    Earnings_LYR = FT.getFactor("净利润(不含少数股东损益)", args={"计算方法":"最新", "报告期":"年报"})
-
-    FT = WDB.getTable("中国A股资产负债表")
-    LongDebt = FT.getFactor("非流动负债合计", args={"计算方法":"最新", "报告期":"年报"})
-    TotalAsset = FT.getFactor("资产总计", args={"计算方法":"最新", "报告期":"年报"})
-    TotalDebt = FT.getFactor("负债合计", args={"计算方法":"最新", "报告期":"年报"})
-    Equity_LR = FT.getFactor("股东权益合计(不含少数股东权益)", args={"计算方法":"最新", "报告期":"所有"})
-    Equity_LYR = FT.getFactor("股东权益合计(不含少数股东权益)", args={"计算方法":"最新", "报告期":"年报"})
-
-    FT = WDB.getTable("中国A股财务指标")
-    EPS0 = FT.getFactor("基本每股收益", args={"计算方法":"最新", "报告期":"年报", "回溯年数":0})
-    EPS1 = FT.getFactor("基本每股收益", args={"计算方法":"最新", "报告期":"年报", "回溯年数":1})
-    EPS2 = FT.getFactor("基本每股收益", args={"计算方法":"最新", "报告期":"年报", "回溯年数":2})
-    EPS3 = FT.getFactor("基本每股收益", args={"计算方法":"最新", "报告期":"年报", "回溯年数":3})
-    EPS4 = FT.getFactor("基本每股收益", args={"计算方法":"最新", "报告期":"年报", "回溯年数":4})
-
-    SPS0 = FT.getFactor("每股营业收入", args={"计算方法":"最新", "报告期":"年报", "回溯年数":0})
-    SPS1 = FT.getFactor("每股营业收入", args={"计算方法":"最新", "报告期":"年报", "回溯年数":1})
-    SPS2 = FT.getFactor("每股营业收入", args={"计算方法":"最新", "报告期":"年报", "回溯年数":2})
-    SPS3 = FT.getFactor("每股营业收入", args={"计算方法":"最新", "报告期":"年报", "回溯年数":3})
-    SPS4 = FT.getFactor("每股营业收入", args={"计算方法":"最新", "报告期":"年报", "回溯年数":4})
-
+    
     # ### Barra CNE5 行业分类 #################################################################################
-    Wind3LevelIndustry = WDB.getTable("中国A股Wind行业分类").getFactor("行业代码", args={"分类级别":3})
-    Industry = QS.FactorDB.PointOperation("Industry", [Wind3LevelIndustry], {"算子":IndustryMapFun, "运算时点":"多时点", "运算ID":"多ID", "数据类型":"string"})
+    #Wind3LevelIndustry = WDB.getTable("中国A股Wind行业分类").getFactor("行业代码", args={"分类级别":3})
+    #Industry = QS.FactorDB.PointOperation("Industry", [Wind3LevelIndustry], {"算子":IndustryWindMapFun, "运算时点":"多时点", "运算ID":"多ID", "数据类型":"string"})
+    
+    FT = JYDB.getTable("公司行业划分表", args={"只填起始日":False, "多重映射":False})
+    JYIndustryLevel3 = FT.getFactor("三级行业代码", args={"行业划分标准":"30"})
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../conf/stock/barra_industry_jy.csv")
+    JYIndustryMap = pd.read_csv(path, header=0, index_col=5).iloc[:, 0]
+    JYIndustryMap.index = JYIndustryMap.index.astype(str)
+    Industry = fd.map_value(JYIndustryLevel3, JYIndustryMap, data_type="string")
+    GICSIndustryLevel3 = FT.getFactor("三级行业代码", args={"行业划分标准":"6"})# GICS 行业分类, 聚源停止更新
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../conf/stock/barra_industry_gics.csv")
+    GICSIndustryMap = pd.read_csv(path, header=0, index_col=5).iloc[:, 0]
+    GICSIndustryMap.index = GICSIndustryMap.index.astype(str)
+    Industry = fd.where(Industry, fd.notnull(Industry), fd.map_value(GICSIndustryLevel3, GICSIndustryMap, data_type="string"), data_type="string", factor_name="Industry")
+    
+    #Industry = FT.getFactor("citic_industry", new_name="Industry")# 由于没有 GICS 行业分类, 以中信行业分类作为替代
+    
     Factors.append(Industry)
-
+    
     # ### Estimation Universe, ESTU ###########################################################################
     ESTU = Factorize(((ListDayNum>=30) & (fd.rolling_sum(fd.notnull(ST), window=252)==0) & fd.notnull(Industry) & fd.notnull(TotalCap)), factor_name="ESTU")
     Factors.append(ESTU)
+    
+    # ### 财务因子 #################################################################################
+    FT = JYDB.getTable("个股盈利预测")
+    PredictedEarnings = FT.getFactor("净利润平均值(万元)", args={"计算方法":"Fwd12M", "周期":30, "回溯天数":180})# 万元
+    PredictedEarningsFY0 = FT.getFactor("净利润平均值(万元)", args={"计算方法":"FY0", "周期":30, "回溯天数":180})# 万元
+    PredictedEarningsFY2 = FT.getFactor("净利润平均值(万元)", args={"计算方法":"FY2", "周期":30, "回溯天数":180})# 万元
+    
+    CashEarnings_TTM = JYDB.getTable("现金流量表_新会计准则").getFactor("经营活动产生的现金流量净额", args={"计算方法":"TTM", "报告期":"所有"})
+
+    FT = JYDB.getTable("利润分配表_新会计准则")
+    Earnings_TTM = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有"})
+    Earnings_LYR = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"最新", "报告期":"年报"})
+
+    FT = JYDB.getTable("公司主要财务分析指标_新会计准则")
+    EPS0 = FT.getFactor("基本每股收益(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":0})
+    EPS1 = FT.getFactor("基本每股收益(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":1})
+    EPS2 = FT.getFactor("基本每股收益(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":2})
+    EPS3 = FT.getFactor("基本每股收益(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":3})
+    EPS4 = FT.getFactor("基本每股收益(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":4})
+    SPS0 = FT.getFactor("每股营业收入(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":0})
+    SPS1 = FT.getFactor("每股营业收入(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":1})
+    SPS2 = FT.getFactor("每股营业收入(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":2})
+    SPS3 = FT.getFactor("每股营业收入(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":3})
+    SPS4 = FT.getFactor("每股营业收入(元-股)", args={"计算方法":"最新", "报告期":"年报", "回溯年数":4})
+
+    FT = JYDB.getTable("资产负债表_新会计准则")
+    LongDebt = FT.getFactor("非流动负债合计", args={"计算方法":"最新", "报告期":"年报"})
+    TotalAsset = FT.getFactor("资产总计", args={"计算方法":"最新", "报告期":"年报"})
+    TotalDebt = FT.getFactor("负债合计", args={"计算方法":"最新", "报告期":"年报"})
+    Equity_LR = FT.getFactor("归属母公司股东权益合计", args={"计算方法":"最新", "报告期":"所有"})
+    Equity_LYR = FT.getFactor("归属母公司股东权益合计", args={"计算方法":"最新", "报告期":"年报"})
+
 
     # ### 收益率 ###########################################################################
     MonthReturn = QS.FactorDB.TimeOperation("月收益率", [DayReturn], {"算子":MonthReturnFun, "参数":{"非空率":0.8}, "回溯期数":[21-1], "运算ID":"多ID"})
     MarketReturn = QS.FactorDB.PanelOperation("市场日收益率", [DayReturn, ESTU, TotalCap], {"算子":MarketReturnFun, "输出形式":"全截面", "回溯期数":[0,1,1]})
 
-    DayRiskFreeRate, MonthRiskFreeRate = [], []# 无风险利率
-    YearRiskFreeRate = WDB.getTable("货币市场日行情").readData(factor_names=["加权平均利率"], ids=["DR007.IB"], dts=args["dt_ruler"]).iloc[0, :, 0]
-    DayRiskFreeRate.append((1 + YearRiskFreeRate / 100)**(1/365)-1)
-    MonthRiskFreeRate.append((1 + DayRiskFreeRate[0]).rolling(window=20).apply(lambda x: np.nanprod(x), raw=True)-1)
+    RiskFreeRateID = "600020002"# 无风险利率 : 3月期国债利率
+    # 无风险利率, 日频
+    FT = JYDB.getTable("宏观基础指标数据", args={"回溯天数": 0, "忽略公告日": False, "忽略时间": True})
+    PowerNum = fd.fillna(FT.getFactor("量纲系数"), value=0)
+    RiskFreeRate = fd.fillna(FT.getFactor("指标数据"), value=0) / 100 * 10 ** PowerNum
+    DayRiskFreeRate = fd.disaggregate(RiskFreeRate / ND_RF, aggr_ids=[RiskFreeRateID])
+    MonthRiskFreeRate = fd.disaggregate(RiskFreeRate / 12, aggr_ids=[RiskFreeRateID])
 
     # LNCAP
     LNCAP = fd.log(TotalCap, factor_name="LNCAP")
     Factors.append(LNCAP)
 
     # NLSIZE
-    Size = QS.FactorDB.SectionOperation("Size", [LNCAP, TotalCap, ESTU], {"算子":StandardizeFun, "输出形式":"全截面"})
+    Size = QS.FactorDB.SectionOperation("size", [LNCAP, TotalCap, ESTU], {"算子":StandardizeFun, "输出形式":"全截面"})
     NLSIZE = QS.FactorDB.SectionOperation('NLSIZE', [Size, TotalCap, IsListed], {"算子":NLSIZEFun, "输出形式":"全截面"})
     Factors.append(NLSIZE)
 
     # BETA
-    BETAArgs = {"非空率":0.8, "半衰期":63, "无风险日利率":DayRiskFreeRate}
-    BETA = QS.FactorDB.TimeOperation('BETA', [DayReturn,MarketReturn], {"算子":BETAFun, "参数":BETAArgs, "回溯期数":[252-1,252-1]})
+    BETAArgs = {"非空率":0.8, "半衰期":63}
+    BETA = QS.FactorDB.TimeOperation("BETA", [DayReturn,MarketReturn,DayRiskFreeRate], {"算子":BETAFun, "参数":BETAArgs, "回溯期数":[252-1,252-1,252-1]})
     Factors.append(BETA)
 
     # RSTR
-    RSTRArgs = {'窗口长度':504, '半衰期':126, '非空率':0.8, "无风险日利率":DayRiskFreeRate}
-    RSTR = QS.FactorDB.TimeOperation('RSTR', [DayReturn], {"算子":RSTRFun, "参数":RSTRArgs, "回溯期数":[504+21-2], "运算ID":"多ID"})
+    RSTRArgs = {'窗口长度':504, '半衰期':126, '非空率':0.8}
+    RSTR = QS.FactorDB.TimeOperation("RSTR", [DayReturn,DayRiskFreeRate], {"算子":RSTRFun, "参数":RSTRArgs, "回溯期数":[504+21-2, 504+21-2], "运算ID":"多ID"})
     Factors.append(RSTR)
 
     # DASTD
-    DASTDArgs = {'半衰期':42, '非空率':0.8, "无风险日利率":DayRiskFreeRate}
-    DASTD = QS.FactorDB.TimeOperation('DASTD', [DayReturn], {"算子":DASTDFun, "参数":DASTDArgs, "回溯期数":[252-1], "运算ID":"多ID"})
+    DASTDArgs = {'半衰期':42, '非空率':0.8}
+    DASTD = QS.FactorDB.TimeOperation("DASTD", [DayReturn,DayRiskFreeRate], {"算子":DASTDFun, "参数":DASTDArgs, "回溯期数":[252-1,252-1], "运算ID":"多ID"})
     Factors.append(DASTD)
 
     # CMRA
-    CMRAArgs = {'T1':21,'T':12,'非空率':0.8, "无风险月利率":MonthRiskFreeRate}
-    CMRA = QS.FactorDB.TimeOperation('CMRA', [MonthReturn], {"算子":CMRAFun, "参数":CMRAArgs, "回溯期数":[21*(12-1)], "运算ID":"多ID"})
+    CMRAArgs = {'T1':21,'T':12,'非空率':0.8}
+    CMRA = QS.FactorDB.TimeOperation("CMRA", [MonthReturn,MonthRiskFreeRate], {"算子":CMRAFun, "参数":CMRAArgs, "回溯期数":[21*(12-1), 21*(12-1)], "运算ID":"多ID"})
     Factors.append(CMRA)
 
     # HSIGMA
-    EPSILONArgs = {'半衰期':63,'非空率':0.8, "无风险日利率":DayRiskFreeRate}
-    EPSILON = QS.FactorDB.TimeOperation('EPSILON', [DayReturn,MarketReturn,BETA], {"算子":EPSILONFun,"参数":EPSILONArgs,"回溯期数":[252-1,252-1,1-1]})
+    EPSILONArgs = {'半衰期':63,'非空率':0.8}
+    EPSILON = QS.FactorDB.TimeOperation("EPSILON", [DayReturn,MarketReturn,BETA,DayRiskFreeRate], {"算子":EPSILONFun,"参数":EPSILONArgs,"回溯期数":[252-1,252-1,1-1,252-1]})
     HSIGMAArgs = {'半衰期':63,'非空率':0.8}
-    HSIGMA = QS.FactorDB.TimeOperation('HSIGMA', [EPSILON], {"算子":HSIGMAFun,"参数":HSIGMAArgs,"回溯期数":[252-1],"运算ID":"多ID"})
+    HSIGMA = QS.FactorDB.TimeOperation("HSIGMA", [EPSILON], {"算子":HSIGMAFun,"参数":HSIGMAArgs,"回溯期数":[252-1],"运算ID":"多ID"})
     Factors.append(HSIGMA)
 
     # BTOP
@@ -345,18 +361,19 @@ def defFactor(args={}):
     Factors.append(BTOP)
 
     # STOM
+    Mask = ((IsListed==1) & (IsTrading==1))
     STOMArgs = {'非空率':0.8}
-    STOM = QS.FactorDB.TimeOperation('STOM', [DayTurnover,IfTrading], {"算子":STOMFun,"参数":STOMArgs,"回溯期数":[21-1,21-1],"运算ID":"多ID"})
+    STOM = QS.FactorDB.TimeOperation("STOM", [DayTurnover,Mask], {"算子":STOMFun,"参数":STOMArgs,"回溯期数":[21-1,21-1],"运算ID":"多ID"})
     Factors.append(STOM)
 
     # STOQ
     STOQArgs = {'T':3,'T1':21,'非空数':2}
-    STOQ = QS.FactorDB.TimeOperation('STOQ', [STOM], {"算子":STOQFun,"参数":STOQArgs,"回溯期数":[21*(3-1)],"运算ID":"多ID"})
+    STOQ = QS.FactorDB.TimeOperation("STOQ", [STOM], {"算子":STOQFun,"参数":STOQArgs,"回溯期数":[21*(3-1)],"运算ID":"多ID"})
     Factors.append(STOQ)
 
     # STOA
     STOAArgs = {'T':12,'T1':21,'非空数':4}
-    STOA = QS.FactorDB.TimeOperation('STOA', [STOM], {'算子':STOQFun,"参数":STOAArgs,"回溯期数":[21*(12-1)],"运算ID":"多ID"})
+    STOA = QS.FactorDB.TimeOperation("STOA", [STOM], {'算子':STOQFun,"参数":STOAArgs,"回溯期数":[21*(12-1)],"运算ID":"多ID"})
     Factors.append(STOA)
 
     # EPFWD
@@ -399,8 +416,74 @@ def defFactor(args={}):
     # BLEV
     BLEV = Factorize((LongDebt+Equity_LYR) / Equity_LYR, factor_name="BLEV")
     Factors.append(BLEV)
+    
+    UpdateArgs = {"因子表": STOCK_CN_BARRA_DESCRIPTOR,
+                  "默认起始日": dt.datetime(2006,1,1),
+                  "最长回溯期": 3650,
+                  "IDs": "股票"}
+    
+    return (Factors, UpdateArgs)
 
-    return Factors
+def run(start, end, input="hdf", output="hdf", nums=0, ids=None):
+    """
+    :param start: datetime
+    :param end: datetime
+    :param input: str, 从哪里获取数据hdf, db
+    :param output: str, 数据输出到hdf, db
+    :param nums: int, 进程数
+    :param ids: list
+    :return:
+    """
 
-if __name__=="__main__":
-    pass
+    JYDB = QS.FactorDB.JYDB(logger=Logger, sys_args=JYDBConfig)
+    JYDB.connect()
+
+    if input == "hdf":
+        StockDB = QS.FactorDB.HDF5DB(logger=Logger, sys_args=HDF5DBConfig)
+    elif input == "db":
+        StockDB = QS.FactorDB.SQLDB(logger=Logger, sys_args=StockDBConfig)
+    else:
+        raise ValueError("Unsupported data source!")
+    StockDB.connect()
+
+    if output == "hdf":
+        TDB = QS.FactorDB.HDF5DB(logger=Logger, sys_args=HDF5DBConfig)
+    elif output == "db":
+        TDB = QS.FactorDB.SQLDB(logger=Logger, sys_args=StockDBConfig)
+    else:
+        raise ValueError("Unsupported storage methods!")
+    TDB.connect()
+    
+    Args = {"JYDB": JYDB, "LDB": StockDB}
+    Factors, UpdateArgs = defFactor(args=Args, debug=True)
+    
+    StartDT, EndDT = start, end
+    DTs = JYDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date(), output_type="datetime")
+    DTRuler = JYDB.getTradeDay(start_date=StartDT.date()-dt.timedelta(3650), end_date=EndDT.date(), output_type="datetime")
+
+    if not ids:
+        IDs = JYDB.getStockID(index_id="全体A股", is_current=False) #getExcludeSTIBStockID(JYDB, is_current=False)
+    else:
+        IDs = ids
+    
+    CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
+    CFT.addFactors(factor_list=Factors)
+    CFT.setDateTime(DTRuler)
+    CFT.setID(IDs)
+
+    Logger.info(f"start: {start} ~ end: {end}")
+    Logger.info(f"ids: {IDs[0]} ~ {IDs[-1]}")
+    TargetTable = CFT.Name
+
+    CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs, 
+                  factor_db=TDB, table_name=TargetTable, 
+                  if_exists="update", subprocess_num=nums)
+    
+    TDB.disconnect()
+    StockDB.disconnect()
+    JYDB.disconnect()
+
+
+if __name__ == '__main__':
+    run(dt.datetime(2021, 10, 10), dt.datetime(2021, 10, 15))
+

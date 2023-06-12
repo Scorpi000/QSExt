@@ -1,0 +1,69 @@
+Barra,聚源一级分类代码,聚源一级分类,聚源二级分类代码,聚源二级分类,聚源三级分类代码,聚源三级分类
+Energy,10,能源,1010,能源,101010,能源设备与服务
+Energy,10,能源,1010,能源,101020,石油、天然气与供消费用燃料
+Chemicals,15,原材料,1510,原材料,151010,化学制品
+Construction Materials,15,原材料,1510,原材料,151020,建筑材料
+Diversified Metals,15,原材料,1510,原材料,151040,金属与采矿
+Materials,15,原材料,1510,原材料,151030,容器与包装
+Materials,15,原材料,1510,原材料,151050,纸类与林业产品
+Aerospace and Defense,20,工业,2010,资本品,201010,航空航天与国防
+Building Products,20,工业,2010,资本品,201020,建筑产品
+Construction and Engineering,20,工业,2010,资本品,201030,建筑与工程
+Electrical Equipment,20,工业,2010,资本品,201040,电气设备
+Industrial Conglomerates,20,工业,2010,资本品,201050,工业集团企业
+Industrial Machinery,20,工业,2010,资本品,201060,机械制造
+Trading Companies and Distributors,20,工业,2010,资本品,201070,贸易公司与经销商
+Commercial and Professional Services,20,工业,2020,商业和专业服务,202010,商业服务与商业用品
+Commercial and Professional Services,20,工业,2020,商业和专业服务,202020,专业服务
+Airlines,20,工业,2030,运输,203010,航空货运与物流
+Airlines,20,工业,2030,运输,203020,航空公司
+Marine,20,工业,2030,运输,203030,海运
+Road Rail and Transportation Infrastructure,20,工业,2030,运输,203040,公路与铁路
+Road Rail and Transportation Infrastructure,20,工业,2030,运输,203050,交通基本设施
+Automobiles and Components,25,非日常生活消费品,2510,汽车与汽车零部件,251010,汽车零配件
+Automobiles and Components,25,非日常生活消费品,2510,汽车与汽车零部件,251020,汽车
+Household Durables (non-Homebuilding),25,非日常生活消费品,2520,耐用消费品与服装,252010,家庭耐用消费品
+Leisure Products Textiles Apparel and Luxury,25,非日常生活消费品,2520,耐用消费品与服装,252020,休闲设备与用品
+Leisure Products Textiles Apparel and Luxury,25,非日常生活消费品,2520,耐用消费品与服装,252030,纺织品、服装与奢侈品
+Hotels Restaurants and Leisure,25,非日常生活消费品,2530,消费者服务,253010,酒店、餐馆与休闲
+Hotels Restaurants and Leisure,25,非日常生活消费品,2530,消费者服务,253020,综合消费者服务
+Media,25,非日常生活消费品,2540,媒体,254010,媒体
+Retail,25,非日常生活消费品,2550,零售业,255010,经销商
+Retail,25,非日常生活消费品,2550,零售业,255020,互联网与直销零售
+Retail,25,非日常生活消费品,2550,零售业,255030,多元化零售
+Retail,25,非日常生活消费品,2550,零售业,255040,专营零售
+Food Staples Retail Household Personal Prod,30,日常消费品,3010,食品与主要用品零售,301010,食品与主要用品零售
+Food Staples Retail Household Personal Prod,30,日常消费品,3030,家庭与个人用品,303010,居家用品
+Food Staples Retail Household Personal Prod,30,日常消费品,3030,家庭与个人用品,303020,个人用品
+Beverages,30,日常消费品,3020,食品、饮料与烟草,302010,饮料
+Food Products,30,日常消费品,3020,食品、饮料与烟草,302020,食品
+Food Products,30,日常消费品,3020,食品、饮料与烟草,302030,烟草
+Health,35,医疗保健,3510,医疗保健设备与服务,351010,医疗保健设备与用品
+Health,35,医疗保健,3510,医疗保健设备与服务,351020,医疗保健提供商与服务
+Health,35,医疗保健,3510,医疗保健设备与服务,351030,医疗保健技术
+Health,35,医疗保健,3520,制药、生物科技和生命科学,352010,生物科技
+Health,35,医疗保健,3520,制药、生物科技和生命科学,352020,制药
+Health,35,医疗保健,3520,制药、生物科技和生命科学,352030,生命科学工具和服务
+Banks,40,金融,4010,银行,401010,商业银行
+Banks,40,金融,4010,银行,401020,互助储蓄银行与抵押信贷
+Diversified Financial Services,40,金融,4020,综合金融,402010,综合金融服务
+Diversified Financial Services,40,金融,4020,综合金融,402020,消费信贷
+Diversified Financial Services,40,金融,4020,综合金融,402030,资本市场
+Diversified Financial Services,40,金融,4020,综合金融,402040,抵押房地产投资信托（REITs）
+Diversified Financial Services,40,金融,4030,保险,403010,保险
+Real Estate,60,房地产,6010,房地产,601010,股权房地产投资信托（REITs）
+Real Estate,60,房地产,6010,房地产,601020,房地产管理和开发
+Software,45,信息技术,4510,软件与服务,451010,互联网软件与服务
+Software,45,信息技术,4510,软件与服务,451020,信息技术服务
+Software,45,信息技术,4510,软件与服务,451030,软件
+Hardware and Semiconductors,45,信息技术,4520,技术硬件与设备,452010,通信设备
+Hardware and Semiconductors,45,信息技术,4520,技术硬件与设备,452020,电脑与外围设备
+Hardware and Semiconductors,45,信息技术,4520,技术硬件与设备,452030,电子设备、仪器和元件
+Hardware and Semiconductors,45,信息技术,4530,半导体产品与设备,453010,半导体产品与设备
+Hardware and Semiconductors,50,电信业务,5010,电信业务,501010,综合电信业务
+Hardware and Semiconductors,50,电信业务,5010,电信业务,501020,无线电信业务
+Utilities,55,公用事业,5510,公用事业,551010,电力公用事业
+Utilities,55,公用事业,5510,公用事业,551020,燃气公用事业
+Utilities,55,公用事业,5510,公用事业,551030,复合型公用事业
+Utilities,55,公用事业,5510,公用事业,551040,水公用事业
+Utilities,55,公用事业,5510,公用事业,551050,独立电力生产商与能源贸易商
