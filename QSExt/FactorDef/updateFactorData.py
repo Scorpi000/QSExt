@@ -75,6 +75,7 @@ def getFactorUpdateArgs(tdb):
     Parser.add_argument("-slb", "--start_look_back", type=int, default=0, help="起始时点的回溯天数")
     Parser.add_argument("-elb", "--end_look_back", type=int, default=0, help="结束时点的回溯天数")
     Parser.add_argument("-ids", "--ids", type=str, default=None, help="证券代码列表, 以逗号分隔, 比如: 000001.SZ,000002.SZ")
+    Parser.add_argument("-idtp", "--id_type", type=str, default=None, help="证券类型, 比如: stock, mf, pf_sl, pf_ia")
     Parser.add_argument("-um", "--update_method", type=str, default="update", help="更新方式")
     Parser.add_argument("-pn", "--process_num", type=int, default=0, help="子进程数量, 0 表示串行计算")
     Parser.add_argument("-darg", "--def_args", type=str, default=None, help="因子定义参数, 字典字面量, 格式: {'key': 'value'}")
@@ -85,7 +86,8 @@ def getFactorUpdateArgs(tdb):
     Args = {
         "debug": (InputArgs.debug.lower() in ("y", "yes")),
         "table_name": InputArgs.table_name,
-        "ids": InputArgs.ids,
+        "ids": (InputArgs.ids.split(",") if InputArgs.ids else None),
+        "id_type": InputArgs.id_type,
         "end_dt": parseDateTime(InputArgs.end_dt) if InputArgs.end_dt else None,
         "update_method": InputArgs.update_method,
         "process_num": InputArgs.process_num,
