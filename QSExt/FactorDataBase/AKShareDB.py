@@ -55,6 +55,8 @@ def _updateInfo(info_file, info_resource, logger, out_info=False):
 
 class _AKSTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        IDAdj = Enum("无", "前缀", arg_type="SingleOption", label="ID调整", order=50)
+        DTFmt = Str(arg_type="String", label="时点格式", order=51)
         def __QS_initArgs__(self):
             super().__QS_initArgs__()
             ArgInfo = self._Owner._ArgInfo
@@ -84,7 +86,22 @@ class _AKSTable(FactorTable):
     
     def _getAPIArgs(self, args={}):
         return {iArgName: args.get(iArgName, self.Args[iArgName]) for iArgName in self._ArgInfo.index[self._ArgInfo["FieldType"]=="QSArg"]}
-        
+    def __QS_adjustID__(self, ids, args={}):
+        IDAdj = args.get("ID调整", self._QSArgs.IDAdj)
+        if IDAdj=="无":
+            return ids
+        elif IDAdj=="前缀":
+            return [iID.split(".")[-1].lower() + ".".join(iID.split(".")[:-1]) if "." in iID else iID for iID in ids]
+        else:
+            raise __QS_Error__(f"AKShareDB._AKSTable: 不支持的 ID 调整方法 '{IDAdj}'")
+    def __QS_restoreID__(self, ids, args={}):
+        return ids
+    def __QS_adjustDT__(self, dts, args={}):
+        DTFmt = args.get("时点格式", self._QSArgs.DTFmt)
+        if not DTFmt:
+            return dts
+        else:
+            return [dt.datetime.strptime(iDT, DTFmt) if pd.notnull(iDT) else pd.NaT for iDT in dts]
     def getMetaData(self, key=None, args={}):
         TableInfo = self._FactorDB._TableInfo.loc[self.Name]
         if key is None:
@@ -120,7 +137,7 @@ class _AKSTable(FactorTable):
 class _DTTable(_AKSTable):
     """DTTable"""
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
-        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=0)
+        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=50)
     
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         StartDT = dts[0] - dt.timedelta(args.get("回溯天数", self._QSArgs.LookBack))
@@ -158,7 +175,7 @@ class _DTTable(_AKSTable):
 class _DTRangeTable(_AKSTable):
     """DTRangeTable"""
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
-        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=0)
+        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=50)
     
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         StartDate, EndDate = dts[0].date(), dts[-1].date()
@@ -170,20 +187,21 @@ class _DTRangeTable(_AKSTable):
         IDArg = ArgInfo.index[ArgInfo["FieldType"]=="ID"][0]
         APIArgs = {StartDTArg: StartDate.strftime("%Y%m%d"), EndDTArg: EndDate.strftime("%Y%m%d")}
         APIArgs.update(self._getAPIArgs(args=args))
+        AdjustedIDs = self.__QS_adjustID__(ids, args=args)
         RawData = []
-        for iID in ids:
-            APIArgs[IDArg] = ".".join(iID.split(".")[:-1])
+        for i, iID in enumerate(AdjustedIDs):
+            APIArgs[IDArg] = iID
             try:
                 iRawData = getattr(ak, APIName)(**APIArgs)
             except:
                 continue
-            iRawData["ID"] = iID
+            iRawData["ID"] = ids[i]
             RawData.append(iRawData)
         DTField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="Date"][0]
         if RawData:
             RawData = pd.concat(RawData, axis=0, ignore_index=True)
             RawData = RawData.rename(columns={DTField: "QS_DT"}).reindex(columns=["ID", "QS_DT"]+factor_names)
-            RawData["QS_DT"] = RawData["QS_DT"].apply(lambda d: dt.datetime.strptime(str(d), "%Y-%m-%d") if d else pd.NaT)
+            RawData["QS_DT"] = self.__QS_adjustDT__(RawData["QS_DT"])
             return RawData.sort_values(by=["ID", "QS_DT"])
         else:
             return pd.DataFrame(columns=["ID", "QS_DT"]+factor_names)
