@@ -79,7 +79,7 @@ class BacktestDlg(__QS_Object__):
         
         Widgets["ModuleTab"] = widgets.Tab()
         Widgets["ModuleList"] = []
-        for iModule in self.BacktestModel.Modules: self.addModuleWidgets(iModule)
+        for iModule in self.BacktestModel.Modules: self.addModuleWidgets(iModule, Widgets)
         Widgets["MainOutput"] = widgets.Output()       
         
         Frame = widgets.VBox(children=[
@@ -101,8 +101,8 @@ class BacktestDlg(__QS_Object__):
         iModuleWidgets["ModuleNameText"].observe(self.on_ModuleNameText_changed, names="value")
         return iModuleWidgets
         
-    def addModuleWidgets(self, module):
-        iWidgets = self.Widgets
+    def addModuleWidgets(self, module, wdgts):
+        iWidgets = wdgts
         iModuleWidgets = self.createModuleWidgets(module)
         Titles = iWidgets["ModuleTab"].titles
         TabName = f"{len(Titles)}-{module.Name}"
@@ -121,7 +121,7 @@ class BacktestDlg(__QS_Object__):
         iModuleType, iModuleName = iWidgets["ModuleTypeDropdown"].value, iWidgets["ModuleDropdown"].value
         iFT = self.FTs[iWidgets["FTDropdown"].value]
         iModule = self.BacktestModules[iModuleType][iModuleName](factor_table=iFT)
-        self.addModuleWidgets(iModule)
+        self.addModuleWidgets(iModule, self.Widgets)
         self.BacktestModel.Modules.append(iModule)
         
     def on_DeleteModuleButton_clicked(self, b):
