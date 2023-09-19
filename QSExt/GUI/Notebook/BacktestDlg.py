@@ -140,7 +140,11 @@ class BacktestDlg(__QS_Object__):
         self.BacktestModel.Modules[TabIdx].Name = iModuleWidgets["ModuleNameText"].value
     
     def on_RunButton_clicked(self, b):
-        self.BacktestModel.run()
+        StartDT = self.Widgets["StartDatetimePicker"].value
+        EndDT = self.Widgets["EndDatetimePicker"].value
+        DTs = list(self.FTs.values())[0].getDateTime(start_dt=StartDT, end_dt=EndDT)
+        SubprocessNum = self.Widgets["SubprocessNumInt"].value
+        self.BacktestModel.run(DTs, subprocess_num=SubprocessNum)
 
 if __name__=="__main__":
     Dlg = BacktestDlg(fdbs={})
