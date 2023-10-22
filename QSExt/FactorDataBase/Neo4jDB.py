@@ -27,7 +27,8 @@ def _identifyDataType(factor_data, data_type=None):
     return (factor_data, data_type)
 
 class _NarrowTable(FactorTable):
-    IDField = Str("ID", arg_type="String", label="ID字段", order=0)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        IDField = Str("ID", arg_type="String", label="ID字段", order=0)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         self._TableInfo = fdb._TableInfo.loc[name]
         self._FactorInfo = fdb._FactorInfo.loc[name]
@@ -127,16 +128,17 @@ class _NarrowTable(FactorTable):
         return _QS_calcData_NarrowTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
 
 class _EntityFeatureTable(FactorTable):
-    EntityLabels = ListStr(["因子库"], arg_type="List", label="实体标签", order=0)
-    IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=2)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        EntityLabels = ListStr(["因子库"], arg_type="List", label="实体标签", order=0)
+        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
+        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=2)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField
         return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
     @property
     def FactorNames(self):
-        LabelStr = "`:`".join(self.EntityLabels)
+        LabelStr = "`:`".join(self._QSArgs.EntityLabels)
         CypherStr = f"""
             MATCH (n:`{LabelStr}`)
             WITH keys(n) AS kk
@@ -146,13 +148,13 @@ class _EntityFeatureTable(FactorTable):
         FactorNames = self._FactorDB.fetchall(CypherStr)
         if not FactorNames: return FactorNames
         FactorNames = sorted(FactorNames[0][0])
-        if self.IDField in FactorNames: FactorNames.remove(self.IDField)
+        if self._QSArgs.IDField in FactorNames: FactorNames.remove(self._QSArgs.IDField)
         return FactorNames
     def getFactorMetaData(self, factor_names=None, key=None, args={}):
         if factor_names is None:
             factor_names = self.FactorNames
         if key=="DataType":
-            LabelStr = "`:`".join(args.get("实体标签", self.EntityLabels))
+            LabelStr = "`:`".join(args.get("实体标签", self._QSArgs.EntityLabels))
             CypherStr = f"MATCH (n:`{LabelStr}`) WITH n, keys(n) AS kk UNWIND kk AS ik RETURN collect(DISTINCT [ik, apoc.meta.type(n[ik])])"
             DataType = self._FactorDB.fetchall(CypherStr)
             if not DataType: return pd.Series(index=factor_names, dtype="O")
@@ -166,8 +168,8 @@ class _EntityFeatureTable(FactorTable):
         else:
             return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
     def getID(self, ifactor_name=None, idt=None, args={}):
-        LabelStr = "`:`".join(args.get("实体标签", self.EntityLabels))
-        IDField = args.get("ID字段", self.IDField)
+        LabelStr = "`:`".join(args.get("实体标签", self._QSArgs.EntityLabels))
+        IDField = args.get("ID字段", self._QSArgs.IDField)
         CypherStr = f"MATCH (n:`{LabelStr}`) "
         if ifactor_name is not None:
             CypherStr += f"WHERE n.`{ifactor_name}` IS NOT NULL "
@@ -176,8 +178,8 @@ class _EntityFeatureTable(FactorTable):
         if not IDs: return IDs
         else: return sorted(IDs[0][0])
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
-        LabelStr = "`:`".join(args.get("实体标签", self.EntityLabels))
-        IDField = args.get("ID字段", self.IDField)
+        LabelStr = "`:`".join(args.get("实体标签", self._QSArgs.EntityLabels))
+        IDField = args.get("ID字段", self._QSArgs.IDField)
         CypherStr = f"MATCH (n:`{LabelStr}`) "
         CypherStr += f"WHERE n.`{IDField}` IN $ids "
         CypherStr += f"RETURN n.`{IDField}` AS QS_ID, n.`{'`, n.`'.join(factor_names)}`"
@@ -199,33 +201,34 @@ class _EntityFeatureTable(FactorTable):
         return Panel(Data.values.T.reshape((Data.shape[1], Data.shape[0], 1)).repeat(len(dts), axis=2), items=factor_names, major_axis=Data.index, minor_axis=dts).swapaxes(1, 2)
 
 class _RelationFeatureTable(FactorTable):
-    IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
-    IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-    OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
-    OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
-    OppField = Str("Name", arg_type="Dict", label="关联字段", order=4)
-    RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
-    Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
-    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=7)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
+        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
+        OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
+        OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
+        OppField = Str("Name", arg_type="Dict", label="关联字段", order=4)
+        RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
+        Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
+        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=7)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField
         return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
     @property
     def FactorNames(self):
-        IDNode = f"(n1:`{'`:`'.join(self.IDEntity)}`) "
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in self.OppConstraint.items()))
-        OppNode = f"(n2:`{'`:`'.join(self.OppEntity)}` {{{OppConstraint}}})"
-        if self.Direction=="->":
-            CypherStr = f"MATCH {IDNode} - [r:`{self.RelationLabel}`] -> {OppNode} "
-        elif self.Direction=="<-":
-            CypherStr = f"MATCH {IDNode} <- [r:`{self.RelationLabel}`] - {OppNode} "
-        CypherStr += f"WHERE n1.`{self.IDField}` IS NOT NULL "
+        IDNode = f"(n1:`{'`:`'.join(self._QSArgs.IDEntity)}`) "
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in self._QSArgs.OppConstraint.items()))
+        OppNode = f"(n2:`{'`:`'.join(self._QSArgs.OppEntity)}` {{{OppConstraint}}})"
+        if self._QSArgs.Direction=="->":
+            CypherStr = f"MATCH {IDNode} - [r:`{self._QSArgs.RelationLabel}`] -> {OppNode} "
+        elif self._QSArgs.Direction=="<-":
+            CypherStr = f"MATCH {IDNode} <- [r:`{self._QSArgs.RelationLabel}`] - {OppNode} "
+        CypherStr += f"WHERE n1.`{self._QSArgs.IDField}` IS NOT NULL "
         CypherStr += "WITH keys(r) AS kk UNWIND kk AS ik RETURN collect(DISTINCT ik)"
         FactorNames = self._FactorDB.fetchall(CypherStr)
         if not FactorNames: return FactorNames
         FactorNames = sorted(FactorNames[0][0])
-        if self.OppField:
+        if self._QSArgs.OppField:
             return FactorNames+["是否存在", "关联实体"]
         else:
             return FactorNames+["是否存在"]
@@ -233,15 +236,15 @@ class _RelationFeatureTable(FactorTable):
         if factor_names is None:
             factor_names = self.FactorNames
         if key=="DataType":
-            IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-            IDField = args.get("ID字段", self.IDField)
-            OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-            OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-            OppField = args.get("关联字段", self.OppField)
-            if self.Direction=="->":
-                CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
-            elif self.Direction=="<-":
-                CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+            IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+            IDField = args.get("ID字段", self._QSArgs.IDField)
+            OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+            OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+            OppField = args.get("关联字段", self._QSArgs.OppField)
+            if self._QSArgs.Direction=="->":
+                CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
+            elif self._QSArgs.Direction=="<-":
+                CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
             CypherStr += f"WHERE n1.`{IDField}` IS NOT NULL "
             CypherStr += "WITH r, keys(r) AS kk UNWIND kk AS ik RETURN collect(DISTINCT [ik, apoc.meta.type(r[ik])])"
             DataType = self._FactorDB.fetchall(CypherStr)
@@ -263,15 +266,15 @@ class _RelationFeatureTable(FactorTable):
         else:
             return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
     def getID(self, ifactor_name=None, idt=None, args={}):
-        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-        IDField = args.get("ID字段", self.IDField)
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-        OppField = args.get("关联字段", self.OppField)
-        if self.Direction=="->":
-            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
-        elif self.Direction=="<-":
-            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+        OppField = args.get("关联字段", self._QSArgs.OppField)
+        if self._QSArgs.Direction=="->":
+            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
+        elif self._QSArgs.Direction=="<-":
+            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
         CypherStr += f"WHERE n1.`{IDField}` IS NOT NULL "
         if ifactor_name=="关联实体":
             CypherStr += f"AND n2.`{OppField}` IS NOT NULL "
@@ -282,15 +285,15 @@ class _RelationFeatureTable(FactorTable):
         if not IDs: return IDs
         else: return sorted(IDs[0][0])
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
-        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-        IDField = args.get("ID字段", self.IDField)
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-        OppField = args.get("关联字段", self.OppField)
-        if self.Direction=="->":
-            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
-        elif self.Direction=="<-":
-            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+        OppField = args.get("关联字段", self._QSArgs.OppField)
+        if self._QSArgs.Direction=="->":
+            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
+        elif self._QSArgs.Direction=="<-":
+            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
         CypherStr += f"WHERE n1.`{IDField}` IN $ids "
         if OppField and ("关联实体" in factor_names):
             iIdx = factor_names.index("关联实体")
@@ -318,31 +321,32 @@ class _RelationFeatureTable(FactorTable):
         return Panel(Data.values.T.reshape((Data.shape[1], Data.shape[0], 1)).repeat(len(dts), axis=2), items=factor_names, major_axis=Data.index, minor_axis=dts).swapaxes(1, 2)
 
 class _RelationFeatureOppFactorTable(FactorTable):
-    IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
-    IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-    OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
-    OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
-    OppField = Str("Name", arg_type="Dict", label="因子名字段", order=4)
-    RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
-    Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
-    RelationField = Str(arg_type="String", label="因子值字段", order=7)
-    MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=8)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
+        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
+        OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
+        OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
+        OppField = Str("Name", arg_type="Dict", label="因子名字段", order=4)
+        RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
+        Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
+        RelationField = Str(arg_type="String", label="因子值字段", order=7)
+        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=8)
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         if "ID字段" not in sys_args:
             sys_args["ID字段"] = fdb.IDField
         return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
     @property
     def FactorNames(self):
-        IDNode = f"(n1:`{'`:`'.join(self.IDEntity)}`) "
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in self.OppConstraint.items()))
-        OppNode = f"(n2:`{'`:`'.join(self.OppEntity)}` {{{OppConstraint}}})"
-        if self.Direction=="->":
-            Relation = f"{IDNode} - [r:`{self.RelationLabel}`] -> {OppNode}"
-        elif self.Direction=="<-":
-            Relation = f"{IDNode} <- [r:`{self.RelationLabel}`] - {OppNode}"
+        IDNode = f"(n1:`{'`:`'.join(self._QSArgs.IDEntity)}`) "
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in self._QSArgs.OppConstraint.items()))
+        OppNode = f"(n2:`{'`:`'.join(self._QSArgs.OppEntity)}` {{{OppConstraint}}})"
+        if self._QSArgs.Direction=="->":
+            Relation = f"{IDNode} - [r:`{self._QSArgs.RelationLabel}`] -> {OppNode}"
+        elif self._QSArgs.Direction=="<-":
+            Relation = f"{IDNode} <- [r:`{self._QSArgs.RelationLabel}`] - {OppNode}"
         CypherStr = f"MATCH {Relation} "
-        CypherStr += f"WHERE n1.`{self.IDField}` IS NOT NULL AND n2.`{self.OppField}` IS NOT NULL "
-        CypherStr += f"RETURN collect(DISTINCT n2.`{self.OppField}`)"
+        CypherStr += f"WHERE n1.`{self._QSArgs.IDField}` IS NOT NULL AND n2.`{self._QSArgs.OppField}` IS NOT NULL "
+        CypherStr += f"RETURN collect(DISTINCT n2.`{self._QSArgs.OppField}`)"
         FactorNames = self._FactorDB.fetchall(CypherStr)
         if not FactorNames: return FactorNames
         return sorted(FactorNames[0][0])
@@ -350,17 +354,17 @@ class _RelationFeatureOppFactorTable(FactorTable):
         if factor_names is None:
             factor_names = self.FactorNames
         if key=="DataType":
-            IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-            IDField = args.get("ID字段", self.IDField)
-            OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-            OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-            Direction = args.get("关系方向", self.Direction)
-            RelationField = args.get("因子值字段", self.RelationField)
+            IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+            IDField = args.get("ID字段", self._QSArgs.IDField)
+            OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+            OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+            Direction = args.get("关系方向", self._QSArgs.Direction)
+            RelationField = args.get("因子值字段", self._QSArgs.RelationField)
             if not RelationField: return pd.Series("double", index=factor_names)
             if Direction=="->":
-                Relation = f"{IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
+                Relation = f"{IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
             elif Direction=="<-":
-                Relation = f"{IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+                Relation = f"{IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
             else:
                 Msg = ("因子库 '%s' 调用方法 getFactorMetaData 错误: 不支持的参数值 %s : %s " % (self.Name, "关系方向", str(Direction)))
                 self._QS_Logger.error(Msg)
@@ -380,16 +384,16 @@ class _RelationFeatureOppFactorTable(FactorTable):
         else:
             return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
     def getID(self, ifactor_name=None, idt=None, args={}):
-        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-        IDField = args.get("ID字段", self.IDField)
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-        OppField = args.get("因子名字段", self.OppField)
-        RelationField = args.get("因子值字段", self.RelationField)
-        if self.Direction=="->":
-            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
-        elif self.Direction=="<-":
-            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+        OppField = args.get("因子名字段", self._QSArgs.OppField)
+        RelationField = args.get("因子值字段", self._QSArgs.RelationField)
+        if self._QSArgs.Direction=="->":
+            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
+        elif self._QSArgs.Direction=="<-":
+            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
         CypherStr += f"WHERE n1.`{IDField}` IS NOT NULL "
         if ifactor_name is not None:
             CypherStr += f"AND n2.`{OppField}` = {ifactor_name} "
@@ -400,16 +404,16 @@ class _RelationFeatureOppFactorTable(FactorTable):
         if not IDs: return IDs
         else: return sorted(IDs[0][0])
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
-        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self.IDEntity))}`) "
-        IDField = args.get("ID字段", self.IDField)
-        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self.OppConstraint).items()))
-        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self.OppEntity))}` {{{OppConstraint}}})"
-        OppField = args.get("因子名字段", self.OppField)
-        RelationField = args.get("因子值字段", self.RelationField)
-        if self.Direction=="->":
-            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self.RelationLabel)}`] -> {OppNode} "
-        elif self.Direction=="<-":
-            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self.RelationLabel)}`] - {OppNode} "
+        IDNode = f"(n1:`{'`:`'.join(args.get('ID实体', self._QSArgs.IDEntity))}`) "
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        OppConstraint = ','.join(((f"`{iKey}` : '{iVal}'" if isinstance(iVal, str) else f"`{iKey}` : {iVal}") for iKey, iVal in args.get('关联约束', self._QSArgs.OppConstraint).items()))
+        OppNode = f"(n2:`{'`:`'.join(args.get('关联实体', self._QSArgs.OppEntity))}` {{{OppConstraint}}})"
+        OppField = args.get("因子名字段", self._QSArgs.OppField)
+        RelationField = args.get("因子值字段", self._QSArgs.RelationField)
+        if self._QSArgs.Direction=="->":
+            CypherStr = f"MATCH {IDNode} - [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] -> {OppNode} "
+        elif self._QSArgs.Direction=="<-":
+            CypherStr = f"MATCH {IDNode} <- [r:`{args.get('关系标签', self._QSArgs.RelationLabel)}`] - {OppNode} "
         CypherStr += f"WHERE n1.`{IDField}` IN $ids AND n2.`{OppField}` IN $factor_names "
         if RelationField:
             CypherStr += f"RETURN n1.`{IDField}`, n2.`{OppField}`, r.`{RelationField}`"
@@ -439,9 +443,10 @@ class _RelationFeatureOppFactorTable(FactorTable):
 
 class Neo4jDB(QSNeo4jObject, WritableFactorDB):
     """Neo4jDB"""
-    Name = Str("Neo4jDB", arg_type="String", label="名称", order=-100)
-    IDField = Str("ID", arg_type="String", label="ID字段", order=100)
-    FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
+    class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__, WritableFactorDB.__QS_ArgClass__):
+        Name = Str("Neo4jDB", arg_type="String", label="名称", order=-100)
+        IDField = Str("ID", arg_type="String", label="ID字段", order=100)
+        FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         self._DTFormat = "%Y-%m-%d"
         self._DTFormat_WithTime = "%Y-%m-%d %H:%M:%S"
@@ -479,7 +484,7 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
             Msg = ("因子库 '%s' 调用方法 getTable 错误: 不存在因子表: '%s'!" % (self.Name, table_name))
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        Args = self.FTArgs.copy()
+        Args = self._QSArgs.FTArgs.copy()
         Args.update(args)
         if table_name=="实体属性":
             return _EntityFeatureTable(name=table_name, fdb=self, sys_args=Args, logger=self._QS_Logger)
@@ -548,7 +553,7 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
     def _writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
         DTs, IDs = data.major_axis.tolist(), data.minor_axis.tolist()
         IDType = kwargs.get("id_type", [])
-        IDField = kwargs.get("id_field", self.IDField)
+        IDField = kwargs.get("id_field", self._QSArgs.IDField)
         if IDType: IDType = f":`{'`:`'.join(IDType)}`"
         WriteCypherStr = f"""
             MATCH (f:`因子`:`基础因子` {{Name: $ifactor}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}

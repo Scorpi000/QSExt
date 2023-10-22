@@ -17,18 +17,18 @@ from QuantStudio.Tools.FileFun import genAvailableFile
 
 class QSNeo4jObject(__QS_Object__):
     """基于 Neo4j 的对象"""
-    Name = Str("QSNeo4jObject")
-    DBName = Str("neo4j", arg_type="String", label="数据库名", order=0)
-    IPAddr = Str("127.0.0.1", arg_type="String", label="IP地址", order=1)
-    Port = Range(low=0, high=65535, value=7687, arg_type="Integer", label="端口", order=2)
-    User = Str("neo4j", arg_type="String", label="用户名", order=3)
-    Pwd = Password("", arg_type="String", label="密码", order=4)
-    Connector = Enum("default", "neo4j", arg_type="SingleOption", label="连接器", order=5)
-    CSVImportPath = Either(None, Str("file:///"), arg_type="String", label="CSV导入地址", order=6)
-    CSVExportPath = Either(None, Str(), arg_type="String", label="CSV导出地址", order=7)
-    CSVSep = Str(",", arg_type="String", label="CSV分隔符", order=8)
-    ClearCSV = Enum(False, True, arg_type="Bool", label="清除CSV", order=9)
-    PeriodicSize = Int(-1, arg_type="Integer", label="定期数量", order=10)
+    class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
+        DBName = Str("neo4j", arg_type="String", label="数据库名", order=0)
+        IPAddr = Str("127.0.0.1", arg_type="String", label="IP地址", order=1)
+        Port = Range(low=0, high=65535, value=7687, arg_type="Integer", label="端口", order=2)
+        User = Str("neo4j", arg_type="String", label="用户名", order=3)
+        Pwd = Password("", arg_type="String", label="密码", order=4)
+        Connector = Enum("default", "neo4j", arg_type="SingleOption", label="连接器", order=5)
+        CSVImportPath = Either(None, Str("file:///"), arg_type="String", label="CSV导入地址", order=6)
+        CSVExportPath = Either(None, Str(), arg_type="String", label="CSV导出地址", order=7)
+        CSVSep = Str(",", arg_type="String", label="CSV分隔符", order=8)
+        ClearCSV = Enum(False, True, arg_type="Bool", label="清除CSV", order=9)
+        PeriodicSize = Int(-1, arg_type="Integer", label="定期数量", order=10)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         self._Connection = None# 连接对象
         self._Connector = None# 实际使用的数据库链接器
@@ -48,14 +48,14 @@ class QSNeo4jObject(__QS_Object__):
             if os.getpid()!=self._PID: self._connect()# 如果进程号发生变化, 重连
         return self._Connection
     def _getConnection(self):
-        if (self.Connector=="neo4j") or (self.Connector=="default"):
+        if (self._QSArgs.Connector=="neo4j") or (self._QSArgs.Connector=="default"):
             try:
                 import neo4j
-                Conn = neo4j.GraphDatabase.driver(f"neo4j://{self.IPAddr}:{self.Port}", auth=(self.User, self.Pwd), max_connection_lifetime=3600*8)
+                Conn = neo4j.GraphDatabase.driver(f"neo4j://{self._QSArgs.IPAddr}:{self._QSArgs.Port}", auth=(self._QSArgs.User, self._QSArgs.Pwd), max_connection_lifetime=3600*8)
             except Exception as e:
-                Msg = ("'%s' 尝试使用 neo4j 连接(%s@%s:%d)数据库失败: %s" % (self.Name, self.User, self.IPAddr, self.Port, str(e)))
+                Msg = ("'%s' 尝试使用 neo4j 连接(%s@%s:%d)数据库失败: %s" % (self.Name, self._QSArgs.User, self._QSArgs.IPAddr, self._QSArgs.Port, str(e)))
                 self._QS_Logger.error(Msg)
-                if self.Connector!="default": raise e
+                if self._QSArgs.Connector!="default": raise e
             else:
                 Connector = "neo4j"
         return Conn, Connector
@@ -83,10 +83,10 @@ class QSNeo4jObject(__QS_Object__):
             raise __QS_Error__(Msg)
         if os.getpid()!=self._PID: self._connect()# 如果进程号发生变化, 重连
         try:# 连接断开后重连
-            Session = self._Connection.session(database=self.DBName)
+            Session = self._Connection.session(database=self._QSArgs.DBName)
         except:
             self._connect()
-            Session = self._Connection.session(database=self.DBName)
+            Session = self._Connection.session(database=self._QSArgs.DBName)
         return Session
     def fetchall(self, cypher_str, parameters=None):
         with self.session() as Session:
@@ -98,10 +98,10 @@ class QSNeo4jObject(__QS_Object__):
             raise __QS_Error__(Msg)
         if os.getpid()!=self._PID: self._connect()# 如果进程号发生变化, 重连
         try:
-            Session = self._Connection.session(database=self.DBName)
+            Session = self._Connection.session(database=self._QSArgs.DBName)
         except:
             self._connect()
-            Session = self._Connection.session(database=self.DBName)
+            Session = self._Connection.session(database=self._QSArgs.DBName)
         with Session:
             Session.run(cypher_str, parameters=parameters)
         return 0
@@ -131,7 +131,7 @@ class QSNeo4jObject(__QS_Object__):
         """
         if excluded_labels:
             CypherStr += f"AND (NOT n:`{'`) AND (NOT n:`'.join(':'.join(iLabels) for iLabels in excluded_labels)}`) "
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr = f"""CALL apoc.periodic.iterate("{CypherStr}RETURN n", "SET n:`{NewLabelStr}`", {{batchSize: {PeriodicSize}, parallel: true, params: {{`ids`: $ids}}}})"""
         else:
@@ -171,7 +171,7 @@ class QSNeo4jObject(__QS_Object__):
                 ON CREATE SET n = iData
                 ON MATCH SET n += iData
             """
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr = f"""CALL apoc.periodic.iterate("{CypherStr1} RETURN iData", "{CypherStr2}", {{`batchSize`: {PeriodicSize}, `parallel`: true, `params`: {{`data`: $data}}}})"""
         else:
@@ -179,7 +179,7 @@ class QSNeo4jObject(__QS_Object__):
         return self.execute(CypherStr, parameters={"data": data.to_dict(orient="records")})
     def _writeEntityData_LoadCSV(self, data, entity_labels, entity_id, if_exists="update", args={}, **kwargs):
         LabelStr = "`:`".join(entity_labels)
-        CSVExportPath = args.get("CSV导出地址", self.CSVExportPath)
+        CSVExportPath = args.get("CSV导出地址", self._QSArgs.CSVExportPath)
         if data.shape[0]>0:
             if if_exists in ("append", "update_notnull"):
                 IDs, Fields = data.index.tolist(), data.columns.tolist()
@@ -203,16 +203,16 @@ class QSNeo4jObject(__QS_Object__):
                 ExportPath = genAvailableFile("QSNeo4jEntityData", target_dir=CSVExportPath, suffix="csv")
             else:
                 ExportPath = CSVExportPath
-            data.to_csv(ExportPath, index=False, header=True, sep=args.get("CSV分隔符", self.CSVSep))
+            data.to_csv(ExportPath, index=False, header=True, sep=args.get("CSV分隔符", self._QSArgs.CSVSep))
             _, CSVFile = os.path.split(ExportPath)
-            ImportPath = urllib.parse.urljoin(args.get("CSV导入地址", self.CSVImportPath), CSVFile)
+            ImportPath = urllib.parse.urljoin(args.get("CSV导入地址", self._QSArgs.CSVImportPath), CSVFile)
         else:
-            ImportPath = args.get("CSV导入地址", self.CSVImportPath)
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+            ImportPath = args.get("CSV导入地址", self._QSArgs.CSVImportPath)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
-            CypherStr = f"""USING PERIODIC COMMIT {PeriodicSize} LOAD CSV WITH HEADERS FROM "{ImportPath}" AS line FIELDTERMINATOR '{args.get("CSV分隔符", self.CSVSep)}'"""
+            CypherStr = f"""USING PERIODIC COMMIT {PeriodicSize} LOAD CSV WITH HEADERS FROM "{ImportPath}" AS line FIELDTERMINATOR '{args.get("CSV分隔符", self._QSArgs.CSVSep)}'"""
         else:
-            CypherStr = f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS line FIELDTERMINATOR '{args.get("CSV分隔符", self.CSVSep)}'"""
+            CypherStr = f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS line FIELDTERMINATOR '{args.get("CSV分隔符", self._QSArgs.CSVSep)}'"""
         if if_exists in ("replace", "replace_all", "create"):
             CypherStr += f"""CREATE (n:`{LabelStr}` {{{", ".join([f"`{iField}`: line.`{iField}`" for iField in data.columns])}}})"""
         else:
@@ -220,7 +220,7 @@ class QSNeo4jObject(__QS_Object__):
             ON CREATE SET n = line
             ON MATCH SET n += line"""
         self.execute(CypherStr, parameters=None)
-        if (CSVExportPath is not None) and args.get("清除CSV", self.ClearCSV):
+        if (CSVExportPath is not None) and args.get("清除CSV", self._QSArgs.ClearCSV):
             try:
                 os.remove(ExportPath)
             except Exception as e:
@@ -231,7 +231,7 @@ class QSNeo4jObject(__QS_Object__):
             self.deleteEntity(entity_labels, {entity_id: data.index.tolist()})
         elif if_exists=="replace_all":
             self.deleteEntity(entity_labels, None)
-        if args.get("CSV导入地址", self.CSVImportPath) is not None:
+        if args.get("CSV导入地址", self._QSArgs.CSVImportPath) is not None:
             return self._writeEntityData_LoadCSV(data, entity_labels, entity_id, if_exists, args=args, **kwargs)
         ThreadNum = kwargs.get("thread_num", 0)
         if ThreadNum==0:
@@ -253,7 +253,7 @@ class QSNeo4jObject(__QS_Object__):
         CypherStr = f"MATCH {EntityNode} "
         if entity_ids:
             CypherStr += "WHERE "+" AND ".join(f"n.`{iField}` IN $entity_ids['{iField}']" for iField in entity_ids)+" "
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr += f"WITH n LIMIT {args.get('定期数量', PeriodicSize)} DETACH DELETE n RETURN COUNT(*)"
             CypherStr = f"""CALL  apoc.periodic.commit("{CypherStr}", {{`entity_ids`: $entity_ids}}) YIELD updates, executions, runtime, batches"""
@@ -303,7 +303,7 @@ class QSNeo4jObject(__QS_Object__):
             CypherStr2 += f" SET "
             for i, iField in enumerate(data.columns): CypherStr2 += f" r.`{iField}` = d[{2+i}], "
             CypherStr2 = CypherStr2[:-2]
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr = f"""CALL apoc.periodic.iterate("{CypherStr1} RETURN d", "{CypherStr2}", {{`batchSize`: {PeriodicSize}, `parallel`: false, `params`: {{`data`: $data}}}})"""
         else:
@@ -312,7 +312,7 @@ class QSNeo4jObject(__QS_Object__):
         if conn is None:
             self.execute(CypherStr, parameters={"data": data})
         else:
-            with conn.session(database=self.DBName) as Session:
+            with conn.session(database=self._QSArgs.DBName) as Session:
                 Session.run(CypherStr, parameters={"data": data})
         return 0
     def _writeRelationData_LoadCSV(self, data, relation_label, source_labels, target_labels, source_id, target_id, if_exists="update", args={}, **kwargs):
@@ -333,7 +333,7 @@ class QSNeo4jObject(__QS_Object__):
             Fields = data.columns.tolist()
             data = data.astype("O").where(pd.notnull(data), None).reset_index()
             data.columns = ["源ID", "目标ID"] + Fields
-        CSVExportPath = args.get("CSV导出地址", self.CSVExportPath)
+        CSVExportPath = args.get("CSV导出地址", self._QSArgs.CSVExportPath)
         if CSVExportPath is not None:
             if os.path.isdir(CSVExportPath):
                 ExportPath = genAvailableFile("QSNeo4jRelationData", target_dir=CSVExportPath, suffix="csv")
@@ -341,26 +341,26 @@ class QSNeo4jObject(__QS_Object__):
                 ExportPath = CSVExportPath
             data.to_csv(ExportPath, index=False, header=True)
             _, CSVFile = os.path.split(ExportPath)
-            ImportPath = urllib.parse.urljoin(args.get("CSV导入地址", self.CSVImportPath), CSVFile)
+            ImportPath = urllib.parse.urljoin(args.get("CSV导入地址", self._QSArgs.CSVImportPath), CSVFile)
         else:
-            ImportPath = args.get("CSV导入地址", self.CSVImportPath)
+            ImportPath = args.get("CSV导入地址", self._QSArgs.CSVImportPath)
         SourceNode = (f"(n1:`{'`:`'.join(source_labels)}` {{`{source_id}`: d.`源ID`}})" if source_labels else f"(n1 {{`{source_id}`: d.`源ID`}})")
         TargetNode = (f"(n2:`{'`:`'.join(target_labels)}` {{`{target_id}`: d.`目标ID`}})" if target_labels else f"(n2 {{`{target_id}`: d.`目标ID`}})")
         Relation = (f"(n1) - [r:`{relation_label}`] -> (n2)" if relation_label is not None else "(n1) - [r] -> (n2)")
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr = f"USING PERIODIC COMMIT {PeriodicSize} "
         else:
             CypherStr = ""
         Keyword = ("MERGE" if kwargs.get("create_entity", False) else "MATCH")
         if if_exists in ("replace", "replace_all", "create"):
-            CypherStr += f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS d FIELDTERMINATOR '{args.get("CSV分隔符", self.CSVSep)}'
+            CypherStr += f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS d FIELDTERMINATOR '{args.get("CSV分隔符", self._QSArgs.CSVSep)}'
                 {Keyword} {SourceNode}
                 {Keyword} {TargetNode}
                 CREATE {Relation}
             """
         else:
-            CypherStr += f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS d FIELDTERMINATOR '{args.get("CSV分隔符", self.CSVSep)}'
+            CypherStr += f"""LOAD CSV WITH HEADERS FROM "{ImportPath}" AS d FIELDTERMINATOR '{args.get("CSV分隔符", self._QSArgs.CSVSep)}'
                 {Keyword} {SourceNode}
                 {Keyword} {TargetNode}
                 MERGE {Relation}
@@ -370,7 +370,7 @@ class QSNeo4jObject(__QS_Object__):
             for iField in data.columns[2:]: CypherStr += f" r.`{iField}` = d.`{iField}`, "
             CypherStr = CypherStr[:-2]
         self.execute(CypherStr, parameters=None)
-        if (CSVExportPath is not None) and args.get("清除CSV", self.ClearCSV):
+        if (CSVExportPath is not None) and args.get("清除CSV", self._QSArgs.ClearCSV):
             try:
                 os.remove(ExportPath)
             except Exception as e:
@@ -393,7 +393,7 @@ class QSNeo4jObject(__QS_Object__):
             self.deleteRelation(relation_label, {}, source_labels, {SourceID: data.index.get_level_values(0).unique().tolist()}, target_labels, {TargetID: data.index.get_level_values(1).unique().tolist()})
         elif if_exists=="replace_all":
             self.deleteRelation(relation_label, {}, source_labels, {}, target_labels, {})
-        if args.get("CSV导入地址", self.CSVImportPath) is not None:
+        if args.get("CSV导入地址", self._QSArgs.CSVImportPath) is not None:
             return self._writeRelationData_LoadCSV(data, relation_label, source_labels, target_labels, SourceID, TargetID, if_exists, args=args, **kwargs)
         ThreadNum = kwargs.get("thread_num", 0)
         if ThreadNum==0:
@@ -429,7 +429,7 @@ class QSNeo4jObject(__QS_Object__):
             for iField in target_ids: Conditions.append(f"n2.`{iField}` IN $target_ids['{iField}']")
         if Conditions:
             CypherStr += "WHERE "+" AND ".join(Conditions)+" "
-        PeriodicSize = args.get("定期数量", self.PeriodicSize)
+        PeriodicSize = args.get("定期数量", self._QSArgs.PeriodicSize)
         if PeriodicSize>0:
             CypherStr += f"WITH r LIMIT {args.get('定期数量', PeriodicSize)} DELETE r RETURN COUNT(*)"
             CypherStr = f"""CALL  apoc.periodic.commit("{CypherStr}", {{`relation_ids`: $relation_ids, `source_ids`: $source_ids, `target_ids`: $target_ids}}) YIELD updates, executions, runtime, batches"""
