@@ -459,10 +459,10 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         Class = Class[Class.index("'")+1:]
         Class = Class[:Class.index("'")]
         self._Node = f"(fdb:`因子库`:`{self.__class__.__name__}` {{`Name`: '{self.Name}', `_Class`: '{Class}'}})"
-        Args = self.Args
-        Args.pop("用户名")
-        Args.pop("密码")
-        with self._Connection.session(database=self.DBName) as Session:
+        Args = self.Args.to_dict()
+        # Args.pop("用户名")
+        # Args.pop("密码")
+        with self._Connection.session(database=self._QSArgs.DBName) as Session:
             with Session.begin_transaction() as tx:
                 CypherStr = f"MERGE {self._Node}"
                 iCypherStr, Parameters = writeArgs(Args, arg_name=None, tx=None, parent_var="fdb")
