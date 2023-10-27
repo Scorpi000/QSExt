@@ -5,11 +5,12 @@ import pickle
 import importlib
 import concurrent.futures
 
+import sympy
 import numpy as np
 import pandas as pd
 from traits.api import Enum, Str, Range, Password, Either, Int
 
-from QuantStudio import __QS_Object__, __QS_Error__
+from QuantStudio import __QS_Object__, __QS_Error__, QSArgs
 from QuantStudio.FactorDataBase.FactorOperation import DerivativeFactor
 from QuantStudio.FactorDataBase.FactorDB import CustomFT
 from QuantStudio.Tools.AuxiliaryFun import distributeEqual
@@ -453,19 +454,22 @@ def writeArgs(args, arg_name=None, parent_var=None, var=None, tx=None):
     else:
         if var is None: var = "a"
         CypherStr = f"CREATE ({var}:`参数集`)"
-    if isinstance(args, __QS_Object__):
-        Parameters[var] = {"_PickledObject": pickle.dumps(args)}
-        args = args.Args
-    else:
-        Parameters[var] = {}
-    if isinstance(args, dict):
+    if isinstance(args, QSArgs):
+        # Parameters[var] = {"_PickledObject": pickle.dumps(args)}
+        args = args.to_dict()
+    # else:
+    Parameters[var] = {}
+    if isinstance(args, (dict, QSArgs)):
         args = args.copy()
         SubArgs = {}
+        # 参数值的特殊处理
         for iArg in sorted(args.keys()):
-            if isinstance(args[iArg], (dict, __QS_Object__)):
+            if isinstance(args[iArg], (dict, QSArgs)):
                 SubArgs[iArg] = args.pop(iArg)
             elif callable(args[iArg]) or isinstance(args[iArg], (list, tuple, pd.Series, pd.DataFrame, np.ndarray)):
                 args[iArg] = pickle.dumps(args[iArg])
+            elif isinstance(args[iArg], (sympy.Function, sympy.Expr)):
+                args.pop(iArg)
         if args:
             CypherStr += f" SET {var} += ${var}"
             Parameters[var].update(args)
@@ -557,7 +561,7 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             FTNode = f"({var}:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
             CypherStr += f" MERGE {FTNode} - [:`属于因子库`] -> ({FDBVar})"
             FTArgs = ft.Args
-            FTArgs.pop("遍历模式", None)
+            # FTArgs.pop("遍历模式", None)
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var,  tx=None)
             if ArgStr: CypherStr += " "+ArgStr
             Parameters.update(FTParameters)
@@ -574,7 +578,7 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             FTNode = f"({var}:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
             CypherStr += f" CREATE {FTNode} "
             FTArgs = ft.Args
-            FTArgs.pop("遍历模式", None)
+            # FTArgs.pop("遍历模式", None)
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var, tx=None)
             if ArgStr: CypherStr += " "+ArgStr
             Parameters.update(FTParameters)
@@ -601,8 +605,8 @@ def writeFactorDB(fdb, tx=None, var="fdb"):
     Node = f"({var}:`因子库`:`{fdb.__class__.__name__}` {{`Name`: '{fdb.Name}', `_Class`: '{Class}'}})"
     CypherStr = "MERGE "+Node
     Args = fdb.Args
-    Args.pop("用户名", None)
-    Args.pop("密码", None)
+    # Args.pop("用户名", None)
+    # Args.pop("密码", None)
     ArgStr, Parameters = writeArgs(Args, arg_name=None, parent_var=var, tx=None)
     if ArgStr: CypherStr += " " + ArgStr
     if tx is None:
