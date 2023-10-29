@@ -11,6 +11,7 @@ import dateparser
 import click
 
 import QuantStudio.api as QS
+from QuantStudio import __QS_Error__
 from QuantStudio.FactorDataBase.FactorDB import FactorDB
 
 def getLogger(log_file=None, log_dir=None, log_level=logging.INFO):
@@ -96,6 +97,8 @@ def getFactorUpdateArgs(tdb):
         "log_dir": InputArgs.log_dir
     }
     if InputArgs.start_dt=="max_dt":
+        if tdb is None:
+            raise __QS_Error__("当 start_dt 为 'max_dt' 时必须传入目标因子库对象")
         FT = tdb.getTable(Args["table_name"])
         Args["start_dt"] = FT.getDateTime()[-1] + dt.timedelta(1)
     elif InputArgs.start_dt:
