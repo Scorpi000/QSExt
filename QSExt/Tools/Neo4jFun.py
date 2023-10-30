@@ -566,10 +566,10 @@ def checkFactorTableExistence(ft, tx=None):
     FDB = ft.FactorDB
     if FDB is not None:# 有上层因子库, 非自定义因子表
         FDBNode = f"(fdb:`因子库`:`{FDB.__class__.__name__}` {{`Name`: '{FDB.Name}'_Class`: '{_getObjClass(FDB)}'}})"
-        FTNode = f"(ft:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{_getObjt)}'}})"
+        FTNode = f"(ft:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{_getObjClass(ft)}'}})"
         CypherStr = f"MATCH {FTNode} - [:`属于因子库`] -> {FDBNode}"
     else:# 无上层因子库, 自定义因子表
-        FTNode = f"(ft:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{_ge(ft)}'}})"
+        FTNode = f"(ft:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{_getObjClass(ft)}'}})"
         CypherStr = f"MATCH {FTNode}"
     CypherStr += f" RETURN id(ft)"
     Parameters = {}
