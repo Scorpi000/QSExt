@@ -438,8 +438,14 @@ class QSNeo4jObject(__QS_Object__):
             CypherStr += "DELETE r"
         return self.execute(CypherStr, parameters={"relation_ids": relation_ids, "source_ids": source_ids, "target_ids": target_ids})
 
+def _getObjClass(obj):
+    Class = str(obj.__class__)
+    Class = Class[Class.index("'")+1:]
+    Class = Class[:Class.index("'")]
+    return Class
 
 # 写入参数集
+# 参数以其所属对象节点的唯一性确定自身唯一性，如果已经存在不会重复写入
 # tx: None 返回 Cypher 语句和参数
 # tx: 非 None 返回写入的参数集节点 id
 def writeArgs(args, arg_name=None, parent_var=None, var=None, tx=None):
@@ -486,6 +492,7 @@ def writeArgs(args, arg_name=None, parent_var=None, var=None, tx=None):
         return tx.run(CypherStr, parameters=Parameters).values()[0][0]    
 
 # 写入因子, id_var: {id(对象): 变量名}
+# 因子不确定唯一性, 直接 create
 # tx: None 返回 Cypher 语句和参数
 # tx: 非 None 返回写入的 [因子节点 id]
 def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=True):
@@ -534,13 +541,62 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
         return tx.run(CypherStr, parameters=Parameters).values()[0]
 
 # 删除因子
-def deleteFactor(factor_name, labels=["因子"], ft=None, fdb=None, del_descriptors=True, tx=None):
-    raise NotImplemented
+# factor_node_ids: [id]
+def deleteFactor(factor_node_ids, del_descriptors=True, tx=None):
+    # 获取描述子节点 id
+    if del_descriptors:
+        CypherStr = f"""
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] ->) - [:`依赖` *0..] -> (f2:`因子`) - [:`参数` *1..] -> (a2:`参数集`)
+            WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
+            DETACH DELETE a1, f1, f0, f2, a2
+        """
+    else:
+        CypherStr = f"""
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] ->)
+            WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
+            DETACH DELETE a1, f1, f0
+        """
+    if tx is None:
+        return CypherStr, {}
+    else:
+        return tx.run(CypherStr, parameters={})
+
+# 确定因子表是否存在，存在则返回节点 id
+def checkFactorTableExistence(ft, tx=None):
+    FDB = ft.FactorDB
+    if FDB is not None:# 有上层因子库, 非自定义因子表
+        FDBNode = f"(fdb:`因子库`:`{FDB.__class__.__name__}` {{`Name`: '{FDB.Name}'_Class`: '{_getObjClass(FDB)}'}})"
+        FTNode = f"(ft:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{_getObjt)}'}})"
+        CypherStr = f"MATCH {FTNode} - [:`属于因子库`] -> {FDBNode}"
+    else:# 无上层因子库, 自定义因子表
+        FTNode = f"(ft:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{_ge(ft)}'}})"
+        CypherStr = f"MATCH {FTNode}"
+    CypherStr += f" RETURN id(ft)"
+    Parameters = {}
+    if tx is None:
+        return CypherStr, Parameters
+    else:
+        FTIDs = tx.run(CypherStr, parameters=Parameters).values()
+        return ([] if not FTIDs else FTIDs[0])
+
+# 获取因子表下面所有因子节点的 id
+def readFactorID(ft, ft_id, tx=None):
+    if isinstance(ft, CustomFT):# 自定义因子表
+        CypherStr = f"MATCH (ft:`因子表`) - [:`包含因子`] -> (f:`因子`)"
+    else:# 非自定义因子表
+        CypherStr = f"MATCH (ft:`因子表`) <- [:`属于因子表`] - (f:`因子`)"
+    CypherStr += f" WHERE id(ft)={ft_id} RETURN f.Name, id(f)"
+    if tx is None:
+        return CypherStr, {}
+    else:
+        return {iFactorName:iID for iFactorName, iID in tx.run(CypherStr, parameters={}).values()}
 
 # 写入因子表
+# 库因子表以名称，类以及所属因子库的唯一性确定自身的唯一性，如果已经存在不会重复写入
+# 自定义因子表以名称，类确定唯一性，如果已经存在根据参数 if_cft_exists(可选: skip, create) 选择是否重复写入
 # tx: None 返回 Cypher 语句和参数
 # tx: 非 None 返回写入的因子表节点 id
-def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental_factor=True):
+def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental_factor=False, if_cft_exists="skip"):
     if id_var is None: id_var = {}
     CypherStr, Parameters = "", {}
     Class = str(ft.__class__)
@@ -561,7 +617,6 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             FTNode = f"({var}:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
             CypherStr += f" MERGE {FTNode} - [:`属于因子库`] -> ({FDBVar})"
             FTArgs = ft.Args
-            # FTArgs.pop("遍历模式", None)
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var,  tx=None)
             if ArgStr: CypherStr += " "+ArgStr
             Parameters.update(FTParameters)
@@ -576,9 +631,13 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             if FStr: CypherStr += " "+FStr
             Parameters.update(FParameters)
             FTNode = f"({var}:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
-            CypherStr += f" CREATE {FTNode} "
+            if if_cft_exists=="create":
+                CypherStr += f" CREATE {FTNode} "
+            elif if_cft_exists=="skip":
+                CypherStr += f" MERGE {FTNode} "
+            else:
+                raise __QS_Error__(f"writeFactorTable: 参数 if_cft_exists 不支持的取值 '{if_cft_exists}'")
             FTArgs = ft.Args
-            # FTArgs.pop("遍历模式", None)
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var, tx=None)
             if ArgStr: CypherStr += " "+ArgStr
             Parameters.update(FTParameters)
@@ -591,11 +650,66 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
         CypherStr += f" RETURN id({var})"
         return tx.run(CypherStr, parameters=Parameters).values()[0][0]
 
+# 写入因子存储关系
+# tx: None 返回 Cypher 语句和参数
+# factor_node_ids: {FactorName: id}
+def writeRelation2FDB(factors, factor_node_ids, fdb, table_name, specific_target={}, if_exists="update", tx=None, id_var=None):None: id_var = {}
+    CypherStr, Parameters = "", {}
+    Conditions = []
+    for i, iFactor in enumerate(factors):
+        iFactorName = iFactor.Name
+        iFID = id(iFactor)
+        iFVar = f"f{iFID}"
+        iFNode = f"({iFVar}:`因子`)"
+        CypherStr += f" MATCH {iFNode}"
+        Conditions.append(f"id({iFVar})={factor_node_ids[iFactorName]}")
+        id_var[iFID] = iFVar
+    CypherStr += " WHERE " + " AND ".join(Conditions)
+    for i, iFactor in enumerate(factors):
+        iFactorName = iFactor.Name
+        if iFactorName in specific_target:
+            iFDB, iTableName, iTargetFactorName = specific_target[iFactorName]
+        else:
+            iFDB, iTableName, iTargetFactorName = fdb, table_name, iFactorName
+        iFDBID = id(iFDB)
+        iFDBVar = f"fdb{iFDBID}"
+        if iFDBID not in id_var:
+            iFDBStr, iFDBParameters = writeFactorDB(iFDB, tx=None, var=iFDBVar)
+            CypherStr += " " + iFDBStr
+            Parameters.update(iFDBParameters)
+            id_var[iFDBID] = iFDBVar
+        iFTVar = f"{iFDBVar}_{iTableName}"
+        if iFTVar not in id_var:
+            iFTNode = f"({iFTVar}:`因子表`:`库因子表` {{Name: '{iTableName}'}})"
+            CypherStr += f" MERGE {iFTNode} - [:`属于因子库`] -> ({iFDBVar})"
+            id_var[iFTVar] = iFTVar
+        iRawFVar = f"raw_factor_{i}"
+        if iRawFVar not in id_var:
+            iDataType = iFactor.getMetaData(key="DataType")
+            iRawFNode = f"({iRawFVar}:`因子`:`基础因子` {{Name: '{iTargetFactorName}', DataType: '{iDataType}'}})"
+            CypherStr += f" MERGE {iRawFNode} - [:`属于因子表`] -> ({iFTVar})"
+            id_var[iRawFVar] = iRawFVar
+        iFVar = id_var[id(iFactor)]
+        CypherStr += f" MERGE ({iFVar}) - [:`存储于`] -> ({iRawFVar})"
+    if tx is None:
+        return CypherStr, Parameters
+    else:
+        return tx.run(CypherStr, parameters=Parameters)
+
 # 删除因子表
-def deleteFactorTable(table_name, labels=["因子表"], fdb=None, del_factors=True, del_descriptors=True, tx=None):
-    raise NotImplementedError
+def deleteFactorTable(ft_id, tx=None):
+    CypherStr = f"""
+        MATCH (a:`参数集`) <- [:`参数` *1..] - (ft:`因子表`)
+        WHERE id(ft) = {ft_id}
+        DETACH DELETE a, ft
+    """
+    if tx is None:
+        return CypherStr, {}
+    else:
+        return tx.run(CypherStr, parameters={})
 
 # 写入因子库
+# 因子库以名称和类确定唯一性，如果已经存在不会重复写入
 # tx: None 返回 Cypher 语句和参数
 # tx: 非 None 返回写入的因子库节点 id
 def writeFactorDB(fdb, tx=None, var="fdb"):
@@ -605,8 +719,6 @@ def writeFactorDB(fdb, tx=None, var="fdb"):
     Node = f"({var}:`因子库`:`{fdb.__class__.__name__}` {{`Name`: '{fdb.Name}', `_Class`: '{Class}'}})"
     CypherStr = "MERGE "+Node
     Args = fdb.Args
-    # Args.pop("用户名", None)
-    # Args.pop("密码", None)
     ArgStr, Parameters = writeArgs(Args, arg_name=None, parent_var=var, tx=None)
     if ArgStr: CypherStr += " " + ArgStr
     if tx is None:
