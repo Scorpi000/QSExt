@@ -653,7 +653,8 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
 # 写入因子存储关系
 # tx: None 返回 Cypher 语句和参数
 # factor_node_ids: {FactorName: id}
-def writeRelation2FDB(factors, factor_node_ids, fdb, table_name, specific_target={}, if_exists="update", tx=None, id_var=None):None: id_var = {}
+def writeRelation2FDB(factors, factor_node_ids, fdb, table_name, specific_target={}, if_exists="update", tx=None, id_var=None):
+    if id_var is None: id_var = {}
     CypherStr, Parameters = "", {}
     Conditions = []
     for i, iFactor in enumerate(factors):
