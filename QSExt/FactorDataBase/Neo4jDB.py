@@ -447,6 +447,7 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         Name = Str("Neo4jDB", arg_type="String", label="名称", order=-100)
         IDField = Str("ID", arg_type="String", label="ID字段", order=100)
         FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
+        SaveArgs = Dict(label="写入参数", arg_type="Dict", order=102)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         self._DTFormat = "%Y-%m-%d"
         self._DTFormat_WithTime = "%Y-%m-%d %H:%M:%S"
@@ -460,8 +461,6 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         Class = Class[:Class.index("'")]
         self._Node = f"(fdb:`因子库`:`{self.__class__.__name__}` {{`Name`: '{self.Name}', `_Class`: '{Class}'}})"
         Args = self.Args.to_dict()
-        # Args.pop("用户名")
-        # Args.pop("密码")
         with self._Connection.session(database=self._QSArgs.DBName) as Session:
             with Session.begin_transaction() as tx:
                 CypherStr = f"MERGE {self._Node}"
@@ -550,9 +549,10 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
     #     id_type: [str], 比如: ['证券', 'A股']
     #     id_field: str, ID 字段
     #     thread_num: 写入线程数量
+    #     write_type: ["时序", "截面"]
     def _writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
         DTs, IDs = data.major_axis.tolist(), data.minor_axis.tolist()
-        IDType = kwargs.get("id_type", [])
+        IDType = kwargs.get("id_type", self._QSArgs.get("写入参数", {}).get("id_type", []))
         IDField = kwargs.get("id_field", self._QSArgs.IDField)
         if IDType: IDType = f":`{'`:`'.join(IDType)}`"
         WriteCypherStr = f"""
@@ -592,6 +592,33 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         self._FactorInfo = self._FactorInfo.append(NewFactorInfo.set_index(["TableName", "FactorName"])).sort_index()
         data.major_axis = DTs
         return 0
+    def _writeSectionData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
+        IDType = kwargs.get("id_type", self._QSArgs.get("写入参数", {}).get("id_type", []))
+        IDField = kwargs.get("id_field", self._QSArgs.IDField)
+        if IDType: IDType = f":`{'`:`'.join(IDType)}`"
+        WriteCypherStr = f"""
+            MATCH (f:`因子`:`基础因子` {{Name: $ifactor}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}
+            UNWIND range(0, size($ids)-1) AS i
+            MERGE (s{IDType} {{{IDField}: $ids[i]}})
+            MERGE (s) - [r:`暴露`] -> (f)
+            ON CREATE SET r = $data[i]
+            ON MATCH SET r += $data[i]
+        """
+        data.major_axis = data.major_axis.strftime(self._DTFormat)
+        with self.session() as Session:
+            with Session.begin_transaction() as tx:
+                for i, iFactor in enumerate(data.items):
+                    iData = data.iloc[i]
+                    iData = iData.astype("O").where(pd.notnull(iData), None)
+                    iData = iData.stack().reset_index(level=0).groupby(axis=0, level=0).last()
+                    iData.columns = ["datetime", "value"]
+                    tx.run(WriteCypherStr, parameters={"data": iData.to_dict(orient="records"), "ids": iData.index.tolist(), "ifactor": iFactor})
+        if table_name not in self._TableInfo.index:
+            self._TableInfo.loc[table_name] = None
+        NewFactorInfo = pd.DataFrame(data_type, index=["DataType"], columns=pd.Index(sorted(data_type.keys()), name="FactorName")).T.reset_index()
+        NewFactorInfo["TableName"] = table_name
+        self._FactorInfo = self._FactorInfo.append(NewFactorInfo.set_index(["TableName", "FactorName"])).sort_index()
+        return 0
     def writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
         FactorNames = data.items.tolist()
         DataType = data_type.copy()
@@ -606,14 +633,19 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
             MERGE (f) - [:`属于因子表`] -> (ft)
         """
         self.execute(InitCypherStr, parameters={"factors": FactorNames, "data_type": DataType})
-        ThreadNum = kwargs.get("thread_num", 0)
-        if ThreadNum==0:
-            return self._writeData(data, table_name, if_exists, DataType, **kwargs)
-        Tasks, NumAlloc = [], distributeEqual(data.shape[2], min(ThreadNum, data.shape[2]))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(NumAlloc)) as Executor:
-            for i, iNum in enumerate(NumAlloc):
-                iStartIdx = sum(NumAlloc[:i])
-                iData = data.iloc[:, :, iStartIdx:iStartIdx+iNum]
-                Tasks.append(Executor.submit(self._writeData, iData, table_name, if_exists, DataType, **kwargs))
-            for iTask in concurrent.futures.as_completed(Tasks): iTask.result()
+        WriteType = kwargs.get("write_type", self._QSArgs.get("写入参数", {}).get("write_type", ["时序", "截面"]))
+        if "时序" in WriteType:
+            ThreadNum = kwargs.get("thread_num", self._QSArgs.get("写入参数", {}).get("thread_num", 0))
+            if ThreadNum==0:
+                self._writeData(data, table_name, if_exists, DataType, **kwargs)
+            else:
+                Tasks, NumAlloc = [], distributeEqual(data.shape[2], min(ThreadNum, data.shape[2]))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(NumAlloc)) as Executor:
+                    for i, iNum in enumerate(NumAlloc):
+                        iStartIdx = sum(NumAlloc[:i])
+                        iData = data.iloc[:, :, iStartIdx:iStartIdx+iNum]
+                        Tasks.append(Executor.submit(self._writeData, iData, table_name, if_exists, DataType, **kwargs))
+                    for iTask in concurrent.futures.as_completed(Tasks): iTask.result()
+        if "截面" in WriteType:
+            self._writeSectionData(data, table_name, if_exists, DataType, **kwargs)
         return 0
