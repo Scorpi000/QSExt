@@ -728,8 +728,16 @@ def writeFactorDB(fdb, tx=None, var="fdb"):
         return tx.run(CypherStr, parameters=Parameters).values()[0][0]
 
 # 删除因子库
-def deleteFactorDB(fdb_name, tx=None):
-    raise NotImplementedError
+def deleteFactorDB(fdb_id, tx=None):
+    CypherStr = f"""
+        MATCH (a:`参数集`) <- [:`参数` *1..] - (fdb:`因子库`)
+        WHERE id(fdb) = {fdb_id}
+        DETACH DELETE a, fdb
+    """
+    if tx is None:
+        return CypherStr, {}
+    else:
+        return tx.run(CypherStr, parameters={})
 
 # 读取参数集
 def readArgs(node, node_id=None, tx=None):
