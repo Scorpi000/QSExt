@@ -543,16 +543,15 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
 # 删除因子
 # factor_node_ids: [id]
 def deleteFactor(factor_node_ids, del_descriptors=True, tx=None):
-    # 获取描述子节点 id
     if del_descriptors:
         CypherStr = f"""
-            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] ->) - [:`依赖` *0..] -> (f2:`因子`) - [:`参数` *1..] -> (a2:`参数集`)
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] -> (f0:`因子`) - [:`依赖` *0..] -> (f2:`因子`) - [:`参数` *1..] -> (a2:`参数集`)
             WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
             DETACH DELETE a1, f1, f0, f2, a2
         """
     else:
         CypherStr = f"""
-            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] ->)
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] -> (f0:`因子`)
             WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
             DETACH DELETE a1, f1, f0
         """
