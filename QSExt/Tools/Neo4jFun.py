@@ -540,6 +540,29 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
         CypherStr += f" RETURN id({'), id('.join(NodeVars)})"
         return tx.run(CypherStr, parameters=Parameters).values()[0]
 
+# 根据节点 id 写入因子
+# descriptor_node_ids: {id(factor): node_id}
+def writeFactorByID(factor, descriptor_node_ids, tx=None):
+    iFID = id(factor)
+    iClass = _getObjClass(factor)
+    CypherStr, Parameters = "", {}
+    for j, jDescriptor in enumerate(factor.Descriptors):
+        CypherStr += f" MATCH (f{j}:`因子` WHERE id(f{j})={descriptor_node_ids[id(jDescriptor)]})"
+    CypherStr += f" WITH {','.join(f'f{j}' for j, jDescriptor in enumerate(factor.Descriptors))}"
+    iNode = f"(f:`因子`:`衍生因子` {{Name: '{factor.Name}', `_Class`: '{iClass}'}})"
+    CypherStr += f" CREATE {iNode}"
+    iArgStr, iParameters = writeArgs(factor.Args, arg_name=None, parent_var="f", tx=None)
+    if iArgStr: CypherStr += " " + iArgStr
+    Parameters.update(iParameters)
+    for j, jDescriptor in enumerate(factor.Descriptors):
+        CypherStr += f" MERGE (f) - [:`依赖` {{Order: {j}}}] -> (f{j})"
+    if tx is None:
+        return CypherStr, Parameters
+    else:
+        CypherStr += f" RETURN id(f)"
+        return tx.run(CypherStr, parameters=Parameters).values()[0]
+
+
 # 删除因子
 # factor_node_ids: [id]
 def deleteFactor(factor_node_ids, del_descriptors=True, tx=None):
