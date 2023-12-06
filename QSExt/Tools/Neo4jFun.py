@@ -507,7 +507,9 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
         if not isinstance(iFactor, DerivativeFactor):# 基础因子
             iFT = iFactor.FactorTable
             if iFID not in id_var:
-                iNode = f"({iVar}:`因子`:`基础因子` {{Name: '{iFactor.Name}', `_Class`: '{iClass}'}})"
+                iMetaData = dict(iFactor.getMetaData())
+                if iMetaData["Description"] is None: iMetaData["Description"] = ""
+                iNode = f"({iVar}:`因子`:`基础因子` {{Name: '{iFactor.Name}', `_Class`: '{iClass}', `DataType`: '{iMetaData['DataType']}', `Description`: '{iMetaData['Description']}'}})"
                 if iFT is not None:# 有上层因子表
                     iFTVar = f"ft{id(iFT)}"
                     iFTStr, iFTParameters = writeFactorTable(iFT, tx=None, var=iFTVar, id_var=id_var, write_other_fundamental_factor=write_other_fundamental_factor)
@@ -525,7 +527,9 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
             if iSubStr: CypherStr += " "+iSubStr
             Parameters.update(iSubParameters)
             if iFID not in id_var:
-                iNode = f"({iVar}:`因子`:`衍生因子` {{Name: '{iFactor.Name}', `_Class`: '{iClass}'}})"
+                iMetaData = dict(iFactor.getMetaData())
+                if iMetaData["Description"] is None: iMetaData["Description"] = ""
+                iNode = f"({iVar}:`因子`:`衍生因子` {{Name: '{iFactor.Name}', `_Class`: '{iClass}', `DataType`: '{iMetaData['DataType']}', `Description`: '{iMetaData['Description']}'}})"
                 CypherStr += f" CREATE {iNode}"
                 iArgStr, iParameters = writeArgs(iFactor.Args, arg_name=None, parent_var=iVar, tx=None)
                 if iArgStr: CypherStr += " "+iArgStr
@@ -549,7 +553,9 @@ def writeFactorByID(factor, descriptor_node_ids, tx=None):
     for j, jDescriptor in enumerate(factor.Descriptors):
         CypherStr += f" MATCH (f{j}:`因子` WHERE id(f{j})={descriptor_node_ids[id(jDescriptor)]})"
     CypherStr += f" WITH {','.join(f'f{j}' for j, jDescriptor in enumerate(factor.Descriptors))}"
-    iNode = f"(f:`因子`:`衍生因子` {{Name: '{factor.Name}', `_Class`: '{iClass}'}})"
+    iMetaData = factor.getMetaData()
+    if iMetaData["Description"] is None: iMetaData["Description"] = ""
+    iNode = f"(f:`因子`:`衍生因子` {{Name: '{factor.Name}', `_Class`: '{iClass}', `DataType`: '{iMetaData['DataType']}', `Description`: '{iMetaData['Description']}'}})"
     CypherStr += f" CREATE {iNode}"
     iArgStr, iParameters = writeArgs(factor.Args, arg_name=None, parent_var="f", tx=None)
     if iArgStr: CypherStr += " " + iArgStr
@@ -636,7 +642,9 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             id_var[FDBID] = FDBVar
         # 写入因子表
         if FTID not in id_var:
-            FTNode = f"({var}:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
+            MetaData = ft.getMetaData()
+            if MetaData["Description"] is None: MetaData["Description"] = ""
+            FTNode = f"({var}:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{Class}', `Description`: '{MetaData['Description']}'}})"
             CypherStr += f" MERGE {FTNode} - [:`属于因子库`] -> ({FDBVar})"
             FTArgs = ft.Args
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var,  tx=None)
@@ -652,7 +660,9 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             FStr, FParameters = writeFactor([ft.getFactor(iFactorName) for iFactorName in ft.FactorNames], tx=None, id_var=id_var, write_other_fundamental_factor=write_other_fundamental_factor)
             if FStr: CypherStr += " "+FStr
             Parameters.update(FParameters)
-            FTNode = f"({var}:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{Class}'}})"
+            MetaData = ft.getMetaData()
+            if MetaData["Description"] is None: MetaData["Description"] = ""
+            FTNode = f"({var}:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{Class}', `Description`: '{MetaData['Description']}'}})"
             if if_cft_exists=="create":
                 CypherStr += f" CREATE {FTNode} "
             elif if_cft_exists=="skip":
