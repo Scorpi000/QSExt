@@ -92,8 +92,8 @@ class _GoGoal_SQL_Table(SQL_Table):
 class _YearMonthMappingTable(_GoGoal_SQL_Table, SQL_MappingTable):
     class __QS_ArgClass__(SQL_MappingTable.__QS_ArgClass__):
         TargetDay = Int(1, label="目标日", arg_type="Integer", order=4)
-        def __QS_initArgs__(self):
-            SQL_Table.__QS_ArgClass__.__QS_initArgs__(self)
+        def __QS_initArgs__(self, args={}):
+            SQL_Table.__QS_ArgClass__.__QS_initArgs__(self, args=args)
             self.EndDTIncluded = False
 
     def __init__(self, name, fdb, sys_args={}, table_prefix="", table_info=None, factor_info=None, security_info=None, exchange_info=None, **kwargs):

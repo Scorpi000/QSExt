@@ -57,8 +57,8 @@ class _AKSTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
         IDAdj = Enum("无", "前缀", arg_type="SingleOption", label="ID调整", order=50)
         DTFmt = Str(arg_type="String", label="时点格式", order=51)
-        def __QS_initArgs__(self):
-            super().__QS_initArgs__()
+        def __QS_initArgs__(self, args={}):
+            super().__QS_initArgs__(args=args)
             ArgInfo = self._Owner._ArgInfo
             ArgInfo = ArgInfo[ArgInfo["FieldType"]=="QSArg"]
             for i, iArgName in enumerate(ArgInfo.index):

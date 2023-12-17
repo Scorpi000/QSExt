@@ -19,8 +19,9 @@ def _adjustID(ids):
     return pd.Series(ids, index=["".join(reversed(iID.split("."))) for iID in ids])
 
 class _TSTable(FactorTable):
-    FilterCondition = Str("", arg_type="Dict", label="筛选条件", order=100)
-    TableType = Str("", arg_type="SingleOption", label="因子表类型", order=200)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        FilterCondition = Str("", arg_type="Dict", label="筛选条件", order=100)
+        TableType = Str("", arg_type="SingleOption", label="因子表类型", order=200)
     def getMetaData(self, key=None, args={}):
         TableInfo = self._FactorDB._TableInfo.loc[self.Name]
         if key is None: return TableInfo
@@ -124,11 +125,12 @@ class _TradeTable(_TSTable):
 
 class _QuoteTable(_TSTable):
     """markettable"""
-    Cycle = Either(Int(60), Enum("day", "week", "month", "quarter", "halfyear", "year"), arg_type="Integer", label="周期", order=0)
-    CycleUnit = Enum("s", "d", arg_type="SingleOption", label="周期单位", order=1)
-    def __QS_initArgs__(self):
-        super().__QS_initArgs__()
-        self.Cycle = 60
+    class __QS_ArgClass__(_TSTable.__QS_ArgClass__):
+        Cycle = Either(Int(60), Enum("day", "week", "month", "quarter", "halfyear", "year"), arg_type="Integer", label="周期", order=0)
+        CycleUnit = Enum("s", "d", arg_type="SingleOption", label="周期单位", order=1)
+        def __QS_initArgs__(self, args={}):
+            super().__QS_initArgs__(args=args)
+            self.Cycle = 60
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):
         if iid is None: iid = "000001.SH"
         CycleStr = self._genCycleStr(args.get("周期", self.Cycle), args.get("周期单位", self.CycleUnit))
@@ -417,22 +419,23 @@ class _MappingTable(_TS_SQL_Table, SQL_MappingTable):
 
 class TinySoftDB(FactorDB):
     """TinySoft"""
-    Name = Str("TinySoftDB", arg_type="String", label="名称", order=-100)
-    InstallDir = Directory(label="安装目录", arg_type="Directory", order=0)
-    IPAddr = Str("tsl.tinysoft.com.cn", arg_type="String", label="IP地址", order=1)
-    Port = Range(low=0, high=65535, value=443, arg_type="Integer", label="端口", order=2)
-    User = Str("", arg_type="String", label="用户名", order=3)
-    Pwd = Password("", arg_type="String", label="密码", order=4)
-    DBInfoFile = File(label="库信息文件", arg_type="File", order=100)
-    FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
+    class __QS_ArgClass__(FactorDB.__QS_ArgClass__):
+        Name = Str("TinySoftDB", arg_type="String", label="名称", order=-100)
+        InstallDir = Directory(label="安装目录", arg_type="Directory", order=0)
+        IPAddr = Str("tsl.tinysoft.com.cn", arg_type="String", label="IP地址", order=1)
+        Port = Range(low=0, high=65535, value=443, arg_type="Integer", label="端口", order=2)
+        User = Str("", arg_type="String", label="用户名", order=3)
+        Pwd = Password("", arg_type="String", label="密码", order=4)
+        DBInfoFile = File(label="库信息文件", arg_type="File", order=100)
+        FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"TinySoftDBConfig.json" if config_file is None else config_file), **kwargs)
         self._TSLPy = None
         self._TableInfo = None# 数据库中的表信息
         self._FactorInfo = None# 数据库中的表字段信息
         self._InfoFilePath = __QS_LibPath__+os.sep+"TinySoftDBInfo.hdf5"# 数据库信息文件路径
-        if not os.path.isfile(self.DBInfoFile):
-            if self.DBInfoFile: self._QS_Logger.warning("找不到指定的库信息文件 : '%s'" % self.DBInfoFile)
+        if not os.path.isfile(self._QSArgs.DBInfoFile):
+            if self.DBInfoFile: self._QS_Logger.warning("找不到指定的库信息文件 : '%s'" % self._QSArgs.DBInfoFile)
             self._InfoResourcePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"TinySoftDBInfo.xlsx"# 默认数据库信息源文件路径
             self._TableInfo, self._FactorInfo = updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)
         else:
@@ -448,15 +451,15 @@ class TinySoftDB(FactorDB):
         if self._TSLPy: self.connect()
         else: self._TSLPy = None
     def connect(self):
-        if not (os.path.isdir(self.InstallDir)): raise __QS_Error__("TinySoft 的安装目录设置有误!")
-        elif self.InstallDir not in sys.path: sys.path.append(self.InstallDir)
+        if not (os.path.isdir(self._QSArgs.InstallDir)): raise __QS_Error__("TinySoft 的安装目录设置有误!")
+        elif self.InstallDir not in sys.path: sys.path.append(self._QSArgs.InstallDir)
         import TSLPy3
         self._TSLPy = TSLPy3
-        ErrorCode = self._TSLPy.ConnectServer(self.IPAddr, int(self.Port))
+        ErrorCode = self._TSLPy.ConnectServer(self._QSArgs.IPAddr, int(self._QSArgs.Port))
         if ErrorCode!=0:
             self._TSLPy = None
             raise __QS_Error__("TinySoft 服务器连接失败!")
-        Rslt = self._TSLPy.LoginServer(self.User, self.Pwd)
+        Rslt = self._TSLPy.LoginServer(self._QSArgs.User, self._QSArgs.Pwd)
         if Rslt is not None:
             ErrorCode, Msg = Rslt
             if ErrorCode!=0:
@@ -488,7 +491,7 @@ class TinySoftDB(FactorDB):
             if pd.isnull(DefaultArgs): DefaultArgs = {}
             else: DefaultArgs = eval(DefaultArgs)
             if pd.notnull(TableClass) and (TableClass!=""):
-                Args = self.FTArgs.copy()
+                Args = self._QSArgs.FTArgs.copy()
                 Args.update(DefaultArgs)
                 Args.update(args)
                 return eval("_"+TableClass+"(name='"+table_name+"', fdb=self, sys_args=Args, logger=self._QS_Logger)")

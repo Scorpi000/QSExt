@@ -44,24 +44,25 @@ def _adjustData(data, look_back, factor_names, ids, dts):
 
 class _WideTable(FactorTable):
     """MongoDB 宽因子表"""
-    TableType = Enum("宽表", arg_type="SingleOption", label="因子表类型", order=0)
-    LookBack = Float(0, arg_type="Integer", label="回溯天数", order=1)
-    FilterCondition = List([], arg_type="List", label="筛选条件", order=2)
-    #DTField = Enum("datetime", arg_type="SingleOption", label="时点字段", order=3)
-    #IDField = Enum("code", arg_type="SingleOption", label="ID字段", order=4)
+    class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
+        TableType = Enum("宽表", arg_type="SingleOption", label="因子表类型", order=0)
+        LookBack = Float(0, arg_type="Integer", label="回溯天数", order=1)
+        FilterCondition = List([], arg_type="List", label="筛选条件", order=2)
+        #DTField = Enum("datetime", arg_type="SingleOption", label="时点字段", order=3)
+        #IDField = Enum("code", arg_type="SingleOption", label="ID字段", order=4)
+        def __QS_initArgs__(self, args={}):
+            super().__QS_initArgs__(args=args)
+            Fields = ["datetime"] + self._DataType.index.tolist()
+            self.add_trait("DTField", Enum(*Fields, arg_type="SingleOption", label="时点字段", order=4))
+            Fields = ["code"] + self._DataType.index.tolist()
+            self.add_trait("IDField", Enum(*Fields, arg_type="SingleOption", label="ID字段", order=5))
     def __init__(self, name, fdb, sys_args={}, **kwargs):
         self._DataType = fdb._TableFactorDict[name]
         self._Collection = fdb._DB[fdb.InnerPrefix+name]
         return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
-    def __QS_initArgs__(self):
-        super().__QS_initArgs__()
-        Fields = ["datetime"] + self._DataType.index.tolist()
-        self.add_trait("DTField", Enum(*Fields, arg_type="SingleOption", label="时点字段", order=4))
-        Fields = ["code"] + self._DataType.index.tolist()
-        self.add_trait("IDField", Enum(*Fields, arg_type="SingleOption", label="ID字段", order=5))
     @property
     def FactorNames(self):
-        return sorted(self._DataType.index.union({"datetime", "code"}).difference({self.DTField, self.IDField}))
+        return sorted(self._DataType.index.union({"datetime", "code"}).difference({self._QSArgs.DTField, self._QSArgs.IDField}))
     def getFactorMetaData(self, factor_names=None, key=None, args={}):
         if factor_names is None: factor_names = self.FactorNames
         elif set(factor_names).isdisjoint(self.FactorNames): return super().getFactorMetaData(factor_names=factor_names, key=key, args=args)
@@ -77,12 +78,12 @@ class _WideTable(FactorTable):
         if key is None: return pd.DataFrame(MetaData).loc[:, factor_names]
         else: return pd.Series(MetaData).loc[factor_names]
     def getID(self, ifactor_name=None, idt=None, args={}):
-        IDField = args.get("ID字段", self.IDField)
-        DTField = args.get("时点字段", self.DTField)
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        DTField = args.get("时点字段", self._QSArgs.DTField)
         Doc = []
         if idt is not None: Doc.append({DTField: idt})
         if ifactor_name is not None: Doc.append({ifactor_name: {"$ne": None}})
-        FilterConds = args.get("筛选条件", self.FilterCondition)
+        FilterConds = args.get("筛选条件", self._QSArgs.FilterCondition)
         if FilterConds: Doc += FilterConds
         if Doc: Doc = {"$and": Doc}
         else: Doc = {}
@@ -90,14 +91,14 @@ class _WideTable(FactorTable):
         IDs = pd.Series(IDs)
         return sorted(IDs[pd.notnull(IDs) & (IDs!="_TableInfo")])
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):
-        IDField = args.get("ID字段", self.IDField)
-        DTField = args.get("时点字段", self.DTField)
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        DTField = args.get("时点字段", self._QSArgs.DTField)
         Doc = []
         if iid is not None: Doc.append({IDField: iid})
         if start_dt is not None: Doc.append({DTField: {"$gte": start_dt}})
         if end_dt is not None: Doc.append({DTField: {"$lte": end_dt}})
         if ifactor_name is not None: Doc.append({ifactor_name: {"$ne": None}})
-        FilterConds = args.get("筛选条件", self.FilterCondition)
+        FilterConds = args.get("筛选条件", self._QSArgs.FilterCondition)
         if FilterConds: Doc += FilterConds
         if Doc: Doc = {"$and": Doc}
         else: Doc = {}
@@ -106,22 +107,22 @@ class _WideTable(FactorTable):
         return sorted(DTs[pd.notnull(DTs)])
     def __QS_genGroupInfo__(self, factors, operation_mode):
         ArgConditionGroup = {}
-        ArgNames = self.ArgNames
+        ArgNames = self._QSArgs.ArgNames
         ArgNames.remove("回溯天数")
         ArgNames.remove("因子值类型")
         ArgNames.remove("遍历模式")
         for iFactor in factors:
-            iArgConditions = (";".join([iArgName+":"+str(iFactor[iArgName]) for iArgName in ArgNames]))
+            iArgConditions = (";".join([iArgName+":"+str(iFactor._QSArgs[iArgName]) for iArgName in ArgNames]))
             if iArgConditions not in ArgConditionGroup:
                 ArgConditionGroup[iArgConditions] = {"FactorNames":[iFactor.Name], 
                                                      "RawFactorNames":{iFactor._NameInFT}, 
                                                      "StartDT":operation_mode._FactorStartDT[iFactor.Name], 
-                                                     "args":iFactor.Args.copy()}
+                                                     "args":iFactor.Args.to_dict()}
             else:
                 ArgConditionGroup[iArgConditions]["FactorNames"].append(iFactor.Name)
                 ArgConditionGroup[iArgConditions]["RawFactorNames"].add(iFactor._NameInFT)
                 ArgConditionGroup[iArgConditions]["StartDT"] = min(operation_mode._FactorStartDT[iFactor.Name], ArgConditionGroup[iArgConditions]["StartDT"])
-                ArgConditionGroup[iArgConditions]["args"]["回溯天数"] = max(ArgConditionGroup[iArgConditions]["args"]["回溯天数"], iFactor.LookBack)
+                ArgConditionGroup[iArgConditions]["args"]["回溯天数"] = max(ArgConditionGroup[iArgConditions]["args"]["回溯天数"], iFactor._QSArgs.LookBack)
         EndInd = operation_mode.DTRuler.index(operation_mode.DateTimes[-1])
         Groups = []
         for iArgConditions in ArgConditionGroup:
@@ -129,10 +130,10 @@ class _WideTable(FactorTable):
             Groups.append((self, ArgConditionGroup[iArgConditions]["FactorNames"], list(ArgConditionGroup[iArgConditions]["RawFactorNames"]), operation_mode.DTRuler[StartInd:EndInd+1], ArgConditionGroup[iArgConditions]["args"]))
         return Groups
     def _genNullIDRawData(self, factor_names, ids, end_date, args={}):
-        IDField = args.get("ID字段", self.IDField)
-        DTField = args.get("时点字段", self.DTField)
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        DTField = args.get("时点字段", self._QSArgs.DTField)
         Doc = [{IDField: {"$in": ids}}, {DTField: {"$lt": end_date}}]
-        FilterConds = args.get("筛选条件", self.FilterCondition)
+        FilterConds = args.get("筛选条件", self._QSArgs.FilterCondition)
         if FilterConds: Doc += FilterConds
         RawData = self._Collection.aggregate([{"$match": {"$and": Doc}}, {"$group": {"_id": "$code", DTField: {"$max": "$"+DTField}}}])
         RawData = pd.DataFrame(RawData).rename(columns={"_id": IDField})
@@ -142,9 +143,9 @@ class _WideTable(FactorTable):
         return pd.DataFrame(RawData)
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         if (dts==[]) or (ids==[]): return pd.DataFrame(columns=["QS_DT", "ID"]+factor_names)
-        IDField = args.get("ID字段", self.IDField)
-        DTField = args.get("时点字段", self.DTField)
-        LookBack = args.get("回溯天数", self.LookBack)
+        IDField = args.get("ID字段", self._QSArgs.IDField)
+        DTField = args.get("时点字段", self._QSArgs.DTField)
+        LookBack = args.get("回溯天数", self._QSArgs.LookBack)
         if dts is not None:
             dts = sorted(dts)
             StartDate, EndDate = dts[0], dts[-1]
@@ -158,7 +159,7 @@ class _WideTable(FactorTable):
             Doc.append({DTField: {"$ne": None}})
         if ids is not None:
             Doc.append({IDField: {"$in": ids}})
-        FilterConds = args.get("筛选条件", self.FilterCondition)
+        FilterConds = args.get("筛选条件", self._QSArgs.FilterCondition)
         if FilterConds: Doc += FilterConds
         if Doc: Doc = {"$and": Doc}
         else: Doc = {}
@@ -183,21 +184,22 @@ class _WideTable(FactorTable):
             iRawData = raw_data[iFactorName].unstack()
             if DataType[iFactorName]=="double": iRawData = iRawData.astype("float")
             Data[iFactorName] = iRawData
-        return _adjustData(Data, args.get("回溯天数", self.LookBack), factor_names, ids, dts)
+        return _adjustData(Data, args.get("回溯天数", self._QSArgs.LookBack), factor_names, ids, dts)
 
 class MongoDB(WritableFactorDB):
     """MongoDB"""
-    Name = Str("MongoDB", arg_type="String", label="名称", order=-100)
-    DBType = Enum("Mongo", arg_type="SingleOption", label="数据库类型", order=0)
-    DBName = Str("Scorpion", arg_type="String", label="数据库名", order=1)
-    IPAddr = Str("127.0.0.1", arg_type="String", label="IP地址", order=2)
-    Port = Range(low=0, high=65535, value=27017, arg_type="Integer", label="端口", order=3)
-    User = Str("root", arg_type="String", label="用户名", order=4)
-    Pwd = Password("", arg_type="String", label="密码", order=5)
-    CharSet = Enum("utf8", "gbk", "gb2312", "gb18030", "cp936", "big5", arg_type="SingleOption", label="字符集", order=6)
-    Connector = Enum("default", "pymongo", arg_type="SingleOption", label="连接器", order=7)
-    IgnoreFields = ListStr(arg_type="List", label="忽略字段", order=8)
-    InnerPrefix = Str("qs_", arg_type="String", label="内部前缀", order=9)
+    class __QS_ArgClass__(WritableFactorDB.__QS_ArgClass__):
+        Name = Str("MongoDB", arg_type="String", label="名称", order=-100)
+        DBType = Enum("Mongo", arg_type="SingleOption", label="数据库类型", order=0)
+        DBName = Str("Scorpion", arg_type="String", label="数据库名", order=1)
+        IPAddr = Str("127.0.0.1", arg_type="String", label="IP地址", order=2)
+        Port = Range(low=0, high=65535, value=27017, arg_type="Integer", label="端口", order=3)
+        User = Str("root", arg_type="String", label="用户名", order=4)
+        Pwd = Password("", arg_type="String", label="密码", order=5)
+        CharSet = Enum("utf8", "gbk", "gb2312", "gb18030", "cp936", "big5", arg_type="SingleOption", label="字符集", order=6)
+        Connector = Enum("default", "pymongo", arg_type="SingleOption", label="连接器", order=7)
+        IgnoreFields = ListStr(arg_type="List", label="忽略字段", order=8)
+        InnerPrefix = Str("qs_", arg_type="String", label="内部前缀", order=9)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"MongoDBConfig.json" if config_file is None else config_file), **kwargs)
         self._TableFactorDict = {}# {表名: pd.Series(数据类型, index=[因子名])}
@@ -219,29 +221,29 @@ class MongoDB(WritableFactorDB):
         return self._Connection
     def _connect(self):
         self._Connection = None
-        if (self.Connector=="pymongo") or ((self.Connector=="default") and (self.DBType=="Mongo")):
+        if (self._QSArgs.Connector=="pymongo") or ((self._QSArgs.Connector=="default") and (self._QSArgs.DBType=="Mongo")):
             try:
                 import pymongo
-                self._Connection = pymongo.MongoClient(host=self.IPAddr, port=self.Port)
+                self._Connection = pymongo.MongoClient(host=self._QSArgs.IPAddr, port=self._QSArgs.Port)
             except Exception as e:
-                Msg = ("'%s' 尝试使用 pymongo 连接(%s@%s:%d)数据库 '%s' 失败: %s" % (self.Name, self.User, self.IPAddr, self.Port, self.DBName, str(e)))
+                Msg = ("'%s' 尝试使用 pymongo 连接(%s@%s:%d)数据库 '%s' 失败: %s" % (self._QSArgs.Name, self._QSArgs.User, self._QSArgs.IPAddr, self._QSArgs.Port, self._QSArgs.DBName, str(e)))
                 self._QS_Logger.error(Msg)
-                if self.Connector!="default": raise e
+                if self._QSArgs.Connector!="default": raise e
             else:
                 self._Connector = "pymongo"
         self._PID = os.getpid()
-        self._DB = self._Connection[self.DBName]
+        self._DB = self._Connection[self._QSArgs.DBName]
         return 0
     def connect(self):
         self._connect()
-        nPrefix = len(self.InnerPrefix)
-        if self.DBType=="Mongo":
+        nPrefix = len(self._QSArgs.InnerPrefix)
+        if self._QSArgs.DBType=="Mongo":
             self._TableFactorDict = {}
             for iTableName in self._DB.collection_names():
-                if iTableName[:nPrefix]==self.InnerPrefix:
+                if iTableName[:nPrefix]==self._QSArgs.InnerPrefix:
                     iTableInfo = self._DB[iTableName].find_one({"code": "_TableInfo"}, {"datetime": 0, "code": 0, "_id": 0})
                     if iTableInfo:
-                        self._TableFactorDict[iTableName[nPrefix:]] = pd.Series({iFactorName: iInfo["DataType"] for iFactorName, iInfo in iTableInfo.items() if iFactorName not in self.IgnoreFields})
+                        self._TableFactorDict[iTableName[nPrefix:]] = pd.Series({iFactorName: iInfo["DataType"] for iFactorName, iInfo in iTableInfo.items() if iFactorName not in self._QSArgs.IgnoreFields})
         return 0
     @property
     def TableNames(self):
@@ -267,26 +269,26 @@ class MongoDB(WritableFactorDB):
             Msg = ("因子库 '%s' 调用方法 renameTable 错误: 新因子表名 '%s' 已经存在于库中!" % (self.Name, new_table_name))
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        self._DB[self.InnerPrefix+old_table_name].rename(self.InnerPrefix+new_table_name)
+        self._DB[self._QSArgs.InnerPrefix+old_table_name].rename(self._QSArgs.InnerPrefix+new_table_name)
         self._TableFactorDict[new_table_name] = self._TableFactorDict.pop(old_table_name)
         return 0
     def deleteTable(self, table_name):
         if table_name not in self._TableFactorDict: return 0
-        self._DB.drop_collection(self.InnerPrefix+table_name)
+        self._DB.drop_collection(self._QSArgs.InnerPrefix+table_name)
         self._TableFactorDict.pop(table_name, None)
         return 0
     # 创建表, field_types: {字段名: 数据类型}
     def createTable(self, table_name, field_types):
-        if self.InnerPrefix+table_name not in self._DB.collection_names():
+        if self._QSArgs.InnerPrefix+table_name not in self._DB.collection_names():
             Doc = {iField: {"DataType": iDataType} for iField, iDataType in field_types.items()}
             Doc.update({"datetime": None, "code": "_TableInfo"})
-            Collection = self._DB[self.InnerPrefix+table_name]
+            Collection = self._DB[self._QSArgs.InnerPrefix+table_name]
             Collection.insert(Doc)
             # 添加索引
             if self._Connector=="pymongo":
                 import pymongo
-                Index1 = pymongo.IndexModel([("datetime", pymongo.ASCENDING), ("code", pymongo.ASCENDING)], name=self.InnerPrefix+"datetime_code")
-                Index2 = pymongo.IndexModel([("code", pymongo.HASHED)], name=self.InnerPrefix+"code")
+                Index1 = pymongo.IndexModel([("datetime", pymongo.ASCENDING), ("code", pymongo.ASCENDING)], name=self._QSArgs.InnerPrefix+"datetime_code")
+                Index2 = pymongo.IndexModel([("code", pymongo.HASHED)], name=self._QSArgs.InnerPrefix+"code")
                 try:
                     Collection.create_indexes([Index1, Index2])
                 except Exception as e:
@@ -303,23 +305,23 @@ class MongoDB(WritableFactorDB):
             Msg = ("因子库 '%s' 调用方法 renameFactor 错误: 新因子名 '%s' 已经存在于因子表 '%s' 中!" % (self.Name, new_factor_name, table_name))
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        self._DB[self.InnerPrefix+table_name].update_many({}, {"$rename": {old_factor_name: new_factor_name}})
+        self._DB[self._QSArgs.InnerPrefix+table_name].update_many({}, {"$rename": {old_factor_name: new_factor_name}})
         self._TableFactorDict[table_name][new_factor_name] = self._TableFactorDict[table_name].pop(old_factor_name)
         return 0
     def deleteFactor(self, table_name, factor_names):
         if not factor_names: return 0
         FactorIndex = self._TableFactorDict.get(table_name, pd.Series()).index.difference(factor_names).tolist()
         if not FactorIndex: return self.deleteTable(table_name)
-        self.deleteField(self.InnerPrefix+table_name, factor_names)
+        self.deleteField(self._QSArgs.InnerPrefix+table_name, factor_names)
         for iFactorName in factor_names:
-            self._DB[self.InnerPrefix+table_name].update_many({}, {'$unset': {iFactorName: 1}})
+            self._DB[self._QSArgs.InnerPrefix+table_name].update_many({}, {'$unset': {iFactorName: 1}})
         self._TableFactorDict[table_name] = self._TableFactorDict[table_name][FactorIndex]
         return 0
     # 增加因子，field_types: {字段名: 数据类型}
     def addFactor(self, table_name, field_types):
         if table_name not in self._TableFactorDict: return self.createTable(table_name, field_types)
         Doc = {iField: {"DataType": iDataType} for iField, iDataType in field_types.items()}
-        self._DB[self.InnerPrefix+table_name].update({"code": "_TableInfo"}, {"$set": Doc})
+        self._DB[self._QSArgs.InnerPrefix+table_name].update({"code": "_TableInfo"}, {"$set": Doc})
         self._TableFactorDict[table_name] = self._TableFactorDict[table_name].append(field_types)
         return 0
     def deleteData(self, table_name, ids=None, dts=None):
@@ -329,9 +331,9 @@ class MongoDB(WritableFactorDB):
         if ids is not None:
             Doc["code"] = {"$in": ids}
         if Doc:
-            self._DB[self.InnerPrefix+table_name].delete_many(Doc)
+            self._DB[self._QSArgs.InnerPrefix+table_name].delete_many(Doc)
         else:
-            self._DB.drop_collection(self.InnerPrefix+table_name)
+            self._DB.drop_collection(self._QSArgs.InnerPrefix+table_name)
             self._TableFactorDict.pop(table_name)
         return 0
     def writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
@@ -378,5 +380,5 @@ class MongoDB(WritableFactorDB):
         self.deleteData(table_name, ids=data.minor_axis.tolist(), dts=data.major_axis.tolist())
         NewData = NewData.reset_index()
         NewData.columns = ["datetime", "code"] + NewData.columns[2:].tolist()
-        self._DB[self.InnerPrefix+table_name].insert_many(NewData.to_dict(orient="records"))
+        self._DB[self._QSArgs.InnerPrefix+table_name].insert_many(NewData.to_dict(orient="records"))
         return 0

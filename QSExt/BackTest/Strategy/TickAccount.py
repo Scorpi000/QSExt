@@ -36,8 +36,8 @@ class TickAccount(Account):
         self._MarketFT = market_ft# 提供 Tick 数据的因子表
         self._TempData = {}# 临时数据
         return super().__init__(name=name, sys_args=sys_args, config_file=config_file, **kwargs)
-    def __QS_initArgs__(self):
-        super().__QS_initArgs__()
+    def __QS_initArgs__(self, args={}):
+        super().__QS_initArgs__(args=args)
         DefaultNumFactorList, DefaultStrFactorList = getFactorList(dict(self._MarketFT.getFactorMetaData(key="DataType")))
         self.add_trait("Last", Enum(*DefaultNumFactorList, arg_type="SingleOption", label="最新价", order=6, option_range=DefaultNumFactorList))
         self.Last = searchNameInStrList(DefaultNumFactorList, ['新','收','Last','last','close','Close'])

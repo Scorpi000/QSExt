@@ -14,6 +14,13 @@ from QuantStudio import QSArgs, __QS_Error__
 
 Today = dt.datetime.combine(dt.date.today(), dt.time(0))
 
+_IDFunMapping = {
+    "A股": "getStockID",
+    "债券": "getBondID",
+    "公募基金": "getMutualFundID",
+    "私募基金": "getPrivateFundID"
+}
+
 class _RunArgs(QSArgs):
     """运行参数"""
     UpdateMethod = Enum("update", "update_notnull", "append", arg_type="SingleOption", label="更新方式", order=0, option_range=["update", "update_notnull", "append"])
@@ -32,7 +39,7 @@ class FactorDefContext(QSArgs):
     DTs = List(dt.datetime, arg_type="DateTimeList", label="计算时点", order=8)
     DTRuler = List(dt.datetime, arg_type="DateTimeList", label="时点标尺", order=9)
     # IDDB = Enum(label="ID因子库", order=10, arg_type="SingleOption")
-    # IDType = Enum("私募基金", "自定义", "A股", "公募基金", label="ID类型", arg_type="SingleOption", order=11, option_range=("私募基金", "自定义", "股票", "公募基金"))
+    # IDType = Enum("自定义", label="ID类型", arg_type="SingleOption", order=11, option_range=("自定义",))
     IDs = ListStr(arg_type="IDList", label="截面ID", order=12)
     TargetTable = Str(label="目标因子表", arg_type="String", order=13)
     MdlArgs = Dict(label="模型参数", arg_type="Dict", order=14)
@@ -48,16 +55,17 @@ class FactorDefContext(QSArgs):
         self._setIDAttr()
         self._checkDT()
 
-    def __QS_initArgs__(self):
-        super().__QS_initArgs__()
-        DBNames = sorted(self.FDB.keys())
-        DBEmpty, DBNames = bool(DBNames), ([None] if not DBNames else DBNames)
-        self.add_trait("DTDB", Enum(*DBNames, arg_type="SingleOption", label="时点因子库", order=2, option_range=DBNames, visible=DBEmpty))
+    def __QS_initArgs__(self, args={}):
+        super().__QS_initArgs__(args=args)
+        FDB = args.get("因子库", {})
+        DTDBNames = sorted(iDBName for iDBName, iDB in FDB.items() if hasattr(iDB, "getTradeDay")) + [None]
+        self.add_trait("DTDB", Enum(*DTDBNames, arg_type="SingleOption", label="时点因子库", order=2, option_range=DTDBNames))
         DTTypeList = self.SupportedDTType
         self.add_trait("DTType", Enum(*DTTypeList, label="时点类型", arg_type="SingleOption", order=3, option_range=DTTypeList))
         IDTypeList = self.SupportedIDType
         self.add_trait("IDType", Enum(*IDTypeList, label="ID类型", arg_type="SingleOption", order=11, option_range=IDTypeList))
-        self.add_trait("IDDB", Enum(*DBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=DBNames, visible=DBEmpty))
+        IDDBNames = sorted(FDB.keys()) + [None]
+        self.add_trait("IDDB", Enum(*IDDBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=IDDBNames))
         self.RunArgs = _RunArgs(logger=self._QS_Logger)
 
     @property
@@ -70,7 +78,7 @@ class FactorDefContext(QSArgs):
 
     @property
     def SupportedDTType(self):
-        return ("自定义", "自然日", "交易日")
+        return ("自定义", "自然日")
 
     @property
     def SupportedFreq(self):
@@ -144,12 +152,26 @@ class FactorDefContext(QSArgs):
             if "因子表参数" in iDB.Args:
                 iDB.Args["因子表参数"]["预筛选ID"] = new
 
-    @on_trait_change("FDB_items")
-    def _on_FDB_changed(self, obj, name, new):
-        if (self.DTDB not in self.FDB) and (self.DTType=="交易日"):
-            self._QS_Logger.warning(f"时点因子库 '{self.DTDB}' 不存在, 所有因子库: {sorted(self.FDB)}")
-        if (self.IDDB not in self.FDB) and (self.IDType!="自定义"):
-            self._QS_Logger.warning(f"ID因子库 '{self.IDDB}' 不存在, 所有因子库: {sorted(self.FDB)}")
+    @on_trait_change("FDB_items,FDB[]")
+    def _on_FDB_changed(self, obj, name, old, new):
+        FDB = self.FDB
+        DTDBNames = sorted(iDBName for iDBName, iDB in FDB.items() if hasattr(iDB, "getTradeDay")) + [None]
+        if (self.DTDB is not None) and (self.DTDB not in DTDBNames) and (self.DTType=="交易日"):
+            self._QS_Logger.warning(f"时点因子库 '{self.DTDB}' 不存在, 所有可选的因子库: {sorted(DTDBNames[:-1])}")
+        DTDB = (self.DTDB if self.DTDB in DTDBNames else DTDBNames[0])
+        self._QS_Frozen = False
+        self.add_trait("DTDB", Enum(*DTDBNames, arg_type="SingleOption", label="时点因子库", order=2, option_range=DTDBNames))
+        self._QS_Frozen = True
+        self.DTDB = DTDB
+        
+        IDDBNames = sorted(FDB.keys()) + [None]
+        if (self.IDDB is not None) and (self.IDDB not in IDDBNames) and (self.IDType!="自定义"):
+            self._QS_Logger.warning(f"ID因子库 '{self.IDDB}' 不存在, 所有可选的因子库: {sorted(IDDBNames[:-1])}")
+        IDDB = (self.IDDB if self.IDDB in IDDBNames else IDDBNames[0])
+        self._QS_Frozen = False
+        self.add_trait("IDDB", Enum(*IDDBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=IDDBNames))
+        self._QS_Frozen = True
+        self.IDDB = IDDB
 
     # 检查时点标尺是否合适
     def _checkDT(self):
@@ -163,8 +185,8 @@ class FactorDefContext(QSArgs):
         return True
 
     def _genDTs(self):
-        DTDB = self.FDB[self.DTDB]
         if self.DTType == "交易日":
+            DTDB = self.FDB[self.DTDB]
             DTs = DTDB.getTradeDay(start_date=self.StartDT, end_date=self.EndDT, output_type="datetime")
             DTRuler = DTDB.getTradeDay(start_date=dt.datetime(1990,1,1), end_date=self.EndDT, output_type="datetime")
         elif self.DTType == "自然日":
@@ -223,7 +245,7 @@ class FactorDefContext(QSArgs):
     @on_trait_change("DTDB")
     def _on_DTDB_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
-
+    
     @on_trait_change("StartDT")
     def _on_StartDT_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
@@ -240,24 +262,18 @@ class FactorDefContext(QSArgs):
     def _on_LastDTIncluded_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
-    @on_trait_change("DTs[]")
+    @on_trait_change("DTs.items,DTs[]")
     def _on_DTs_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
-    @on_trait_change("DTRuler[]")
+    @on_trait_change("DTRuler.items,DTRuler[]")
     def _on_DTRuler_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
     def _genIDs(self):
         IDDB = self.FDB[self.IDDB]
-        if self.IDType == "A股":
-            IDs = IDDB.getStockID(is_current=False)
-        elif self.IDType == "债券":
-            IDs = IDDB.getBondID(is_current=False)
-        elif self.IDType == "公募基金":
-            IDs = IDDB.getMutualFundID(is_current=False)
-        elif self.IDType == "私募基金":
-            IDs = IDDB.getPrivateFundID(is_current=False)
+        IDFun = _IDFunMapping.get(self.IDType)
+        IDs = IDFun(is_current=False)
         return IDs
 
     def _setIDAttr(self):
@@ -280,6 +296,6 @@ class FactorDefContext(QSArgs):
 if __name__=="__main__":
     HDB = QS.FactorDB.HDF5DB().connect()
     Context = FactorDefContext(sys_args={})
-    # Context["因子库"] = {"LDB": HDB}
+    Context["因子库"] = {"LDB": HDB}
     Context["因子库"]["LDB"] = HDB
     print(Context)

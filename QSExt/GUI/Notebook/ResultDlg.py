@@ -54,8 +54,8 @@ class PlotArgs(QSArgs):
         self._PlotModes = ("Line", "Bar", "Stack")
         self._PlotAxes = ("左轴", "右轴")
         return super().__init__(owner=owner, sys_args=sys_args, config_file=config_file, **kwargs)
-    def __QS_initArgs__(self):
-        super().__QS_initArgs__()
+    def __QS_initArgs__(self, args={}):
+        super().__QS_initArgs__(args=args)
         for i, iPlot in enumerate(self._Plots):
             self.add_trait(f"Mode{i}", Enum(*self._PlotModes, label=f"{iPlot} 图像模式", arg_type="SingleOption", order=2*i, option_range=self._PlotModes))
             self.add_trait(f"Axes{i}", Enum(*self._PlotAxes, label=f"{iPlot} 坐标轴", arg_type="SingleOption", order=2*i+1, option_range=self._PlotAxes))
