@@ -53,7 +53,8 @@ class FactorDefContext(QSArgs):
         self._IDs = None
         self._setDTAttr()
         self._setIDAttr()
-        self._checkDT()
+        if self.DTType=="自定义":
+            self._checkDT()
 
     def __QS_initArgs__(self, args={}):
         super().__QS_initArgs__(args=args)
