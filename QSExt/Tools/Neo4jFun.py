@@ -1,13 +1,13 @@
 # coding=utf-8
 import os
 import urllib
-import pickle
 import importlib
 import concurrent.futures
 
 import sympy
 import numpy as np
 import pandas as pd
+import dill as pickle
 from traits.api import Enum, Str, Range, Password, Either, Int
 
 from QuantStudio import __QS_Object__, __QS_Error__, QSArgs
@@ -489,7 +489,32 @@ def writeArgs(args, arg_name=None, parent_var=None, var=None, tx=None):
         return CypherStr, Parameters
     else:
         CypherStr += f" RETURN id({var})"
-        return tx.run(CypherStr, parameters=Parameters).values()[0][0]    
+        return tx.run(CypherStr, parameters=Parameters).values()[0][0]
+
+# 写入算子
+# 算子不确定唯一性, 直接 create
+# tx: None 返回 Cypher 语句和参数
+# tx: 非 None 返回写入的参数集节点 id
+def writeOperator(operator, var=None, tx=None):
+    Parameters = {}
+    if var is None: var = "op"
+    iCypherStr = f"Name: '{operator.__name__}'"
+    Meta = getattr(operator, "_QS_Meta", {})
+    for iKey, iVal in Meta.items():
+        if pd.notnull(iVal):
+            iVal = str(iVal).replace("'", '"')
+            iCypherStr += f", {iKey}: '{iVal}'"
+    CypherStr = f"CREATE ({var}:`算子` {{{iCypherStr}}})"
+    Parameters[var] = {}
+    Args = getattr(operator, "_QS_Args", {})
+    iArgStr, iParameters = writeArgs(Args, arg_name=None, parent_var=var, tx=None)
+    if iArgStr: CypherStr += " " + iArgStr
+    Parameters.update(iParameters)
+    if tx is None:
+        return CypherStr, Parameters
+    else:
+        CypherStr += f" RETURN id({var})"
+        return tx.run(CypherStr, parameters=Parameters).values()[0][0]
 
 # 写入因子, id_var: {id(对象): 变量名}
 # 因子不确定唯一性, 直接 create
@@ -531,6 +556,16 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
                 if iMetaData["Description"] is None: iMetaData["Description"] = ""
                 iNode = f"({iVar}:`因子`:`衍生因子` {{Name: '{iFactor.Name}', `_Class`: '{iClass}', `DataType`: '{iMetaData['DataType']}', `Description`: '{iMetaData['Description']}'}})"
                 CypherStr += f" CREATE {iNode}"
+                # 写入算子
+                iOperator = iFactor.Args["算子"]
+                iOperatorID = id(iOperator)
+                if iOperatorID not in id_var:
+                    iOperatorStr, iParameters = writeOperator(iOperator, var=f"op{iOperatorID}", tx=None)
+                    if iOperatorStr: CypherStr += " " + iOperatorStr
+                    Parameters.update(iParameters)
+                    id_var[iOperatorID] = f"op{iOperatorID}"
+                CypherStr += f" MERGE ({iVar}) - [:`依赖算子`] -> ({id_var[iOperatorID]})"
+                # 写入因子参数
                 iArgStr, iParameters = writeArgs(iFactor.Args, arg_name=None, parent_var=iVar, tx=None)
                 if iArgStr: CypherStr += " "+iArgStr
                 Parameters.update(iParameters)
@@ -644,7 +679,12 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
         if FTID not in id_var:
             MetaData = ft.getMetaData()
             if MetaData["Description"] is None: MetaData["Description"] = ""
-            FTNode = f"({var}:`因子表`:`库因子表` {{Name: '{ft.Name}', `_Class`: '{Class}', `Description`: '{MetaData['Description']}'}})"
+            iCypherStr = f"Name: '{ft.Name}', `_Class`: '{Class}'"
+            for iKey, iVal in MetaData.items():
+                if pd.notnull(iVal):
+                    iVal = str(iVal).replace("'", '"')
+                    iCypherStr += f", {iKey}: '{iVal}'"
+            FTNode = f"({var}:`因子表`:`库因子表` {{{iCypherStr}}})"
             CypherStr += f" MERGE {FTNode} - [:`属于因子库`] -> ({FDBVar})"
             FTArgs = ft.Args
             ArgStr, FTParameters  = writeArgs(FTArgs, arg_name=None, parent_var=var,  tx=None)
@@ -662,7 +702,12 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             Parameters.update(FParameters)
             MetaData = ft.getMetaData()
             if MetaData["Description"] is None: MetaData["Description"] = ""
-            FTNode = f"({var}:`因子表`:`自定义因子表` {{Name: '{ft.Name}', `_Class`: '{Class}', `Description`: '{MetaData['Description']}'}})"
+            iCypherStr = f"Name: '{ft.Name}', `_Class`: '{Class}'"
+            for iKey, iVal in MetaData.items():
+                if pd.notnull(iVal):
+                    iVal = str(iVal).replace("'", '"')
+                    iCypherStr += f", {iKey}: '{iVal}'"
+            FTNode = f"({var}:`因子表`:`自定义因子表` {{{iCypherStr}}})"
             if if_cft_exists=="create":
                 CypherStr += f" CREATE {FTNode} "
             elif if_cft_exists=="skip":
