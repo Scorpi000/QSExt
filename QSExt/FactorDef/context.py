@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
 import re
+import importlib
 import datetime as dt
 
 import numpy as np
@@ -7,6 +9,7 @@ import pandas as pd
 from traits.api import Str, Int, Dict, List, ListStr, Enum, Datetime, Either, Callable, Instance, on_trait_change
 
 import QuantStudio.api as QS
+from QuantStudio.FactorDataBase.FactorDB import CustomFT
 from QSExt.FactorDef.updateFactorData import getLogger
 fd = QS.FactorDB.FactorTools
 Factorize = QS.FactorDB.Factorize
@@ -20,6 +23,24 @@ _IDFunMapping = {
     "公募基金": "getMutualFundID",
     "私募基金": "getPrivateFundID"
 }
+
+def importExternalFT(source, context):
+    ModuleSpec = importlib.util.find_spec(source)
+    if ModuleSpec is None:
+        raise __QS_Error__("Module: {} not found".format(source))
+    Module = importlib.util.module_from_spec(ModuleSpec)
+    ModuleSpec.loader.exec_module(Module)
+    Args = context.to_dict()
+    MdlArgs = Args.pop("模型参数", {})
+    Context = Module.DefContext(sys_args=Args)
+    Context["模型参数"].update(MdlArgs)
+    Context._QS_DependentSource = context._QS_DependentSource
+    Context.ifProper(raise_error=True)
+    Context.getDependentSource()
+    Factors = Module.defFactor(Context)
+    CFT = CustomFT(name=Context.TargetTable, sys_args={"元信息": {"Author": Context.Author, "Description": Context.Info}})
+    CFT.addFactors(factor_list=Factors)
+    return Module, CFT, Context
 
 class _RunArgs(QSArgs):
     """运行参数"""
@@ -41,9 +62,8 @@ class FactorDefContext(QSArgs):
     # IDDB = Enum(label="ID因子库", order=10, arg_type="SingleOption")
     # IDType = Enum("自定义", label="ID类型", arg_type="SingleOption", order=11, option_range=("自定义",))
     IDs = ListStr(arg_type="IDList", label="截面ID", order=12)
-    TargetTable = Str(label="目标因子表", arg_type="String", order=13)
-    MdlArgs = Dict(label="模型参数", arg_type="Dict", order=14)
-    RunArgs = Instance(_RunArgs, label="运行参数", arg_type="QSObject", order=15)
+    MdlArgs = Dict(label="模型参数", arg_type="Dict", order=13)
+    RunArgs = Instance(_RunArgs, label="运行参数", arg_type="QSObject", order=14)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         if "logger" not in kwargs:
             kwargs["logger"] = getLogger(log_dir=None, log_level="INFO")
@@ -51,6 +71,7 @@ class FactorDefContext(QSArgs):
         self._DTs = None
         self._DTRuler = None
         self._IDs = None
+        self._QS_DependentSource = {}# 依赖的定义, {Source: (Module, FT, Context)}
         self._setDTAttr()
         self._setIDAttr()
         if self.DTType=="自定义":
@@ -93,6 +114,14 @@ class FactorDefContext(QSArgs):
     def IndispensableModelArgs(self):
         return ()
 
+    @property
+    def DependentDef(self):
+        return ()
+
+    @property
+    def TargetTable(self):
+        raise NotImplementedError
+
     # 运行时参数是否合适
     def ifProper(self, raise_error=True):
         Proper = True
@@ -118,6 +147,26 @@ class FactorDefContext(QSArgs):
         if raise_error and (not Proper):
             raise __QS_Error__("参数不合适!")
         return Proper
+
+    def getDependentSource(self):
+        for iSource in self.DependentDef:
+            if iSource not in self._QS_DependentSource:
+                self._QS_DependentSource[iSource] = importExternalFT(iSource, self)
+        return self._QS_DependentSource
+
+    def getFactorTable(self, source):
+        if source not in self.DependentDef:
+            raise __QS_Error__(f"{source} 不在依赖项 {self.DependentDef} 中")
+        if source not in self._QS_DependentSource:
+            self._QS_DependentSource[source] = importExternalFT(source, self)
+        return self._QS_DependentSource[source][1]
+
+    def getOperator(self, source, operator_name):
+        if source not in self.DependentDef:
+            raise __QS_Error__(f"{source} 不在依赖项 {self.DependentDef} 中")
+        if source not in self._QS_DependentSource:
+            self._QS_DependentSource[source] = importExternalFT(source, self)
+        return getattr(self._QS_DependentSource[source][0], operator_name)
 
     def getID(self):
         if self._IDs is None:
@@ -293,6 +342,61 @@ class FactorDefContext(QSArgs):
     @on_trait_change("IDDB")
     def _on_IDDB_changed(self, obj, name, old, new):
         self._IDs = None
+
+# def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1
+def searchFactor(ft, def_path=None, factor_name=None, only_one=True, raise_error=True):
+    if def_path is not None:
+        def_path = def_path.split("/")
+        if def_path[0] not in ft.FactorNames:
+            return None
+        iFactor = ft.getFactor(def_path[0])
+        for iIdx in def_path[1:]:
+            try:
+                iFactor = iFactor.Descriptors[int(iIdx)]
+            except:
+                if raise_error:
+                    raise __QS_Error__(f"查找不到因子: {def_path}")
+                return None
+        if (factor_name is not None) and (iFactor.Name != factor_name):
+            if raise_error:
+                if factor_name is not None:
+                    raise __QS_Error__(f"查找不到因子({factor_name}): {def_path}")
+                else:
+                    raise __QS_Error__(f"查找不到因子: {def_path}")
+            return None
+        else:
+            return iFactor
+    elif factor_name is not None:
+        def _searchFactor(factors, factor_name):
+            Factors = []
+            for iFactor in factors:
+                if iFactor.Name == factor_name:
+                    Factors.append(iFactor)
+                Factors += _searchFactor(iFactor.Descriptors, factor_name)
+            return Factors
+        Factors = []
+        for iFactorName in ft.FactorNames:
+            iFactor = ft.getFactor(iFactorName)
+            if iFactorName==factor_name:
+                Factors.append(iFactor)
+            Factors += _searchFactor(iFactor.Descriptors, factor_name)
+        if only_one:
+            if len(Factors) == 1:
+                return Factors[0]
+            elif len(Factors)==0:
+                if raise_error:
+                    raise __QS_Error__(f"查找不到因子: {factor_name}")
+                else:
+                    return None
+            else:
+                if raise_error:
+                    raise __QS_Error__(f"因子({factor_name}) 不止一个!")
+                else:
+                    return None
+        else:
+            return Factors
+    else:
+        raise __QS_Error__("参数 def_path 和 factor_name 不能同时为 None!")
 
 if __name__=="__main__":
     HDB = QS.FactorDB.HDF5DB().connect()
