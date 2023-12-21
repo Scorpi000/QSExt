@@ -570,7 +570,7 @@ def writeFactor(factors, tx=None, id_var=None, write_other_fundamental_factor=Tr
                 if iArgStr: CypherStr += " "+iArgStr
                 Parameters.update(iParameters)
                 for j, jDescriptor in enumerate(iFactor.Descriptors):
-                    CypherStr += f" MERGE ({iVar}) - [:`依赖` {{Order: {j}}}] -> ({id_var[id(jDescriptor)]})"
+                    CypherStr += f" MERGE ({iVar}) - [:`依赖因子` {{Order: {j}}}] -> ({id_var[id(jDescriptor)]})"
                 id_var[iFID] = iVar
         NodeVars.append(iVar)
     if tx is None:
@@ -596,7 +596,7 @@ def writeFactorByID(factor, descriptor_node_ids, tx=None):
     if iArgStr: CypherStr += " " + iArgStr
     Parameters.update(iParameters)
     for j, jDescriptor in enumerate(factor.Descriptors):
-        CypherStr += f" MERGE (f) - [:`依赖` {{Order: {j}}}] -> (f{j})"
+        CypherStr += f" MERGE (f) - [:`依赖因子` {{Order: {j}}}] -> (f{j})"
     if tx is None:
         return CypherStr, Parameters
     else:
@@ -609,13 +609,13 @@ def writeFactorByID(factor, descriptor_node_ids, tx=None):
 def deleteFactor(factor_node_ids, del_descriptors=True, tx=None):
     if del_descriptors:
         CypherStr = f"""
-            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] -> (f0:`因子`) - [:`依赖` *0..] -> (f2:`因子`) - [:`参数` *1..] -> (a2:`参数集`)
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖因子` *0..] -> (f0:`因子`) - [:`依赖因子` *0..] -> (f2:`因子`) - [:`参数` *1..] -> (a2:`参数集`)
             WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
             DETACH DELETE a1, f1, f0, f2, a2
         """
     else:
         CypherStr = f"""
-            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖` *0..] -> (f0:`因子`)
+            MATCH (a1:`参数集`) <- [:`参数` *1..] - (f1:`因子`) - [:`依赖因子` *0..] -> (f0:`因子`)
             WHERE id(f0) IN [{",".join(str(iID) for iID in factor_node_ids)}]
             DETACH DELETE a1, f1, f0
         """
@@ -678,7 +678,7 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
         # 写入因子表
         if FTID not in id_var:
             MetaData = ft.getMetaData()
-            if MetaData["Description"] is None: MetaData["Description"] = ""
+            if MetaData.get("Description", None): MetaData["Description"] = ""
             iCypherStr = f"Name: '{ft.Name}', `_Class`: '{Class}'"
             for iKey, iVal in MetaData.items():
                 if pd.notnull(iVal):
@@ -701,7 +701,7 @@ def writeFactorTable(ft, tx=None, var="ft", id_var=None, write_other_fundamental
             if FStr: CypherStr += " "+FStr
             Parameters.update(FParameters)
             MetaData = ft.getMetaData()
-            if MetaData["Description"] is None: MetaData["Description"] = ""
+            if MetaData.get("Description", None) is None: MetaData["Description"] = ""
             iCypherStr = f"Name: '{ft.Name}', `_Class`: '{Class}'"
             for iKey, iVal in MetaData.items():
                 if pd.notnull(iVal):
@@ -984,7 +984,7 @@ def readFactor(labels=["因子"], properties={}, node_ids=None, tx=None, id_fdb=
             iArgs = readArgs(None, iFactorID, tx=tx)
             id_factor[iFactorID] = iFactor = iFT.getFactor(iRawName, args=iArgs, new_name=iFactorName)
         else:# 衍生因子
-            CypherStr = f"MATCH (f:`因子`) - [r:`依赖`] -> (d:`因子`) WHERE id(f)={iFactorID} RETURN id(d) ORDER BY r.`Order`"
+            CypherStr = f"MATCH (f:`因子`) - [r:`依赖因子`] -> (d:`因子`) WHERE id(f)={iFactorID} RETURN id(d) ORDER BY r.`Order`"
             iDescriptorIDs = [iRslt[0] for iRslt in tx.run(CypherStr).values()]
             iDescriptors = readFactor(node_ids=iDescriptorIDs, tx=tx, id_fdb=id_fdb, id_ft=id_ft, id_factor=id_factor, **kwargs)
             iArgs = readArgs(None, iFactorID, tx=tx)
