@@ -53,6 +53,39 @@ def OrthogonalizeFun(f, idt, iid, x, args):
     StdData[Mask] = Result.resid
     return StdData
 
+def FillNaFun(f, idt, iid, x, args):
+    Mask = (x[3]==1)
+    xAllData = np.log(x[1][Mask])
+    ClassData = x[2][Mask]
+    FactorData = x[0][Mask]
+    NotNAMask = pd.notnull(FactorData)
+    if FactorData.shape[0]>np.sum(NotNAMask):# 存在缺失值
+        AllClasses = pd.unique(ClassData[(~NotNAMask)])
+        for iClass in AllClasses:
+            if pd.isnull(iClass):
+                iNotNAMask = NotNAMask
+                iNAMask = ((~NotNAMask) & pd.isnull(ClassData))
+            else:
+                iNotNAMask = ((NotNAMask) & (ClassData==iClass))
+                iNAMask = ((~NotNAMask) & (ClassData==iClass))
+            xData = xAllData[iNotNAMask]
+            yData = FactorData[iNotNAMask]
+            iMask = pd.notnull(xData)
+            xData = xData[iMask]
+            yData = yData[iMask]
+            iNotNANum = xData.shape[0]
+            if iNotNANum==0:
+                continue
+            xMean = np.mean(xData)
+            yMean = np.mean(yData)
+            Beta = (np.sum(xData*yData)-iNotNANum*xMean*yMean)/(np.sum(xData**2)-iNotNANum*xMean**2)
+            Alpha = yMean-xMean*Beta
+            FactorData[iNAMask] = Alpha+Beta*xAllData[iNAMask]
+    Rslt = x[0]
+    Rslt[Mask] = FactorData
+    return Rslt
+
+
 def defFactor(args={}):
     LDB = args["LDB"]
 
