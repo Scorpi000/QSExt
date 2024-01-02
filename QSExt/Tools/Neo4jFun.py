@@ -994,3 +994,28 @@ def readFactor(labels=["因子"], properties={}, node_ids=None, tx=None, id_fdb=
             id_factor[iFactorID] = iFactor = iFactorClass(iFactorName, iDescriptors, sys_args=iArgs, **kwargs)
         Factors.append(iFactor)
     return Factors
+
+# 写入 Schema
+def writeSchema(schema: pd.DataFrame, node_labels=["概念"], tx=None, **kwargs):
+    NodeVar = {}
+    NodeLabel = "`"+"`:`".join(node_labels)+"`"
+    CypherStr = ""
+    for i, iRelation in enumerate(schema.to_records(index=False).tolist()):
+        iSource, iRelationLabel, iTarget = iRelation
+        if iSource not in NodeVar:
+            iSourceVar = NodeVar[iSource] = f"s{i}"
+            iSourceNode = f"({iSourceVar}:{NodeLabel} {{`Name`: '{iSource}'}})"
+            CypherStr += "MERGE " + iSourceNode + " "
+        else:
+            iSourceVar = NodeVar[iSource]
+        if iTarget not in NodeVar:
+            iTargetVar = NodeVar[iTarget] = f"t{i}"
+            iTargetNode = f"({iTargetVar}:{NodeLabel} {{`Name`: '{iTarget}'}})"
+            CypherStr += "MERGE " + iTargetNode + " "
+        else:
+            iTargetVar = NodeVar[iTarget]
+        CypherStr += f"MERGE ({iSourceVar}) - [:`{iRelationLabel}`] -> ({iTargetVar}) "
+    if tx is None:
+        return CypherStr, {}
+    else:
+        return tx.run(CypherStr, parameters={})
