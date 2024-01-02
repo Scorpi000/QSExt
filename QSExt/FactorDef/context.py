@@ -343,61 +343,6 @@ class FactorDefContext(QSArgs):
     def _on_IDDB_changed(self, obj, name, old, new):
         self._IDs = None
 
-# def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1
-def searchFactor(ft, def_path=None, factor_name=None, only_one=True, raise_error=True):
-    if def_path is not None:
-        def_path = def_path.split("/")
-        if def_path[0] not in ft.FactorNames:
-            return None
-        iFactor = ft.getFactor(def_path[0])
-        for iIdx in def_path[1:]:
-            try:
-                iFactor = iFactor.Descriptors[int(iIdx)]
-            except:
-                if raise_error:
-                    raise __QS_Error__(f"查找不到因子: {def_path}")
-                return None
-        if (factor_name is not None) and (iFactor.Name != factor_name):
-            if raise_error:
-                if factor_name is not None:
-                    raise __QS_Error__(f"查找不到因子({factor_name}): {def_path}")
-                else:
-                    raise __QS_Error__(f"查找不到因子: {def_path}")
-            return None
-        else:
-            return iFactor
-    elif factor_name is not None:
-        def _searchFactor(factors, factor_name):
-            Factors = []
-            for iFactor in factors:
-                if iFactor.Name == factor_name:
-                    Factors.append(iFactor)
-                Factors += _searchFactor(iFactor.Descriptors, factor_name)
-            return Factors
-        Factors = []
-        for iFactorName in ft.FactorNames:
-            iFactor = ft.getFactor(iFactorName)
-            if iFactorName==factor_name:
-                Factors.append(iFactor)
-            Factors += _searchFactor(iFactor.Descriptors, factor_name)
-        if only_one:
-            if len(Factors) == 1:
-                return Factors[0]
-            elif len(Factors)==0:
-                if raise_error:
-                    raise __QS_Error__(f"查找不到因子: {factor_name}")
-                else:
-                    return None
-            else:
-                if raise_error:
-                    raise __QS_Error__(f"因子({factor_name}) 不止一个!")
-                else:
-                    return None
-        else:
-            return Factors
-    else:
-        raise __QS_Error__("参数 def_path 和 factor_name 不能同时为 None!")
-
 if __name__=="__main__":
     HDB = QS.FactorDB.HDF5DB().connect()
     Context = FactorDefContext(sys_args={})
