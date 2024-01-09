@@ -44,7 +44,7 @@ def importExternalFT(source, context):
 
 class _RunArgs(QSArgs):
     """运行参数"""
-    UpdateMethod = Enum("update", "update_notnull", "append", arg_type="SingleOption", label="更新方式", order=0, option_range=["update", "update_notnull", "append"])
+    UpdateMethod = Enum("update", "update_notnull", "append", "replace", "direct", arg_type="SingleOption", label="更新方式", order=0, option_range=["update", "update_notnull", "append", "replace", "direct"])
     SubprocessNum = Int(0, arg_type="Integer", label="子进程数", order=1)
 
 # 因子运行时环境
