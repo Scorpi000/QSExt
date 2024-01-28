@@ -57,13 +57,13 @@ class FactorDefContext(QSArgs):
     EndDT = Datetime(Today, label="结束时点", arg_type="DateTime", order=5)
     Freq = Either(Str("1d"), Callable(), label="时点频率", arg_type="String", order=6)
     LastDTIncluded = Enum(True, False, label="包含结束时点", order=7, arg_type="Bool")
-    DTs = List(dt.datetime, arg_type="DateTimeList", label="计算时点", order=8)
-    DTRuler = List(dt.datetime, arg_type="DateTimeList", label="时点标尺", order=9)
+    DTs = List(Datetime, arg_type="DateTimeList", label="计算时点", order=8)
+    DTRuler = List(Datetime, arg_type="DateTimeList", label="时点标尺", order=9)
     # IDDB = Enum(label="ID因子库", order=10, arg_type="SingleOption")
     # IDType = Enum("自定义", label="ID类型", arg_type="SingleOption", order=11, option_range=("自定义",))
     IDs = ListStr(arg_type="IDList", label="截面ID", order=12)
     MdlArgs = Dict(label="模型参数", arg_type="Dict", order=13)
-    RunArgs = Instance(_RunArgs, label="运行参数", arg_type="QSObject", order=14)
+    RunArgs = Instance(_RunArgs, label="运行参数", arg_type="ArgObject", order=14)
     def __init__(self, sys_args={}, config_file=None, **kwargs):
         if "logger" not in kwargs:
             kwargs["logger"] = getLogger(log_dir=None, log_level="INFO")
@@ -82,9 +82,9 @@ class FactorDefContext(QSArgs):
         FDB = args.get("因子库", {})
         DTDBNames = sorted(iDBName for iDBName, iDB in FDB.items() if hasattr(iDB, "getTradeDay")) + [None]
         self.add_trait("DTDB", Enum(*DTDBNames, arg_type="SingleOption", label="时点因子库", order=2, option_range=DTDBNames))
-        DTTypeList = self.SupportedDTType
+        DTTypeList = self.SupportedDTType + ("自定义",)
         self.add_trait("DTType", Enum(*DTTypeList, label="时点类型", arg_type="SingleOption", order=3, option_range=DTTypeList))
-        IDTypeList = self.SupportedIDType
+        IDTypeList = self.SupportedIDType + ("自定义",)
         self.add_trait("IDType", Enum(*IDTypeList, label="ID类型", arg_type="SingleOption", order=11, option_range=IDTypeList))
         IDDBNames = sorted(FDB.keys()) + [None]
         self.add_trait("IDDB", Enum(*IDDBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=IDDBNames))
@@ -100,15 +100,15 @@ class FactorDefContext(QSArgs):
 
     @property
     def SupportedDTType(self):
-        return ("自定义", "自然日")
+        return ("自然日",)
 
     @property
     def SupportedFreq(self):
-        return ("d", "w", "m", "y", "自定义")
+        return ("d", "w", "m", "q", "y")
 
     @property
     def SupportedIDType(self):
-        return ("自定义", )
+        return ()
 
     @property
     def IndispensableModelArgs(self):
@@ -125,7 +125,7 @@ class FactorDefContext(QSArgs):
     # 运行时参数是否合适
     def ifProper(self, raise_error=True):
         Proper = True
-        if self.DTType not in self.SupportedDTType:
+        if (self.DTType!="自定义") and (self.DTType not in self.SupportedDTType):
             self._QS_Logger.error(f"时点类型 '{self.DTType}' 不支持, 可取的时点类型为: {self.SupportedDTType}")
             Proper = False
         if self.DTType!="自定义":
@@ -133,11 +133,11 @@ class FactorDefContext(QSArgs):
                 iFreq, iFreqType = int(re.findall("\d+", self.Freq)[0]), re.findall("\D+", self.Freq)[0].lower()
             else:
                 iFreqType = "自定义"
-            if iFreqType not in self.SupportedFreq:
+            if (iFreqType != "自定义") and (iFreqType not in self.SupportedFreq):
                 self._QS_Logger.error(f"时点频率 '{iFreqType}' 不支持, 可取的时点频率为: {self.SupportedFreq}")
                 Proper = False
-        if self.IDType not in self.SupportedIDType:
-            self._QS_Logger.error(f"ID类型 '{self.IDType}' 不支持, 可取的ID类型为: {self.SupportedFreq}")
+        if (self.IDType!="自定义") and (self.IDType not in self.SupportedIDType):
+            self._QS_Logger.error(f"ID类型 '{self.IDType}' 不支持, 可取的ID类型为: {self.SupportedIDType}")
             Proper = False
         MissingArgs = set(self.IndispensableModelArgs).difference(self.MdlArgs.keys())
         if MissingArgs:
@@ -312,11 +312,11 @@ class FactorDefContext(QSArgs):
     def _on_LastDTIncluded_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
-    @on_trait_change("DTs.items,DTs[]")
+    @on_trait_change("DTs_items,DTs[]")
     def _on_DTs_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
-    @on_trait_change("DTRuler.items,DTRuler[]")
+    @on_trait_change("DTRuler_items,DTRuler[]")
     def _on_DTRuler_changed(self, obj, name, old, new):
         self._DTs, self._DTRuler = None, None
 
