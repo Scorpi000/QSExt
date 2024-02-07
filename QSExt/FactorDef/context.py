@@ -76,6 +76,7 @@ class FactorDefContext(QSArgs):
         self._setIDAttr()
         if self.DTType=="自定义":
             self._checkDT()
+        self.initModelArgs()
 
     def __QS_initArgs__(self, args={}):
         super().__QS_initArgs__(args=args)
@@ -121,6 +122,9 @@ class FactorDefContext(QSArgs):
     @property
     def TargetTable(self):
         raise NotImplementedError
+
+    def initModelArgs(self):
+        pass
 
     # 运行时参数是否合适
     def ifProper(self, raise_error=True):
@@ -323,7 +327,7 @@ class FactorDefContext(QSArgs):
     def _genIDs(self):
         IDDB = self.FDB[self.IDDB]
         IDFun = _IDFunMapping.get(self.IDType)
-        IDs = IDFun(is_current=False)
+        IDs = getattr(IDDB, IDFun)(is_current=False)
         return IDs
 
     def _setIDAttr(self):
