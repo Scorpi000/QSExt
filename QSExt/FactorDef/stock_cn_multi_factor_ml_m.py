@@ -72,7 +72,7 @@ def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
                     kjMask = (kFactorData<=RightThreshold)
                 kjQuantileData = kFactorData[kjMask]
                 kjWPos = np.nansum(kWeight[kjMask & ret_mask])
-                kjWNeg = np.nansum(kWeight[kjMask & (~ret_mask]))
+                kjWNeg = np.nansum(kWeight[kjMask & (~ret_mask)])
                 kZ += np.sqrt(kjWPos * kjWNeg)
                 if pd.notnull(kjWPos) and pd.notnull(kjWNeg):
                     kh[jQuantile] = 1 / 2 * np.log((kjWPos + Epsilon) / (kjWNeg + Epsilon))
