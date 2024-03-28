@@ -200,7 +200,10 @@ class GoGoalDB(QSSQLObject, FactorDB):
         
     def _initInfo(self):
         # 数据库表信息, 数据库字段信息
-        if not os.path.isfile(self._QSArgs.DBInfoFile):
+        if not self._QSArgs.DBInfoFile:
+            self._InfoResourcePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"GoGoalDBInfo.xlsx"# 默认数据库信息源文件路径
+            self._TableInfo, self._FactorInfo = _updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)
+        elif not os.path.isfile(self._QSArgs.DBInfoFile):
             try:
                 InfoFile = getInfoFile(self._QSArgs.DBInfoFile, suffix=".xlsx")
             except Exception as e:
