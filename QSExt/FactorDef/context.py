@@ -106,10 +106,18 @@ class FactorDefContext(QSArgs):
     @property
     def SupportedFreq(self):
         return ("d", "w", "m", "q", "y")
+    
+    @property
+    def SupportedDTs(self):
+        return self.DTs, self.DTRuler
 
     @property
     def SupportedIDType(self):
         return ()
+    
+    @property
+    def SupportedIDs(self):
+        return self.IDs
 
     @property
     def IndispensableModelArgs(self):
@@ -175,7 +183,10 @@ class FactorDefContext(QSArgs):
     def getID(self):
         if self._IDs is None:
             if self.IDType=="自定义":
-                self._IDs = self.IDs
+                if self.IDs:
+                    self._IDs = self.IDs
+                else:
+                    self._IDs = self.SupportedIDs
             else:
                 self._IDs = self._genIDs()
         return self._IDs
@@ -183,7 +194,12 @@ class FactorDefContext(QSArgs):
     def getDateTime(self):
         if self._DTs is None:
             if self.DTType=="自定义":
-                self._DTs, self._DTRuler = self.DTs, self.DTRuler
+                if (not self.DTs) or (not self.DTRuler):
+                    self._DTs, self._DTRuler = self.SupportedDTs
+                if self.DTs:
+                    self._DTs = self.DTs
+                if self.DTRuler:
+                    self._DTRuler = self.DTRuler
             else:
                 self._DTs, self._DTRuler = self._genDTs()
         return self._DTs
@@ -191,7 +207,12 @@ class FactorDefContext(QSArgs):
     def getDTRuler(self):
         if self._DTRuler is None:
             if self.DTType == "自定义":
-                self._DTs, self._DTRuler = self.DTs, self.DTRuler
+                if (not self.DTs) or (not self.DTRuler):
+                    self._DTs, self._DTRuler = self.SupportedDTs
+                if self.DTs:
+                    self._DTs = self.DTs
+                if self.DTRuler:
+                    self._DTRuler = self.DTRuler
             else:
                 self._DTs, self._DTRuler = self._genDTs()
         return self._DTRuler
@@ -276,18 +297,18 @@ class FactorDefContext(QSArgs):
     def _setDTAttr(self):
         if self.DTType=="自定义":
             self._QS_setArgVisible("时点因子库", visible=False)
-            self._QS_setArgVisible("开始时点", visible=False)
-            self._QS_setArgVisible("结束时点", visible=False)
-            self._QS_setArgVisible("时点频率", visible=False)
-            self._QS_setArgVisible("包含结束时点", visible=False)
+            # self._QS_setArgVisible("开始时点", visible=False)
+            # self._QS_setArgVisible("结束时点", visible=False)
+            # self._QS_setArgVisible("时点频率", visible=False)
+            # self._QS_setArgVisible("包含结束时点", visible=False)
             self._QS_setArgVisible("计算时点", visible=True)
             self._QS_setArgVisible("时点标尺", visible=True)
         else:
             self._QS_setArgVisible("时点因子库", visible=(self.DTType=="交易日"))
-            self._QS_setArgVisible("开始时点", visible=True)
-            self._QS_setArgVisible("结束时点", visible=True)
-            self._QS_setArgVisible("时点频率", visible=True)
-            self._QS_setArgVisible("包含结束时点", visible=True)
+            # self._QS_setArgVisible("开始时点", visible=True)
+            # self._QS_setArgVisible("结束时点", visible=True)
+            # self._QS_setArgVisible("时点频率", visible=True)
+            # self._QS_setArgVisible("包含结束时点", visible=True)
             self._QS_setArgVisible("计算时点", visible=False)
             self._QS_setArgVisible("时点标尺", visible=False)
 
