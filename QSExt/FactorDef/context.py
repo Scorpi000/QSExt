@@ -90,6 +90,7 @@ class FactorDefContext(QSArgs):
         IDDBNames = sorted(FDB.keys()) + [None]
         self.add_trait("IDDB", Enum(*IDDBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=IDDBNames))
         self.RunArgs = _RunArgs(logger=self._QS_Logger)
+        self.Freq = "1d"
 
     @property
     def Author(self) -> str:
