@@ -76,7 +76,6 @@ class FactorDefContext(QSArgs):
         self._setIDAttr()
         if self.DTType=="自定义":
             self._checkDT()
-        self.initModelArgs()
 
     def __QS_initArgs__(self, args={}):
         super().__QS_initArgs__(args=args)
@@ -91,6 +90,7 @@ class FactorDefContext(QSArgs):
         self.add_trait("IDDB", Enum(*IDDBNames, arg_type="SingleOption", label="ID因子库", order=10, option_range=IDDBNames))
         self.RunArgs = _RunArgs(logger=self._QS_Logger)
         self.Freq = "1d"
+        self.initModelArgs()
 
     @property
     def Author(self) -> str:
