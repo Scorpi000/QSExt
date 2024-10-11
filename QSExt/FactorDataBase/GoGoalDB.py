@@ -98,8 +98,9 @@ class _YearMonthMappingTable(_GoGoal_SQL_Table, SQL_MappingTable):
 
     def __init__(self, name, fdb, sys_args={}, table_prefix="", table_info=None, factor_info=None, security_info=None, exchange_info=None, **kwargs):
         super().__init__(name=name, fdb=fdb, sys_args=sys_args, table_prefix=table_prefix, table_info=table_info, factor_info=factor_info, security_info=security_info, exchange_info=exchange_info, **kwargs)
-        self._QS_IgnoredGroupArgs = self._QS_IgnoredGroupArgs + ("结束时点字段", "时点字段", "目标日")
-
+        self._QS_GroupArgs = (self._QS_GroupArgs if self._QS_GroupArgs is not None else tuple()) + ("结束时点字段", "时点字段", "目标日")
+        self._QS_RawDataMaskCols = ["QS_ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"]
+    
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         if dts is not None:
             StartDT, EndDT = dts[0], dts[-1]
@@ -129,11 +130,12 @@ class _YearMonthMappingTable(_GoGoal_SQL_Table, SQL_MappingTable):
             SQLStr += "OR (" + YearField + " IS NULL)) "
         SQLStr += "ORDER BY ID, QS_Year, QS_Month"
         RawData = self._FactorDB.fetchall(SQLStr)
-        if not RawData: return pd.DataFrame(columns=["ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
-        RawData = pd.DataFrame(np.array(RawData, dtype="O"), columns=["ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
-        RawData["ID"] = self.__QS_restoreID__(RawData["ID"])
+        if not RawData: return pd.DataFrame(columns=["QS_ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
+        RawData = pd.DataFrame(np.array(RawData, dtype="O"), columns=["QS_ID", "QS_Year", "QS_Month", "QS_EndYear", "QS_EndMonth"] + factor_names)
+        RawData["QS_ID"] = self.__QS_restoreID__(RawData["QS_ID"])
         RawData = self._adjustRawDataByRelatedField(RawData, factor_names)
         return RawData
+    
     def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
         if raw_data.shape[0]==0:
             raw_data.pop("QS_Year")
