@@ -10,9 +10,9 @@ from dateutil.parser import parse
 import dateparser
 import click
 
-import QuantStudio.api as QS
 from QuantStudio import __QS_Error__
-from QuantStudio.FactorDataBase.FactorDB import FactorDB
+from QuantStudio.FactorDataBase.FactorDB import FactorDB, CustomFT
+from QuantStudio.Tools.DateTimeFun import getDateTimeSeries, getMonthLastDateTime, getYearLastDateTime
 
 def getLogger(log_file=None, log_dir=None, log_level=logging.INFO):
     logging.root.setLevel(logging.NOTSET)
@@ -163,6 +163,7 @@ def updateFactorData(def_file, table_name=None, start_dt=None, end_dt=None, star
     DefArgs = {"logger": Logger}
     
     # 创建源因子库对象
+    import QuantStudio.api as QS
     SDBs, SDBConfig, SDBArgs = sdb.split(","), sdb_config.split(","), sdb_args.split(",")
     if len(SDBConfig)!=len(SDBs):
         Logger.warning(f"源因子库数量({len(SDBs)})不等于其配置文件的数量({len(SDBConfig)}, 缺省的的将取默认值.")
@@ -257,19 +258,19 @@ def updateFactorData(def_file, table_name=None, start_dt=None, end_dt=None, star
             DTs = FT.getDateTime(ifactor_name=iFactorName, start_dt=start_dt, end_dt=end_dt)
             DTRuler = FT.getDateTime(ifactor_name=iFactorName, start_dt=start_dt - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_dt=end_dt)
     elif DTType=="自然日":
-        DTs = QS.Tools.DateTime.getDateTimeSeries(start_dt=start_dt, end_dt=end_dt, timedelta=dt.timedelta(1))
-        DTRuler = QS.Tools.DateTime.getDateTimeSeries(start_dt=start_dt - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_dt=end_dt, timedelta=dt.timedelta(1))
+        DTs = getDateTimeSeries(start_dt=start_dt, end_dt=end_dt, timedelta=dt.timedelta(1))
+        DTRuler = getDateTimeSeries(start_dt=start_dt - dt.timedelta(UpdateArgs.get("最长回溯期", 3650)), end_dt=end_dt, timedelta=dt.timedelta(1))
     else:
         Logger.error(f"无法识别的时点类型: {DTType}")
         return -1
     # 调整时点频率
     UpdateFreq = UpdateArgs.get("更新频率", "日")
     if UpdateFreq in ("月", "月底"):
-        DTs = QS.Tools.DateTime.getMonthLastDateTime(DTs)
-        DTRuler = QS.Tools.DateTime.getMonthLastDateTime(DTRuler)
+        DTs = getMonthLastDateTime(DTs)
+        DTRuler = getMonthLastDateTime(DTRuler)
     elif UpdateFreq in ("年", "年底"):
-        DTs = QS.Tools.DateTime.getYearLastDateTime(DTs)
-        DTRuler = QS.Tools.DateTime.getYearLastDateTime(DTRuler)
+        DTs = getYearLastDateTime(DTs)
+        DTRuler = getYearLastDateTime(DTRuler)
     elif UpdateFreq!="日":
         Logger.error(f"无法识别的时点频率: {UpdateFreq}")
         return -1
@@ -326,7 +327,7 @@ def updateFactorData(def_file, table_name=None, start_dt=None, end_dt=None, star
     Logger.info(f"因子列表: {FactorNames}")
     
     # 生成因子数据
-    CFT = QS.FactorDB.CustomFT(table_name, logger=Logger)
+    CFT = CustomFT(table_name, logger=Logger)
     CFT.addFactors(factor_list=Factors)
     Logger.info(f"生成因子数据: 更新方式 '{update_method}', 子进程数 {process_num}")
     Logger.info("=================================================")

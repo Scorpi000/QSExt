@@ -8,11 +8,9 @@ import numpy as np
 import pandas as pd
 from traits.api import Str, Int, Dict, List, ListStr, Enum, Datetime, Either, Callable, Instance, on_trait_change
 
-import QuantStudio.api as QS
 from QuantStudio.FactorDataBase.FactorDB import CustomFT
 from QSExt.FactorDef.updateFactorData import getLogger
-fd = QS.FactorDB.FactorTools
-Factorize = QS.FactorDB.Factorize
+from QuantStudio.Tools.DateTimeFun import getDateTimeSeries, getMonthLastDateTime, getWeekLastDateTime, getYearLastDateTime, getQuarterLastDateTime
 from QuantStudio import QSArgs, __QS_Error__
 
 Today = dt.datetime.combine(dt.date.today(), dt.time(0))
@@ -269,24 +267,24 @@ class FactorDefContext(QSArgs):
             DTs = DTDB.getTradeDay(start_date=self.StartDT, end_date=self.EndDT, output_type="datetime")
             DTRuler = DTDB.getTradeDay(start_date=dt.datetime(1990,1,1), end_date=self.EndDT, output_type="datetime")
         elif self.DTType == "自然日":
-            DTs = QS.Tools.DateTime.getDateTimeSeries(start_dt=self.StartDT, end_dt=self.EndDT, timedelta=dt.timedelta(1))
-            DTRuler = QS.Tools.DateTime.getDateTimeSeries(start_dt=dt.datetime(1990,1,1), end_dt=self.EndDT, timedelta=dt.timedelta(1))
+            DTs = getDateTimeSeries(start_dt=self.StartDT, end_dt=self.EndDT, timedelta=dt.timedelta(1))
+            DTRuler = getDateTimeSeries(start_dt=dt.datetime(1990,1,1), end_dt=self.EndDT, timedelta=dt.timedelta(1))
         else:
             return None, None
         if isinstance(self.Freq, str):
             iFreq, iFreqType = int(re.findall("\d+", self.Freq)[0]), re.findall("\D+", self.Freq)[0].lower()
             if iFreqType == "y":
-                DTs = QS.Tools.DateTime.getYearLastDateTime(DTs)
-                DTRuler = QS.Tools.DateTime.getYearLastDateTime(DTRuler)
+                DTs = getYearLastDateTime(DTs)
+                DTRuler = getYearLastDateTime(DTRuler)
             elif iFreqType == "q":
-                DTs = QS.Tools.DateTime.getQuarterLastDateTime(DTs)
-                DTRuler = QS.Tools.DateTime.getQuarterLastDateTime(DTRuler)
+                DTs = getQuarterLastDateTime(DTs)
+                DTRuler = getQuarterLastDateTime(DTRuler)
             elif iFreqType == "m":
-                DTs = QS.Tools.DateTime.getMonthLastDateTime(DTs)
-                DTRuler = QS.Tools.DateTime.getMonthLastDateTime(DTRuler)
+                DTs = getMonthLastDateTime(DTs)
+                DTRuler = getMonthLastDateTime(DTRuler)
             elif iFreqType == "w":
-                DTs = QS.Tools.DateTime.getWeekLastDateTime(DTs)
-                DTRuler = QS.Tools.DateTime.getWeekLastDateTime(DTRuler)
+                DTs = getWeekLastDateTime(DTs)
+                DTRuler = getWeekLastDateTime(DTRuler)
             elif iFreqType != "d":
                 raise __QS_Error__(f"{iFreqType} is not a supported frequency type!")
             if not self.LastDTIncluded:
@@ -373,6 +371,7 @@ class FactorDefContext(QSArgs):
         self._IDs = None
 
 if __name__=="__main__":
+    import QuantStudio.api as QS
     HDB = QS.FactorDB.HDF5DB().connect()
     Context = FactorDefContext(sys_args={})
     Context["因子库"] = {"LDB": HDB}
