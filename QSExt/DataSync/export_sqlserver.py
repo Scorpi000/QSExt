@@ -4,7 +4,7 @@ import json
 import time
 import traceback
 import datetime as dt
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from multiprocessing import Process, Queue
 
 import pymssql
@@ -80,22 +80,22 @@ class SQLServerExporter:
     
     def get_connection(self):
         """获取数据库连接"""
-        #return pymssql.connect(
-            #server=self.server,
-            #database=self.database,
-            #port=str(self.port), 
-            #user=self.username,
-            #password=self.password,
-            #charset='UTF-8'
-        #)
-        return MockedConn(
+        return pymssql.connect(
             server=self.server,
             database=self.database,
             port=str(self.port), 
             user=self.username,
             password=self.password,
-            charset='UTF-8'
+            charset='cp936'
         )
+##        return MockedConn(
+##            server=self.server,
+##            database=self.database,
+##            port=str(self.port), 
+##            user=self.username,
+##            password=self.password,
+##            charset='cp936'
+##        )
     
     def get_checkpoint(self, table_name: str) -> Dict[str, Any]:
         """获取断点信息"""
@@ -139,6 +139,30 @@ class SQLServerExporter:
             cursor.close()
             conn.close()
     
+    def export_del_table(self, token: str, table_name: str, last_del_id: Optional[int]=None, del_table_name="JYDB_DeleteRec", id_field:str="JSID", cursor=None):
+        imported_cursor = (cursor is not None)
+        if not imported_cursor:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+        try:
+            if last_del_id is not None:
+                cursor.execute(f"""SELECT TABLENAME, RECID, XGRQ, ID, JSID FROM {del_table_name} WHERE TABLENAME = '{table_name}' AND {id_field} > {last_del_id} ORDER BY {id_field}""")
+            else:
+                cursor.execute(f"""SELECT TABLENAME, RECID, XGRQ, ID, JSID FROM {del_table_name} WHERE TABLENAME = '{table_name}' ORDER BY {id_field}""")
+            rows = cursor.fetchone()
+        finally:
+            if not imported_cursor:
+                cursor.close()
+                conn.close()
+        if not rows: return None
+        max_id = rows[-1][-1]
+        # 写入CSV文件
+        export_file = os.path.join(os.path.join(self.export_dir, table_name), f"{token}-DEL.csv")
+        with open(export_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+        return max_id
+    
     def export_table(self, token: str, table_name: str, order_by: str = None, where_clause: str = None, resume: bool = True) -> str:
         """导出单个表"""
         print(f"开始导出表 {table_name}...")
@@ -151,7 +175,8 @@ class SQLServerExporter:
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(table_name)
-        last_id = checkpoint.get('last_id', 0)
+        last_id = checkpoint.get('last_id', None)
+        last_del_id = checkpoint.get('last_del_id', None)
         idx = int(checkpoint.get("idx", 0))
         exported_rows = checkpoint.get('exported_rows', 0)
         
@@ -178,10 +203,11 @@ class SQLServerExporter:
         
         # 如果有排序字段，用于断点续传
         if order_by:
-            if where_clause:
-                base_query += f" AND [{order_by}] > {last_id}"
-            else:
-                base_query += f" WHERE [{order_by}] > {last_id}"
+            if last_id is not None:
+                if where_clause:
+                    base_query += f" AND [{order_by}] > {last_id}"
+                else:
+                    base_query += f" WHERE [{order_by}] > {last_id}"
             base_query += f" ORDER BY [{order_by}]"
         
         conn = self.get_connection()
@@ -229,12 +255,15 @@ class SQLServerExporter:
                 if len(rows) < self.batch_size:
                     break
                 offset += self.batch_size
+            # 导出删除记录
+            last_del_id = self.export_del_table(token=token, table_name=table_name, last_del_id=last_del_id, cursor=cursor)
         except Exception as e:
             ifok, msg = False, traceback.format_exc()
         else:
             checkpoint = checkpoint | {
-                'data_file_num': idx,
+                'data_file_num': idx + int(last_del_id is not None),
                 'last_id': last_id,
+                'last_del_id': last_del_id,
                 'idx': idx,
                 'exported_rows': total_exported,
                 'total_rows': table_info["total_rows"],
@@ -252,7 +281,7 @@ def execute_task(task):
     task_dir = task["main_dir"] + os.sep + task["table_name"]
     if not os.path.isdir(task_dir): os.mkdir(task_dir)
     exporter = task["exporter"]
-    exporter.save_checkpoint(task["table_name"], {'token': task["token"]})
+    exporter.save_checkpoint(task["table_name"], {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
     for i in range(task["retry_num"]):
         try:
             ifok, msg, checkpoint = exporter.export_table(task["token"], task["table_name"], order_by=task["id_field"])
@@ -269,29 +298,36 @@ def main(
 ):
     # 配置信息
     config = {
-        'server': 'your_sqlserver_host',
-        'port': '1433',
-        'database': 'your_database',
-        'username': 'your_username',
-        'password': 'your_password',
-        'export_dir': 'sqlserver_exports',
-        'batch_size': 10000
+        'server': '10.102.3.21',
+        'port': '1333',
+        'database': 'FundExt',
+        'username': 'cwyspzb_04122',
+        'password': 'Shzq@04122',
+        'export_dir': main_dir,
+        'batch_size': 200000
     }
     exporter = SQLServerExporter(**config)
     
     import_status_file = main_dir + os.sep + "import_status.json"
     export_status_file = main_dir + os.sep + "export_status.json"
-    
-    with open(export_status_file, mode="r") as fp:
-        export_status = json.load(fp)
-    token = export_status.get("token", None)
+
+    if os.path.isfile(export_status_file):
+        with open(export_status_file, mode="r") as fp:
+            export_status = json.load(fp)
+        token = export_status.get("token", None)
+    else:
+        token, export_status = None, {}
     
     while True:
         wait_printed = False
         while token == export_status.get("token", None):
-            with open(import_status_file, mode="r") as fp:
-                import_status = json.load(fp)
-            token = import_status.get("token", None)
+            if os.path.isfile(import_status_file):
+                try:
+                    with open(import_status_file, mode="r") as fp:
+                        import_status = json.load(fp)
+                    token = import_status["token"]
+                except:
+                    print(f"{import_status_file}读取失败: {traceback.format_exec()}")
             if not wait_printed:
                 print("等待新的导出任务...")
                 wait_printed = True
@@ -306,11 +342,14 @@ def main(
             continue
         
         # 任务列表非空
-        task_idx = 0
+        with open(export_status_file, mode="w") as fp:
+            export_status = export_status | {"token": token, "status": "running"}
+            json.dump(export_status, fp, ensure_ascii=False, indent=2)
+        task_group_idx = 0
         table_done_set = set()
         table_proc = {}# {table_name: process}
         queue = Queue()
-        while task_idx < len(import_status["task_list"]):
+        while task_group_idx < len(import_status["task_list"]):
             time.sleep(interval_seconds)
             
             while not queue.empty():
@@ -322,21 +361,23 @@ def main(
                     print(f"表 {table} 导出失败：{msg}")
                 if concurrent: table_proc[table].terminate()
             
-            if len(table_done_set) == len(import_status["task_list"][task_idx]):
+            if len(table_done_set) == len(import_status["task_list"][task_group_idx]):
                 with open(import_status_file, mode="r") as fp:
                     import_status = json.load(fp)
-                if import_status.get("status", None) == "terminated":
+                istatus = import_status.get("status", None)
+                if istatus == "terminated":
                     with open(export_status_file, mode="w") as fp:
                         token = import_status["token"]
                         export_status = export_status | {"token": token, "status": "terminated"}
                         json.dump(export_status, fp, ensure_ascii=False, indent=2)
                     break
-                task_idx += 1
-                table_done_set = set()
-                table_proc = {}
+                elif istatus == "task_group_finished":
+                    task_group_idx += 1
+                    table_done_set = set()
+                    table_proc = {}
                 continue
             
-            for task in import_status["task_list"][task_idx]:
+            for task in import_status["task_list"][task_group_idx]:
                 if task["table_name"] in table_done_set: continue
                 if task["table_name"] in table_proc: continue
                 # 启动导出任务
@@ -345,10 +386,11 @@ def main(
                     table_proc[task["table_name"]].start()
                 else:
                     table_proc[task["table_name"]] = execute_task(task | {"main_dir": main_dir, "exporter": exporter, "queue": queue, "token": token, "retry_num": retry_num})
+        
         with open(export_status_file, mode="w") as fp:
             export_status = export_status | {"token": token, "status": "finished"}
             json.dump(export_status, fp, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
-    main(main_dir=r".\sqlserver_exports", interval_seconds=3, concurrent=True)
+    main(main_dir=r".\sqlserver_exports", interval_seconds=3, concurrent=False)

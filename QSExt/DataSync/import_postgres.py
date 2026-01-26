@@ -9,6 +9,7 @@ from multiprocessing import Process, Queue
 from typing import List, Dict, Any, Optional
 
 import numpy as np
+import pandas as pd
 import psycopg2
 
 
@@ -47,13 +48,11 @@ class PostgresImporter:
         with open(checkpoint_file, 'w', encoding='utf-8') as f:
             json.dump(checkpoint, f, ensure_ascii=False, indent=2)
     
-    def create_table_if_not_exists(self, table_name: str, columns_info: List[Dict[str, Any]]):
-        """如果表不存在则创建表"""
+    def check_table_exists(self, table_name: str):
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+        # 检查表是否存在
         try:
-            # 检查表是否存在
             cursor.execute(f"""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
@@ -63,24 +62,33 @@ class PostgresImporter:
             """)
             
             exists = cursor.fetchone()[0]
-            
-            if not exists:
-                # 构建建表语句
-                column_defs = []
-                for col in columns_info:
-                    pg_type = self.map_sqlserver_type_to_postgres(col['type'])
-                    nullable = 'NULL' if col['nullable'] == 'YES' else 'NOT NULL'
-                    column_defs.append(f'{col["name"]} {pg_type} {nullable}')
-                
-                create_sql = f'CREATE TABLE {table_name} ({", ".join(column_defs)})'
-                
-                cursor.execute(create_sql)
-                conn.commit()
-                print(f"表 {table_name} 已创建")
-            
         finally:
             cursor.close()
             conn.close()
+        return exists
+
+    def create_table_if_not_exists(self, table_name: str, columns_info: List[Dict[str, Any]]):
+        """如果表不存在则创建表"""
+        # 检查表是否存在
+        if self.check_table_exists(table_name): return True
+
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            # 构建建表语句
+            column_defs = []
+            for col in columns_info:
+                pg_type = self.map_sqlserver_type_to_postgres(col['type'])
+                nullable = 'NULL' if col['nullable'] == 'YES' else 'NOT NULL'
+                column_defs.append(f'{col["name"]} {pg_type} {nullable}')
+            create_sql = f'CREATE TABLE {table_name} ({", ".join(column_defs)})'
+            cursor.execute(create_sql)
+            conn.commit()
+            print(f"表 {table_name} 已创建")
+        finally:
+            cursor.close()
+            conn.close()
+        return False
     
     def map_sqlserver_type_to_postgres(self, sqlserver_type: str) -> str:
         """SQL Server 类型映射到 PostgreSQL 类型"""
@@ -131,14 +139,95 @@ class PostgresImporter:
         
         return 'TEXT'  # 默认类型
     
-    def get_max_id(self, table_name, id_field):
+    def create_del_table(self, table_name:str="JYDB_DeleteRec"):
+        # 检查表是否存在
+        if self.check_table_exists(table_name): return True
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute(f"""SELECT MAX({id_field}) FROM {table_name}""")
-        max_id = cursor.fetchone()
+        try:
+            create_sql = f"""
+                CREATE TABLE {table_name} (
+                TABLENAME varchar(100) NOT NULL,
+                RECID bigint NOT NULL,
+                XGRQ timestamp(6) NOT NULL,
+                ID bigint NOT NULL,
+                JSID bigint NOT NULL
+                )
+            """
+            cursor.execute(create_sql)
+            conn.commit()
+            print(f"删除表 {table_name} 已创建")
+        finally:
+            cursor.close()
+            conn.close()
+        return False
+
+    # 删除表，同时清空 del_table 中的删除记录
+    def delete_table(self, table_name:str, del_table_name:str="JYDB_DeleteRec"):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            sql = f"""DROP TABLE IF EXISTS {table_name}"""
+            cursor.execute(sql)
+            sql = f"""DELETE FROM {del_table_name} WHERE TABLENAME='{table_name}'"""
+            conn.commit()
+            print(f"删除表: {table_name}")
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_max_id(self, table_name:str, id_field:str="JSID"):
+        exists = self.check_table_exists(table_name)
+        if not exists: return None
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"""SELECT MAX({id_field}) FROM {table_name}""")
+            max_id = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
         if max_id: return max_id[0]
         else: return None
     
+    def get_del_max_id(self, table_name:str, del_table_name:str="JYDB_DeleteRec", id_field:str="JSID"):
+        exists = self.check_table_exists(table_name)
+        if not exists: return None
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"""SELECT MAX({id_field}) FROM {del_table_name} WHERE TABLENAME = '{table_name}'""")
+            max_id = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+        if max_id: return max_id[0]
+        else: return None
+
+    def import_del_table(self, token:str, table_name:str, exec_del:bool=True, del_table_name:str="JYDB_DeleteRec", cursor=None):
+        del_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-DEL.csv"
+        if not os.path.isfile(del_file): return
+        insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s)'
+        with open(del_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            batch = [row for row in reader]
+        imported_cursor = (cursor is not None)
+        if not imported_cursor:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+        try:
+            # 先删除目标表中的数据
+            if exec_del:
+                del_sql = f"""DELETE FROM {table_name} WHERE ID IN ('{"','".join(row[1] for row in batch)}')"""
+                cursor.execute(del_sql)
+            # 再执行删除表数据插入
+            cursor.executemany(insert_sql, batch)
+            conn.commit()
+        finally:
+            if not imported_cursor:
+                cursor.close()
+                conn.close()
+
     def import_table(self, token: str, table_name: str, resume: bool = True) -> int:
         """导入单个表"""
         print(f"开始导入表 {table_name}...")
@@ -154,7 +243,8 @@ class PostgresImporter:
         # 创建表结构信息
         columns_info = [{'name': col, 'type': data_type[i], 'nullable': nullable[i]} for i, col in enumerate(headers)]
         # 创建表（如果不存在）
-        self.create_table_if_not_exists(table_name, columns_info)            
+        table_exists = self.create_table_if_not_exists(table_name, columns_info)
+        self.create_del_table()
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(table_name) if resume else {}
@@ -162,7 +252,7 @@ class PostgresImporter:
         idx = int(checkpoint.get("idx", 0))
         
         # 读取CSV文件
-        file_list = sorted((ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and int(ifile.split(".")[0].split("-")[-1]) >= idx), key=lambda s: int(s.split(".")[0].split("-")[-1]))
+        file_list = sorted((ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower()!="del") and int(ifile.split(".")[0].split("-")[-1]) >= idx), key=lambda s: int(s.split(".")[0].split("-")[-1]))
         
         # 构建插入语句
         columns_str = ', '.join(headers)
@@ -170,24 +260,34 @@ class PostgresImporter:
         insert_sql = f'INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})'
         
         datetime_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("date")]
+        float_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("float")]
+        int_col_idx = [i for i, col in enumerate(columns_info) if "int" in col["type"].lower()]
+        
         total_imported = imported_rows
+        conn = self.get_connection()
+        cursor = conn.cursor()
         try:
-            # 获取数据库连接
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
+            # 导入表数据
             for ifile in file_list:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f)
                     batch = [row for row in reader]
                 
-                # 处理 datetime 字段
-                if datetime_col_idx:
-                    batch = np.array(batch, dtype="O")
-                    for i in datetime_col_idx:
-                        batch[:, i] = np.where(batch[:, i]!="", batch[:, i], None)
-                    batch = batch.tolist()
-                
+                # 处理特殊类型的字段
+                batch = np.array(batch, dtype="O")
+                batch = np.where(batch!="", batch, None)
+                # if datetime_col_idx:
+                #     for i in datetime_col_idx:
+                #         batch[:, i] = np.where(batch[:, i]!="", batch[:, i], None)
+                if float_col_idx:
+                    for i in float_col_idx:
+                        batch[:, i] = batch[:, i].astype(float)
+                if int_col_idx:
+                    for i in int_col_idx:
+                        mask = pd.isnull(batch[:, i])
+                        batch[:, i] = np.where(mask, batch[:, i], np.where(mask, 0, batch[:, i]).astype(int))
+                batch = batch.tolist()
+
                 cursor.executemany(insert_sql, batch)
                 conn.commit()
                 total_imported += len(batch)
@@ -200,7 +300,10 @@ class PostgresImporter:
                         'import_time': datetime.now().isoformat(),
                         'idx': idx,
                     })
-                    
+            
+            # 导入删除表数据
+            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor)
+
         finally:
             cursor.close()
             conn.close()
@@ -214,61 +317,79 @@ def execute_task(task):
         ifok, msg = True, f"共 {imported_rows} 行"
     except Exception as e:
         ifok, msg = False, traceback.format_exc()
+    
+    # 清空导入的文件
+    if ifok:
+        for ifile in os.listdir(importer.import_dir + os.sep + task["table_name"]):
+            if ifile.startswith(task["token"]):
+                ifile = importer.import_dir + os.sep + task["table_name"] + os.sep + ifile
+                try:
+                    os.remove(ifile)
+                except:
+                    print(f"清理文件失败: {ifile}")
+    
     task["queue"].put((task["table_name"], ifok, msg))
 
 def main( 
     main_dir: str,
     token: Optional[str] = None,
-    batch_size: int = 10,
     interval_seconds: int = 60, 
     default_id_field: str = "JSID",
+    table_list_file: Optional[str] = None,
     specific_task_list: list = [],
     concurrent: bool = True
 ):
     # 配置信息
     config = {
         'host': 'localhost',
-        'port': '15432',
+        'port': '5432',
         'database': 'JYDB',
-        'username': 'hst',
-        'password': 'shuntai11',
-        'import_dir': 'sqlserver_exports'
+        'username': 'shzq',
+        'password': 'shzq#321',
+        'import_dir': main_dir
     }
     importer = PostgresImporter(**config)
     
     import_status_file = main_dir + os.sep + "import_status.json"
     export_status_file = main_dir + os.sep + "export_status.json"
     
-    with open(import_status_file, mode="r") as fp:
-        import_status = json.load(fp)
+    if os.path.isfile(import_status_file):
+        with open(import_status_file, mode="r") as fp:
+            import_status = json.load(fp)
+    else:
+        import_status = {}
     
     if not token: token = uuid.uuid4().hex
     if token != import_status.get("token", ""):
         task_list = specific_task_list
-        table_list_file = main_dir + os.sep + "table_list.txt"
-        if os.path.isfile(table_list_file):
+        if table_list_file and os.path.isfile(table_list_file):
             tables_to_import = []
             with open(table_list_file, mode="r") as file:
                 for itable in file:
-                    itable = itable.split(":")
-                    itable, id_field = itable[0].strip(), (default_id_field if len(itable) == 1 else itable[1].strip())
-                    tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": importer.get_max_id(itable, id_field)})
-                task_list += [tables_to_import[i:i+batch_size] for i in range(0, len(tables_to_import), batch_size)]
-        import_status = {"token": token, "task_list": task_list, "imported_table_list": [], "status": "running"}
+                    if itable.strip() == "---":
+                        if tables_to_import: task_list.append(tables_to_import)
+                        tables_to_import = []
+                    else:
+                        itable = itable.split(":")
+                        itable, id_field = itable[0].strip(), (default_id_field if len(itable) == 1 else itable[1].strip())
+                        tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": importer.get_max_id(itable, id_field), "del_max_id": importer.get_del_max_id(itable)})
+                if tables_to_import: task_list.append(tables_to_import)
+        import_status = {"token": token, "task_list": task_list, "imported_table_list": [], "status": "running", "task_group_idx": 0}
     else:
         import_status["status"] = "running"
     with open(import_status_file, mode="w") as fp:
         json.dump(import_status, fp, ensure_ascii=False, indent=2)
-    
+
+    print(f"执行任务: {token}")
     if not import_status["task_list"]:
         print("任务列表为空!")
         return
     
-    task_idx = 0
+    task_group_idx = 0
     table_done_set = set()
     table_proc = {}# {table_name: process}
     queue = Queue()
-    while task_idx < len(import_status["task_list"]):
+    while task_group_idx < len(import_status["task_list"]):
         time.sleep(interval_seconds)
         
         while not queue.empty():
@@ -280,13 +401,15 @@ def main(
                 print(f"表 {table} 导入失败：{msg}")
             if concurrent: table_proc[table].terminate()
         
-        if len(table_done_set) == len(import_status["task_list"][task_idx]):
-            task_idx += 1
+        if len(table_done_set) == len(import_status["task_list"][task_group_idx]):
+            task_group_idx += 1
             table_done_set = set()
             table_proc = {}
+            with open(import_status_file, mode="w") as fp:
+                json.dump(import_status | {"status": "task_group_finished"}, fp, ensure_ascii=False, indent=2)
             continue
         
-        for task in import_status["task_list"][task_idx]:
+        for task in import_status["task_list"][task_group_idx]:
             if task["table_name"] in table_done_set: continue
             task_dir = main_dir + os.sep + task["table_name"]
             if not os.path.isdir(task_dir): continue
@@ -299,7 +422,7 @@ def main(
                 continue
             if task_export_checkpoint.get("token", None) != token: continue
             data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(token+"-")]
-            if len(data_file_list) != task_export_checkpoint["data_file_num"]: continue
+            if len(data_file_list) != task_export_checkpoint.get("data_file_num", None): continue
             if task["table_name"] in table_proc: continue
             # 启动导入任务
             if concurrent:
@@ -313,5 +436,33 @@ def main(
 
 
 if __name__ == "__main__":
-    main(main_dir=r".\sqlserver_exports", token="606c8969b8914c2b8b1b0714f8fd828a", concurrent=False, interval_seconds=3)
+    # 执行未完成的任务
+    # main(
+    #     main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
+    #     token="4ac3a2b2320a41eda319d99ca8e94f80", 
+    #     concurrent=False, 
+    #     interval_seconds=3
+    # )
+
+    # 执行指定的任务
+    main(
+        main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
+        token=None, 
+        concurrent=False, 
+        interval_seconds=3,
+        specific_task_list=[
+            [
+                {"table_name": "QT_DailyQuote", "id_field": "JSID", "max_id": None, "del_max_id": None}
+            ]
+        ]
+    )
+
+    # 执行默认任务
+    # main(
+    #     main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
+    #     token=None, 
+    #     concurrent=False, 
+    #     interval_seconds=3, 
+    #     table_list_file=r"D:\NXG Cloud\My Cloud\table_list.txt"
+    # )
     
