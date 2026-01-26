@@ -2,12 +2,40 @@ import os
 import csv
 import json
 import time
+import shutil
 import traceback
 import datetime as dt
 from typing import List, Dict, Any, Optional
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Pool
 
 import pymssql
+
+
+# 将整数n近似平均的分成m份
+def distributeEqual(n,m,remainder_pos="left"):
+    Quotient, Remainder = int(n/m), n%m
+    Rslt = np.full(shape=(m,), fill_value=Quotient, dtype=np.int64)
+    if remainder_pos=='left':
+        Rslt[:Remainder] += 1
+    elif remainder_pos=='right':
+        Rslt[-Remainder:] += 1
+    else:
+        StartPos = int((m-Remainder)/2)
+        Rslt[StartPos:StartPos+Remainder] += 1
+    return Rslt.tolist()
+
+# 将一个list或者tuple平均分成m段
+def partitionList(data,m,n_head=0,n_tail=0):
+    n = len(data)
+    PartitionNode = distributeEqual(n,m)
+    SubData = []
+    for i in range(m):
+        StartInd = sum(PartitionNode[:i])
+        EndInd = StartInd + PartitionNode[i]
+        StartInd = max((StartInd-n_head,0))
+        EndInd = min((EndInd+n_tail,n+1))
+        SubData.append(data[StartInd:EndInd])
+    return SubData
 
 
 class MockedConn:
@@ -80,6 +108,14 @@ class SQLServerExporter:
     
     def get_connection(self):
         """获取数据库连接"""
+        #return MockedConn(
+            #server=self.server,
+            #database=self.database,
+            #port=str(self.port), 
+            #user=self.username,
+            #password=self.password,
+            #charset='cp936'
+        #)
         return pymssql.connect(
             server=self.server,
             database=self.database,
@@ -88,14 +124,6 @@ class SQLServerExporter:
             password=self.password,
             charset='cp936'
         )
-##        return MockedConn(
-##            server=self.server,
-##            database=self.database,
-##            port=str(self.port), 
-##            user=self.username,
-##            password=self.password,
-##            charset='cp936'
-##        )
     
     def get_checkpoint(self, table_name: str) -> Dict[str, Any]:
         """获取断点信息"""
@@ -233,7 +261,7 @@ class SQLServerExporter:
                     break
                 
                 # 写入CSV文件
-                export_file = os.path.join(export_dir, f"{token}-{idx}.csv")
+                export_file = os.path.join(export_dir, f"{token}-{str(idx).zfill(6)}.csv")
                 with open(export_file, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
                     writer.writerows(rows)
@@ -278,23 +306,46 @@ class SQLServerExporter:
 
 
 def execute_task(task):
-    task_dir = task["main_dir"] + os.sep + task["table_name"]
+    table_name = task["table_name"].split("-")
+    if len(table_name) > 1:
+        table_name, idx = table_name[0], table_name[1]
+    else:
+        table_name, idx = table_name[0], 0
+    if idx > 0: return task["table_name"], True, "空执行!"
+    task_dir = task["export_dir"] + os.sep + task["table_name"]
     if not os.path.isdir(task_dir): os.mkdir(task_dir)
     exporter = task["exporter"]
-    exporter.save_checkpoint(task["table_name"], {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
+    exporter.save_checkpoint(table_name, {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
     for i in range(task["retry_num"]):
         try:
-            ifok, msg, checkpoint = exporter.export_table(task["token"], task["table_name"], order_by=task["id_field"])
+            ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"])
         except:
             ifok, msg = False, traceback.format_exc()
         if ifok: break
-    task["queue"].put((task["table_name"], ifok, msg))
+    #task["queue"].put((task["table_name"], ifok, msg))
+    return task["table_name"], ifok, msg
+
+def transfer_data(sdir, tdir, task, split_num=1):
+    table_name = task["table_name"].split("-")
+    if len(table_name) > 1:
+        table_name, idx = table_name[0], table_name[1]
+    else:
+        table_name, idx = table_name[0], 0
+    sdir = sdir + os.sep + table_name
+    tdir = tdir + os.sep + table_name
+    if not os.path.isdir(tdir): os.mkdir(tdir)
+    token = task["token"]
+    file_list = sorted(ifile for ifile in os.listdir(sdir) if ifile.startswith(token) and ifile.endswith(".csv"))
+    for ifile in partitionList(file_list, split_num)[idx]:
+        shutil.copy(sdir + os.sep + ifile, tdir + os.sep + ifile)
+    shutil.copy(sdir + os.sep + "export_checkpoint.json", tdir + os.sep + "export_checkpoint.json")
 
 def main(
     main_dir: str,
+    cache_dir: str, 
     interval_seconds: int = 60,
     retry_num: int = 3,
-    concurrent: bool = True
+    concurrent_num: int = 1
 ):
     # 配置信息
     config = {
@@ -303,7 +354,7 @@ def main(
         'database': 'FundExt',
         'username': 'cwyspzb_04122',
         'password': 'Shzq@04122',
-        'export_dir': main_dir,
+        'export_dir': cache_dir,
         'batch_size': 200000
     }
     exporter = SQLServerExporter(**config)
@@ -319,6 +370,7 @@ def main(
         token, export_status = None, {}
     
     while True:
+        # 等待新的导出任务，import_status_file 中的 token 和当前的 token 不相等表示产生了新任务
         wait_printed = False
         while token == export_status.get("token", None):
             if os.path.isfile(import_status_file):
@@ -333,6 +385,7 @@ def main(
                 wait_printed = True
             time.sleep(interval_seconds)
         
+        # 任务列表为空
         print(f"接到新的导出任务: {token}")
         if not import_status.get("task_list", []):
             print(f"{token}: 任务列表为空!")
@@ -345,47 +398,47 @@ def main(
         with open(export_status_file, mode="w") as fp:
             export_status = export_status | {"token": token, "status": "running"}
             json.dump(export_status, fp, ensure_ascii=False, indent=2)
-        task_group_idx = 0
-        table_done_set = set()
-        table_proc = {}# {table_name: process}
-        queue = Queue()
-        while task_group_idx < len(import_status["task_list"]):
-            time.sleep(interval_seconds)
-            
-            while not queue.empty():
-                table, ifok, msg = queue.get()
-                table_done_set.add(table)
-                if ifok:
-                    print(f"表 {table} 导出成功：{msg}")
-                else:
-                    print(f"表 {table} 导出失败：{msg}")
-                if concurrent: table_proc[table].terminate()
-            
-            if len(table_done_set) == len(import_status["task_list"][task_group_idx]):
-                with open(import_status_file, mode="r") as fp:
-                    import_status = json.load(fp)
-                istatus = import_status.get("status", None)
-                if istatus == "terminated":
-                    with open(export_status_file, mode="w") as fp:
-                        token = import_status["token"]
-                        export_status = export_status | {"token": token, "status": "terminated"}
-                        json.dump(export_status, fp, ensure_ascii=False, indent=2)
-                    break
-                elif istatus == "task_group_finished":
-                    task_group_idx += 1
-                    table_done_set = set()
-                    table_proc = {}
-                continue
-            
-            for task in import_status["task_list"][task_group_idx]:
-                if task["table_name"] in table_done_set: continue
-                if task["table_name"] in table_proc: continue
-                # 启动导出任务
-                if concurrent:
-                    table_proc[task["table_name"]] = Process(target=execute_task, args=(task | {"main_dir": main_dir, "exporter": exporter, "queue": queue, "token": token, "retry_num": retry_num}, ))
-                    table_proc[task["table_name"]].start()
-                else:
-                    table_proc[task["table_name"]] = execute_task(task | {"main_dir": main_dir, "exporter": exporter, "queue": queue, "token": token, "retry_num": retry_num})
+        
+        # 提取数据
+        task_rslt = {}
+        with Pool(processes=concurrent_num) as pool:
+            # 执行导出任务
+            for task_group in import_status["task_list"]:
+                for task in task_group:
+                    print(f"{task['table_name']} 表开始导出")
+                    task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": cache_dir, "exporter": exporter, "token": token, "retry_num": retry_num}, ))
+            # 按任务集同步数据
+            for task_group_idx, task_group in enumerate(import_status["task_list"]):
+                for task in task_group:
+                    try:
+                        ifok, msg, checkpoint = task_rslt[task["table_name"]].get()
+                    except:
+                        print(f"{task['table_name']} 表导出失败: {traceback.format_exc()}")
+                    else:
+                        if ifok:
+                            transfer_data(cache_dir, main_dir, task, checkpoint)
+                            print(f"{task['table_name']} 表导出成功: {msg}")
+                        else:
+                            print(f"{task['table_name']} 表导出失败: {msg}")
+                # 发送导出完成信号
+                with open(export_status_file, mode="w") as fp:
+                    export_status = export_status | {"token": token, "status": "task_group_finished", "task_group_idx": task_group_idx,}
+                    json.dump(export_status, fp, ensure_ascii=False, indent=2)
+                # 等待导入完成
+                while True:
+                    time.sleep(interval_seconds)
+                    with open(import_status_file, mode="r") as fp:
+                        import_status = json.load(fp)
+                    istatus = import_status.get("status", None)
+                    if istatus == "terminated":
+                        with open(export_status_file, mode="w") as fp:
+                            token = import_status["token"]
+                            export_status = export_status | {"token": token, "status": "terminated"}
+                            json.dump(export_status, fp, ensure_ascii=False, indent=2)
+                        break
+                    elif istatus == "task_group_finished":
+                        break
+                if istatus == "terminated": break
         
         with open(export_status_file, mode="w") as fp:
             export_status = export_status | {"token": token, "status": "finished"}
