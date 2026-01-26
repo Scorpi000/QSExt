@@ -10,32 +10,6 @@ Factorize = QS.FactorDB.Factorize
 fd = QS.FactorDB.FactorTools
 
 
-def ifListed(f, idt, iid, x, args):
-    ListDate, StatusChg = x
-    Listed = np.zeros(ListDate.shape)
-    DTs = np.array([idt]).T.repeat(ListDate.shape[1], axis=1).astype("datetime64")
-    Listed[ListDate <= DTs] = 1
-    StatusChg[StatusChg != 4] = np.nan
-    StatusChg = pd.DataFrame(StatusChg).fillna(method="pad").values
-    Listed[StatusChg ==4 ] = 0
-    return Listed
-
-def ListDayNumFun(f, idt, iid, x, args):
-    ListDate = x[0].astype("datetime64")
-    DTs = np.array([idt], dtype="datetime64").T.repeat(ListDate.shape[1], axis=1)
-    ListDayNum = (DTs - ListDate).astype("timedelta64[D]") / np.timedelta64(1, "D")
-    ListDayNum[ListDayNum < 0] = np.nan
-    return ListDayNum + 1
-
-def STFun(f, idt, iid, x, args):
-    STType = x[0]
-    ST = np.full(shape=STType.shape, fill_value=None, dtype="O")
-    ST[(STType==1) | (STType==7)] = "ST"
-    ST[(STType==5) | (STType==8)] = "*ST"
-    ST[STType==3] = "PT"
-    ST[STType==9] = "退市整理期"
-    ST[STType==10] = "高风险警示"
-    return ST
 
 # args:
 # JYDB: 聚源因子库对象
@@ -52,16 +26,6 @@ def defFactor(args={}):
     Factors.append(FT.getFactor("上市板块_R", new_name="listed_sector"))
     ListDate = FT.getFactor("上市日期")
     Factors.append(fd.strftime(ListDate, "%Y-%m-%d", factor_name="listed_date"))
-    ListDayNum = QS.FactorDB.PointOperation("listed_days", [ListDate], sys_args={"算子": ListDayNumFun, "运算时点": "多时点", "运算ID": "多ID"})
-    Factors.append(ListDayNum)
-    
-    StatusChg = JYDB.getTable("上市状态更改").getFactor("变更类型", args={"回溯天数": np.inf})
-    IfListed = QS.FactorDB.PointOperation("if_listed", [ListDate, StatusChg], sys_args={"算子": ifListed, "运算时点": "多时点", "运算ID": "多ID"})
-    Factors.append(IfListed)
-    
-    ST = JYDB.getTable("证券特别处理").getFactor("特别处理(或撤销)类别", args={"回溯天数": np.inf})
-    ST = QS.FactorDB.PointOperation("st", [ST], sys_args={"算子": STFun, "运算时点": "多时点", "运算ID": "多ID"})
-    Factors.append(ST)
     
     FT = JYDB.getTable("公司概况")
     Factors.append(FT.getFactor("省份_R", new_name="province"))

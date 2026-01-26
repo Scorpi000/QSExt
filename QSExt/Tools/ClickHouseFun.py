@@ -39,7 +39,7 @@ class QSClickHouseObject(QSSQLObject):
         return 0
     def connect(self):
         self._connect()
-        if not self.AdjustTableName:
+        if not self._QSArgs.AdjustTableName:
             self._AllTables = []
         else:
             self._AllTables = self.getDBTable()
