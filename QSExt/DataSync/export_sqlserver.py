@@ -12,22 +12,14 @@ import pymssql
 
 
 # 将整数n近似平均的分成m份
-def distributeEqual(n,m,remainder_pos="left"):
+def distributeEqual(n, m):
     Quotient, Remainder = int(n/m), n%m
-    Rslt = np.full(shape=(m,), fill_value=Quotient, dtype=np.int64)
-    if remainder_pos=='left':
-        Rslt[:Remainder] += 1
-    elif remainder_pos=='right':
-        Rslt[-Remainder:] += 1
-    else:
-        StartPos = int((m-Remainder)/2)
-        Rslt[StartPos:StartPos+Remainder] += 1
-    return Rslt.tolist()
+    return [Quotient + 1] * Remainder + [Quotient] * (m - Remainder)
 
 # 将一个list或者tuple平均分成m段
 def partitionList(data,m,n_head=0,n_tail=0):
     n = len(data)
-    PartitionNode = distributeEqual(n,m)
+    PartitionNode = distributeEqual(n, m)
     SubData = []
     for i in range(m):
         StartInd = sum(PartitionNode[:i])
@@ -177,7 +169,7 @@ class SQLServerExporter:
                 cursor.execute(f"""SELECT TABLENAME, RECID, XGRQ, ID, JSID FROM {del_table_name} WHERE TABLENAME = '{table_name}' AND {id_field} > {last_del_id} ORDER BY {id_field}""")
             else:
                 cursor.execute(f"""SELECT TABLENAME, RECID, XGRQ, ID, JSID FROM {del_table_name} WHERE TABLENAME = '{table_name}' ORDER BY {id_field}""")
-            rows = cursor.fetchone()
+            rows = cursor.fetchall()
         finally:
             if not imported_cursor:
                 cursor.close()
@@ -308,14 +300,17 @@ class SQLServerExporter:
 def execute_task(task):
     table_name = task["table_name"].split("-")
     if len(table_name) > 1:
-        table_name, idx = table_name[0], table_name[1]
+        table_name, split_num, idx = table_name
+        split_num, idx = int(split_num), int(idx)
     else:
-        table_name, idx = table_name[0], 0
-    if idx > 0: return task["table_name"], True, "空执行!"
-    task_dir = task["export_dir"] + os.sep + task["table_name"]
+        table_name, split_num, idx = table_name[0], 1, 0
+    if idx > 0: return task["table_name"], True, "当前不是表导出的第一个分片，无需执行!"
+    task_dir = task["export_dir"] + os.sep + table_name
     if not os.path.isdir(task_dir): os.mkdir(task_dir)
     exporter = task["exporter"]
-    exporter.save_checkpoint(table_name, {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
+    checkpoint = exporter.get_checkpoint(table_name)
+    if checkpoint.get("token", None) != task["token"]:
+        exporter.save_checkpoint(table_name, {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
     for i in range(task["retry_num"]):
         try:
             ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"])
@@ -325,20 +320,32 @@ def execute_task(task):
     #task["queue"].put((task["table_name"], ifok, msg))
     return task["table_name"], ifok, msg
 
-def transfer_data(sdir, tdir, task, split_num=1):
+def transfer_data(sdir, tdir, task):
     table_name = task["table_name"].split("-")
     if len(table_name) > 1:
-        table_name, idx = table_name[0], table_name[1]
+        table_name, split_num, idx = table_name
+        split_num, idx = int(split_num), int(idx)
+        tdir = tdir + os.sep + table_name + f"-{split_num}-{idx}"
     else:
-        table_name, idx = table_name[0], 0
+        table_name, split_num, idx = table_name[0], 1, 0
+        tdir = tdir + os.sep + table_name
     sdir = sdir + os.sep + table_name
-    tdir = tdir + os.sep + table_name
     if not os.path.isdir(tdir): os.mkdir(tdir)
     token = task["token"]
     file_list = sorted(ifile for ifile in os.listdir(sdir) if ifile.startswith(token) and ifile.endswith(".csv"))
-    for ifile in partitionList(file_list, split_num)[idx]:
+    file_list = partitionList(file_list, split_num)[idx]
+    header_file = token + ".csv"
+    if header_file not in file_list:
+        file_list.append(header_file)
+    for ifile in file_list:
+        if os.path.isfile(tdir + os.sep + ifile): continue
         shutil.copy(sdir + os.sep + ifile, tdir + os.sep + ifile)
-    shutil.copy(sdir + os.sep + "export_checkpoint.json", tdir + os.sep + "export_checkpoint.json")
+    exporter = task["exporter"]
+    checkpoint = exporter.get_checkpoint(table_name)
+    checkpoint = checkpoint | {"data_file_num": len(file_list)}
+    checkpoint_file = tdir + os.sep + "export_checkpoint.json"
+    with open(checkpoint_file, 'w', encoding='utf-8') as f:
+        json.dump(checkpoint, f, ensure_ascii=False, indent=2)
 
 def main(
     main_dir: str,
@@ -355,7 +362,7 @@ def main(
         'username': 'cwyspzb_04122',
         'password': 'Shzq@04122',
         'export_dir': cache_dir,
-        'batch_size': 200000
+        'batch_size': 1000000
     }
     exporter = SQLServerExporter(**config)
     
@@ -371,13 +378,14 @@ def main(
     
     while True:
         # 等待新的导出任务，import_status_file 中的 token 和当前的 token 不相等表示产生了新任务
-        wait_printed = False
-        while token == export_status.get("token", None):
+        wait_printed, istatus = False, None
+        while (token == export_status.get("token", None)) and (istatus != "restart"):
             if os.path.isfile(import_status_file):
                 try:
                     with open(import_status_file, mode="r") as fp:
                         import_status = json.load(fp)
                     token = import_status["token"]
+                    istatus = import_status["status"]
                 except:
                     print(f"{import_status_file}读取失败: {traceback.format_exec()}")
             if not wait_printed:
@@ -387,6 +395,9 @@ def main(
         
         # 任务列表为空
         print(f"接到新的导出任务: {token}")
+        if istatus=="restart":
+            with open(import_status_file, mode="w") as fp:
+                json.dump(import_status | {"status": "running"}, fp, ensure_ascii=False, indent=2)
         if not import_status.get("task_list", []):
             print(f"{token}: 任务列表为空!")
             with open(export_status_file, mode="w") as fp:
@@ -401,22 +412,24 @@ def main(
         
         # 提取数据
         task_rslt = {}
+        task_group_start_idx = import_status.get("task_group_idx", 0)
         with Pool(processes=concurrent_num) as pool:
             # 执行导出任务
-            for task_group in import_status["task_list"]:
+            for task_group in import_status["task_list"][task_group_start_idx:]:
                 for task in task_group:
                     print(f"{task['table_name']} 表开始导出")
                     task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": cache_dir, "exporter": exporter, "token": token, "retry_num": retry_num}, ))
             # 按任务集同步数据
-            for task_group_idx, task_group in enumerate(import_status["task_list"]):
+            for task_group_idx, task_group in enumerate(import_status["task_list"][task_group_start_idx:]):
+                task_group_idx += task_group_start_idx
                 for task in task_group:
                     try:
-                        ifok, msg, checkpoint = task_rslt[task["table_name"]].get()
+                        _, ifok, msg = task_rslt[task["table_name"]].get()
                     except:
                         print(f"{task['table_name']} 表导出失败: {traceback.format_exc()}")
                     else:
                         if ifok:
-                            transfer_data(cache_dir, main_dir, task, checkpoint)
+                            transfer_data(cache_dir, main_dir, task | {"token": token, "exporter": exporter})
                             print(f"{task['table_name']} 表导出成功: {msg}")
                         else:
                             print(f"{task['table_name']} 表导出失败: {msg}")
@@ -446,4 +459,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(main_dir=r".\sqlserver_exports", interval_seconds=3, concurrent=False)
+    main(main_dir=r".\sqlserver_exports", cache_dir=r"C:\Users\04122\Desktop\ExportedData", interval_seconds=3, concurrent_num=1)
