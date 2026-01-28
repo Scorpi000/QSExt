@@ -1,12 +1,9 @@
 import os
 import csv
 import json
-import uuid
-import time
-import traceback
-from datetime import datetime
-from multiprocessing import Process, Queue, Pool
-from typing import List, Dict, Any, Optional
+import datetime as dt
+from collections import deque
+from typing import List, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -37,13 +34,16 @@ class PostgresImporter:
             password=self.password
         )
     
-    def get_checkpoint(self, table_name: str) -> Dict[str, Any]:
+    def get_checkpoint(self, token: str, table_name: str) -> Dict[str, Any]:
         """获取断点信息"""
         checkpoint_file = self.import_dir + os.sep + table_name + os.sep + self.checkpoint_file
         if os.path.exists(checkpoint_file):
             with open(checkpoint_file, 'r', encoding='utf-8') as f:
                 checkpoint = json.load(f)
-                return checkpoint
+                if checkpoint.get("token", None)==token:
+                    return checkpoint
+                else:
+                    return {}
         return {}
     
     def save_checkpoint(self, table_name: str, checkpoint: Dict[str, Any]):
@@ -210,7 +210,9 @@ class PostgresImporter:
 
     def import_del_table(self, token:str, table_name:str, exec_del:bool=True, del_table_name:str="JYDB_DeleteRec", cursor=None):
         del_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-DEL.csv"
-        if not os.path.isfile(del_file): return
+        if not os.path.isfile(del_file):
+            print(f"表 {table_name} 无删除文件!")
+            return
         db_table_name = table_name.split("-")[0]
         insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s)'
         with open(del_file, 'r', encoding='utf-8') as f:
@@ -232,19 +234,16 @@ class PostgresImporter:
             if not imported_cursor:
                 cursor.close()
                 conn.close()
+        print(f"表 {table_name} 的删除文件导入完成!")
 
-    def clear_redundant_data(self, db_table_name: str, columns_info:list, data_file_path:str, id_field:str="JSID", cursor=None):
-        id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
-        with open(data_file_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            first_row = next(reader)
-        first_idx = first_row[id_col_idx]
+    def clear_redundant_data(self, db_table_name: str, first_idx, last_idx=None, id_field:str="JSID", cursor=None):
         imported_cursor = (cursor is not None)
         if not imported_cursor:
             conn = self.get_connection()
             cursor = conn.cursor()
         try:
             sql = f"""DELETE FROM {db_table_name} WHERE {id_field} >= {first_idx}"""
+            if last_idx: sql += f""" AND {id_field} <= {last_idx}"""
             cursor.execute(sql)
             conn.commit()
         finally:
@@ -253,8 +252,7 @@ class PostgresImporter:
                 conn.close()
 
     def import_table(self, token: str, table_name: str, resume: bool = True, id_field="JSID") -> int:
-        """导入单个表"""
-        print(f"开始导入表 {table_name}...")
+        print(f"开始导入任务 {token} 的表 {table_name}...")
         db_table_name = table_name.split("-")[0]
         header_file =  self.import_dir + os.sep + table_name + os.sep + f"{token}.csv"
         if not os.path.exists(header_file):
@@ -271,15 +269,21 @@ class PostgresImporter:
         self.create_del_table()
         
         # 获取断点信息
-        checkpoint = self.get_checkpoint(table_name) if resume else {}
+        checkpoint = self.get_checkpoint(token, table_name) if resume else {}
         imported_rows = checkpoint.get('imported_rows', 0)
         idx = int(checkpoint.get("idx", 0))
         
         # 读取CSV文件列表，并清理表里多余的数据
         file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower()!="del") and int(ifile.split(".")[0].split("-")[-1]) >= idx)
-        if table_exists:
-            data_file_path = os.path.join(self.import_dir, table_name, file_list[0])
-            self.clear_redundant_data(db_table_name=db_table_name, columns_info=columns_info, data_file_path=data_file_path, id_field=id_field)
+        if table_exists and file_list:
+            id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
+            with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
+                first_row = next(csv.reader(f))
+            first_idx = first_row[id_col_idx]
+            with open(os.path.join(self.import_dir, table_name, file_list[-1]), 'r', encoding='utf-8') as f:
+                last_row = next(iter(deque(csv.reader(f), maxlen=1)))
+            last_idx = last_row[id_col_idx]
+            self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
 
         # 构建插入语句
         columns_str = ', '.join(headers)
@@ -324,217 +328,15 @@ class PostgresImporter:
                 print(f"表 {table_name} 文件 {ifile} 导入完成!")
                 if resume:
                     self.save_checkpoint(table_name, {
+                        'token': token,
                         'imported_rows': total_imported,
-                        'import_time': datetime.now().isoformat(),
+                        'import_time': dt.datetime.now().isoformat(),
                         'idx': idx,
                     })
             
             # 导入删除表数据
             self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor)
-            print(f"表 {table_name} 的删除文件导入完成!")
-
         finally:
             cursor.close()
             conn.close()
         return total_imported
-
-
-def execute_task(task):
-    importer = task["importer"]
-    try:
-        imported_rows = importer.import_table(task["token"], task["table_name"])
-        ifok, msg = True, f"共 {imported_rows} 行"
-    except Exception as e:
-        ifok, msg = False, traceback.format_exc()
-    
-    # 清空导入的文件
-    if ifok:
-        for ifile in os.listdir(importer.import_dir + os.sep + task["table_name"]):
-            if ifile.startswith(task["token"]):
-                ifile = importer.import_dir + os.sep + task["table_name"] + os.sep + ifile
-                try:
-                    os.remove(ifile)
-                except:
-                    print(f"清理文件失败: {ifile}")
-    
-    #task["queue"].put((task["table_name"], ifok, msg))
-    return (task["table_name"], ifok, msg)
-    
-
-def main( 
-    main_dir: str,
-    token: Optional[str] = None,
-    interval_seconds: int = 60, 
-    default_id_field: str = "JSID",
-    table_list_file: Optional[str] = None,
-    specific_task_list: list = [],
-    concurrent_num: int = 1
-):
-    # 配置信息
-    config = {
-        'host': 'localhost',
-        'port': '5432',
-        'database': 'JYDB',
-        'username': 'shzq',
-        'password': 'shzq#321',
-        'import_dir': main_dir
-    }
-    importer = PostgresImporter(**config)
-    
-    import_status_file = main_dir + os.sep + "import_status.json"
-    export_status_file = main_dir + os.sep + "export_status.json"
-    
-    if os.path.isfile(import_status_file):
-        with open(import_status_file, mode="r") as fp:
-            import_status = json.load(fp)
-    else:
-        import_status = {}
-    
-    if specific_task_list or (table_list_file and os.path.isfile(table_list_file)):
-        task_list = specific_task_list
-        if table_list_file and os.path.isfile(table_list_file):
-            tables_to_import = []
-            with open(table_list_file, mode="r") as file:
-                for itable in file:
-                    if itable.strip() == "---":
-                        if tables_to_import: task_list.append(tables_to_import)
-                        tables_to_import = []
-                    else:
-                        itable = itable.split(":")
-                        itable, id_field = itable[0].strip(), (default_id_field if len(itable) == 1 else itable[1].strip())
-                        tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": importer.get_max_id(itable, id_field), "del_max_id": importer.get_del_max_id(itable)})
-                if tables_to_import: task_list.append(tables_to_import)
-    else:
-        task_list = []
-    
-    if not token: token = uuid.uuid4().hex
-    if token != import_status.get("token", ""):
-        import_status = {"token": token, "task_list": task_list, "imported_table_list": [], "status": "running", "task_group_idx": 0}
-    else:# 重新运行已经存在的任务
-        if import_status.get("status", None)=="task_group_finished":
-            import_status["task_group_idx"] = import_status.get("task_group_idx", 0) + 1
-        else:
-            import_status.setdefault("task_group_idx", 0)
-        import_status["status"] = "restart"
-        if task_list: import_status["task_list"] = task_list
-
-    print(f"执行任务: {token}")
-    if not import_status["task_list"][import_status["task_group_idx"]:]:
-        print("任务列表为空!")
-        return
-    
-    with open(export_status_file, mode="w") as fp:
-        json.dump({"token": token, "status": "running", "task_group_idx": -1}, fp, ensure_ascii=False, indent=2)
-
-    with open(import_status_file, mode="w") as fp:
-        json.dump(import_status, fp, ensure_ascii=False, indent=2)
-
-    # 等待导出任务完成
-    task_group_idx = -1
-    i = 0
-    while True:
-        time.sleep(interval_seconds)
-        try:
-            with open(export_status_file, mode="r") as fp:
-                export_status = json.load(fp)
-        except:
-            print(f"文件 {export_status_file} 打开失败: {traceback.format_exc()}")
-            i += 1
-            continue
-        istatus = export_status.get("status", None)
-        if (istatus in ("finished", "task_group_finished")) and (export_status["task_group_idx"] != task_group_idx):
-            task_group_idx = export_status["task_group_idx"]
-            print(f"导出任务 {task_group_idx} 完成，执行导入")
-        elif (istatus == "finished"):
-            print("导出任务已经全部完成!")
-            break
-        else:
-            i += 1
-            print(f"已经等待{i * interval_seconds}秒，继续等待导出任务 {task_group_idx+1} 完成...")
-            continue
-        
-    
-        # 执行导入任务
-        task_group_list = import_status["task_list"][task_group_idx].copy()
-        task_rslt = []
-        with Pool(processes=concurrent_num) as pool:
-            while task_group_list:
-                time.sleep(interval_seconds)
-                task = task_group_list.pop(0)
-                task_dir = main_dir + os.sep + task["table_name"]
-                if (not os.path.isdir(task_dir)) or (not os.path.isfile(task_dir + os.sep + "export_checkpoint.json")):
-                    task_group_list.append(task)
-                    print(f"""{task["table_name"]}/export_checkpoint.json 文件尚未收到!""")
-                    continue
-                try:
-                    with open(task_dir + os.sep + "export_checkpoint.json", mode="r") as fp:
-                        task_export_checkpoint = json.load(fp)
-                except Exception as e:
-                    print(f'读取：{task_dir + os.sep + "export_checkpoint.json"} 失败：{e}')
-                    task_group_list.append(task)
-                    continue
-                if task_export_checkpoint.get("token", None) != token:
-                    print(f"""{task["table_name"]}/export_checkpoint.json 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token""")
-                    task_group_list.append(task)
-                    continue
-                data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(token)]
-                if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
-                    print(f"""{task["table_name"]} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})""")
-                    task_group_list.append(task)
-                    continue
-                # 启动导入任务
-                task_rslt.append((task["table_name"], pool.apply_async(execute_task, args=(task | {"importer": importer, "token": token}, ))))
-            # 等待导入结束
-            while task_rslt:
-                table_name, rslt = task_rslt.pop(0)
-                try:
-                    _, ifok, msg = rslt.get()
-                except:
-                    print(f"{table_name} 表导入失败: {traceback.format_exc()}")
-                else:
-                    if ifok:
-                        print(f"{table_name} 表导入成功: {msg}")
-                    else:
-                        print(f"{table_name} 表导入失败: {msg}")
-        # 发送导入结束信号
-        with open(import_status_file, mode="w") as fp:
-            import_status = import_status | {"status": "task_group_finished", "task_group_idx": task_group_idx}
-            json.dump(import_status, fp, ensure_ascii=False, indent=2)
-    
-    with open(import_status_file, mode="w") as fp:
-        json.dump(import_status | {"status": "finished"}, fp, ensure_ascii=False, indent=2)
-
-
-if __name__ == "__main__":
-    # 执行未完成的任务
-    # main(
-    #     main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
-    #     token="4ac3a2b2320a41eda319d99ca8e94f80", 
-    #     concurrent=False, 
-    #     interval_seconds=3
-    # )
-
-    # 执行指定的任务
-    main(
-        main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
-        token="a8757f80c04343aa883da5432885b968", 
-        concurrent_num=1, 
-        interval_seconds=3,
-        specific_task_list=[
-            [
-                {"table_name": "QT_DailyQuote-10-2", "id_field": "JSID", "max_id": None, "del_max_id": None}
-            ],
-            [
-                {"table_name": "QT_DailyQuote-10-3", "id_field": "JSID", "max_id": None, "del_max_id": None}
-            ]
-        ]
-    )
-
-    # 执行默认任务
-    # main(
-    #     main_dir=r"D:\NXG Cloud\My Cloud\sqlserver_exports", 
-    #     token=None, 
-    #     concurrent=False, 
-    #     interval_seconds=3, 
-    #     table_list_file=r"D:\NXG Cloud\My Cloud\table_list.txt"
-    # )

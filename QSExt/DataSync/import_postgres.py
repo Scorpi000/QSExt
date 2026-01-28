@@ -343,15 +343,15 @@ def execute_task(task):
     except Exception as e:
         ifok, msg = False, traceback.format_exc()
     
-    # 清空导入的文件
-    if ifok:
-        for ifile in os.listdir(importer.import_dir + os.sep + task["table_name"]):
-            if ifile.startswith(task["token"]):
-                ifile = importer.import_dir + os.sep + task["table_name"] + os.sep + ifile
-                try:
-                    os.remove(ifile)
-                except:
-                    print(f"清理文件失败: {ifile}")
+    # # 清空导入的文件
+    # if ifok:
+    #     for ifile in os.listdir(importer.import_dir + os.sep + task["table_name"]):
+    #         if ifile.startswith(task["token"]):
+    #             ifile = importer.import_dir + os.sep + task["table_name"] + os.sep + ifile
+    #             try:
+    #                 os.remove(ifile)
+    #             except:
+    #                 print(f"清理文件失败: {ifile}")
     
     #task["queue"].put((task["table_name"], ifok, msg))
     return (task["table_name"], ifok, msg)

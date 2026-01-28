@@ -1,15 +1,24 @@
 import os
 import json
-import uuid
 import time
-import shutil
 import traceback
-import datetime as dt
-from typing import List, Dict, Any, Optional
+from multiprocessing import Process, Queue
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+
+def execute_task(task):
+    try:
+        imported_rows = task["importer"].import_table(task["token"], task["table_name"])
+    except:
+        ifok, msg = False, traceback.format_exc()
+    else:
+        ifok, msg = True, f"共 {imported_rows} 行"
+    if "queue" in task:
+        task["queue"].put((task["token"], task["table_name"], ifok, msg))
+    else:
+        return (task["token"], task["table_name"], ifok, msg)
 
 class DataImporter(FileSystemEventHandler):
     def __init__(self,
@@ -17,64 +26,19 @@ class DataImporter(FileSystemEventHandler):
         importer,
         cmd_file: str = "cmd.json", 
         interval_seconds: int = 3,
-        retry_num=3
+        retry_num: int=3,
+        concurrent_num: int=0
     ):
         self.target_dir = target_dir
         self.importer = importer
-        self.cmd_file = self.cmd_file
+        self.cmd_file = cmd_file
         self.interval_seconds = interval_seconds
         self.retry_num = retry_num
-        
-        self.token = None
-        self.cmd = {}
+        self.concurrent_num = concurrent_num
+
+        self.proc_list = {}# {(token, table_name): Process}
+        self.queue = Queue()
         return super().__init__()
-    
-    def exec_data_transfer(self, task_list):
-        task_list = task_list.copy()
-        while task_list:
-            time.sleep(self.interval_seconds)
-            task = task_list.pop(0)
-            task_dir = os.path.join(self.main_dir, task["table_name"])
-            checkpoint_path = os.path.join(task_dir, "export_checkpoint.json")
-            if not os.path.isfile(checkpoint_path):
-                task_list.append(task)
-                continue
-            try:
-                with open(checkpoint_path, mode="r") as fp:
-                    task_export_checkpoint = json.load(fp)
-            except:
-                print(f'尝试读取 {checkpoint_path} 失败：{traceback.format_exc()}')
-                task_list.append(task)
-                continue
-            if task_export_checkpoint.get("token", None) != self.token:
-                print(f"""{checkpoint_path} 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token""")
-                task_list.append(task)
-                continue
-            data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(self.token)]
-            if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
-                print(f"""{file_path} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})""")
-                task_list.append(task)
-                continue
-            ifok = self.transfer_data(task_dir)
-            if ifok: self.clear_data(task_dir)
-    
-    def transfer_data(self, task_dir):
-        task_name = os.path.split(task_dir)[-1]
-        tdir = os.path.join(self.target_dir, task_name)
-        if not os.path.isdir(tdir): os.mkdir(tdir)
-        sdir = task_dir
-        for i in range(self.retry_num):
-            try:
-                shutil.copytree(sdir, tdir, dirs_exist_ok=True)
-            except:
-                print(f"第 {i + 1} 次尝试复制目录 {sdir} -> {tdir} 失败: {traceback.format_exc()}")
-                time.sleep(self.interval_seconds)
-            else:
-                print(f"复制目录 {sdir} -> {tdir} 完成")
-                return True
-        else:
-            print(f"复制目录 {sdir} -> {tdir} 失败")
-        return False
     
     def clear_data(self, task_dir):
         ifok = True
@@ -96,132 +60,99 @@ class DataImporter(FileSystemEventHandler):
             print(f"清理任务目录 {task_dir} 完成")
         return ifok
     
+    def check_proc(self):
+        if self.concurrent_num > 0:
+            while not self.queue.empty():
+                token, table_name, ifok, msg = self.queue.get()
+                if ifok:
+                    print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
+                else:
+                    print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
+                self.proc_list.pop((token, table_name))
+            for token, table_name in list(self.proc_list.keys()):
+                if (not self.proc_list[(token, table_name)].is_alive()) and self.queue.empty():
+                    print(f"任务 {token} 的表 {table_name} 导入失败: 工作进程错误")
+                    self.proc_list.pop((token, table_name))
+        else:
+            for token, table_name in list(self.proc_list.keys()):
+                if self.proc_list[(token, table_name)] is not None:
+                    token, table_name, ifok, msg = self.proc_list[(token, table_name)]
+                    if ifok:
+                        print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
+                    else:
+                        print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
+                    self.proc_list.pop((token, table_name))
+
     def handle_cmd(self):
-        cmd_file_path = os.path.join(self.main_dir, self.cmd_file)
+        cmd_file_path = os.path.join(self.target_dir, self.cmd_file)
         for i in range(self.retry_num):
             try:
                 with open(cmd_file_path, mode="r") as fp:
-                    self.cmd = json.load(fp)
+                    cmd = json.load(fp)
             except:
-                print(f'读取 {cmd_file_path} 失败：{traceback.format_exc()}')
+                print(f'第 {i} 次尝试读取 {cmd_file_path} 失败：{traceback.format_exc()}')
                 time.sleep(self.interval_seconds)
                 continue
             else:
                 break
-        self.token = self.cmd.get("token", None)
-        if not self.token: self.token = uuid.uuid4().hex
-        
-        task_list = self.cmd.get("specific_task_list", [])
-        table_list_file = self.cmd.get("table_list_file", None)
-        if table_list_file:
-            if os.path.isfile(table_list_file):
-                tables_to_import = []
-                with open(table_list_file, mode="r") as file:
-                    for itable in file:
-                        if itable.strip() == "---":
-                            if tables_to_import: task_list.append(tables_to_import)
-                            tables_to_import = []
-                        else:
-                            itable = itable.split(":")
-                            itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
-                            tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
-                    if tables_to_import: task_list.append(tables_to_import)
-            else:
-                print(f"table_list_file {table_list_file} 不存在!")
-        
-        print(f"执行任务: {self.token}")
-        if not task_list:
-            print("任务列表为空!")
-            return
-        self.import_status = {
-            "token": self.token,
-            "status": "starting",
-            "task_list": task_list,
-            "start_time": dt.datetime.now().isoformat(),
-            "task_group_idx": self.cmd.get("task_group_idx", -1),
-            "task_start_time": dt.datetime.now().isoformat(),
-        }
-        with open(self.import_status_file, mode="w") as fp:
-            json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-    
-    def handle_export_status(self):
-        export_status_file = os.path.join(self.main_dir, self.export_status_file)
-        for i in range(self.retry_num):
-            try:
-                with open(self.export_status_file, mode="r") as fp:
-                    export_status = json.load(fp)
-            except:
-                print(f"第 {i + 1} 次尝试打开文件 {export_status_file} 失败: {traceback.format_exc()}")
-            else:
-                break
         else:
-            print(f"打开文件 {export_status_file} 失败")
+            print(f'读取 {cmd_file_path} 失败')
             return
-        istatus = export_status.get("status", None)
-        if (istatus in ("finished", "task_group_finished")) and (export_status["task_group_idx"] != self.import_status["task_group_idx"]):
-            self.import_status["task_group_idx"] = export_status["task_group_idx"]
-            self.import_status["status"] = "running"
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            self.import_status["task_start_time"] = dt.datetime.now().isoformat()
-            with open(self.import_status_file, mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-            
-            print(f"导出任务 {export_status['task_group_idx']} 完成，用时 {running_time} 秒，执行数据迁移！")
-            self.exec_data_transfer(self.import_status["task_list"][export_status["task_group_idx"]])
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            self.import_status["task_start_time"] = dt.datetime.now().isoformat()
-            self.import_status["status"] = "task_group_finished"
-            with open(self.import_status_file, mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-            print(f"数据迁移任务 {export_status['task_group_idx']} 完成，用时 {running_time} 秒！")
-        elif (istatus == "finished"):
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["start_time"])).seconds
-            print(f"导出任务已经全部完成，用时 {running_time} 秒!")
-            self.import_status["status"] = "finished"
-            with open(self.import_status_file, mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-        else:
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            print(f"已经等待{running_time}秒，继续等待导出任务 {self.import_status['task_group_idx']+1} 完成...")
+        token = cmd["token"]
+        table_list = cmd.get("table_list", [])
+
+        if not table_list:
+            print(f"{token} 任务列表为空!")
             return
+        print(f"执行任务: {token}")
         
+        # 启动导入任务
+        for itable in table_list:
+            if (token, itable) in self.proc_list:
+                print(f"任务 {token} 的表 {itable} 已经在导入，无需重复执行!")
+                continue
+            if self.concurrent_num <= 0:
+                self.proc_list[(token, itable)] = None
+                self.proc_list[(token, itable)] = execute_task({"importer": self.importer, "token": token, "table_name": itable})
+            else:
+                self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "queue": self.queue},))
+                self.proc_list[(token, itable)].start()
+
     def on_any_event(self, event):
-        if event.is_directory: return
-        if event.event_type not in ("created", "modified‌"):
+        if event.is_directory: 
+            return
+        if event.event_type not in ("created", "modified"):
             return
         file_path = event.src_path
-        task_dir, file_name = os.path.split(file_path)
+        _, file_name = os.path.split(file_path)
         if file_name == self.cmd_file:
             return self.handle_cmd()
-        if file_name == self.export_status_file:
-            return self.handle_export_status()
 
 if __name__ == "__main__":
-    main_dir = r'C:\Users\hst\Desktop\DataSync'
-    target_dir = r'C:\Users\hst\Desktop\TargetDir'
-    
-    event_handler = DataReceiver(main_dir=main_dir, target_dir=target_dir, importer=None, interval_seconds=3)
+    from QSExt.DataSync.PostgresImporter import PostgresImporter
+
+    target_dir = r'D:\Data\JYDBSync'
+    config = {
+        'host': 'localhost',
+        'port': '5432',
+        'database': 'JYDB',
+        'username': 'shzq',
+        'password': 'shzq#321',
+        'import_dir': target_dir
+    }
+    importer = PostgresImporter(**config)
+    interval_seconds = 3
+    concurrent_num = 1
+
+    event_handler = DataImporter(target_dir=target_dir, importer=importer, interval_seconds=interval_seconds, concurrent_num=concurrent_num)
     observer = Observer()
-    
-    observer.schedule(event_handler, path=main_dir, recursive=True)
+    observer.schedule(event_handler, path=target_dir, recursive=True)
     observer.start()
 
     try:
         while True:
-            time.sleep(3)
+            time.sleep(interval_seconds)
+            event_handler.check_proc()
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
-
-
-
-
-
-
-
-
-
-
-
-
-
