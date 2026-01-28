@@ -65,11 +65,19 @@ class DataReceiver(FileSystemEventHandler):
                 continue
             data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(self.token)]
             if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
-                print(f"""{checkpoint_path} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})""")
+                print(f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})""")
                 task_list.append(task)
                 continue
-            ifok = self.transfer_data(task_dir)
-            if ifok: self.clear_data(task_dir)
+            file_size = task_export_checkpoint.get("file_size", {})
+            for ifile in data_file_list:
+                ifile_size = os.path.getsize(os.path.join(task_dir, ifile))
+                if ifile_size != file_size[ifile]:
+                    print(f"""{task_dir} 中的文件({ifle}) 大小({ifile_size})不等于 checkpoint 中标记的文件大小({file_size[ifile]})""")
+                    task_list.append(task)
+                    break
+            else:
+                ifok = self.transfer_data(task_dir)
+                if ifok: self.clear_data(task_dir)
     
     def transfer_data(self, task_dir):
         task_name = os.path.split(task_dir)[-1]
@@ -92,18 +100,18 @@ class DataReceiver(FileSystemEventHandler):
     def clear_data(self, task_dir):
         ifok = True
         for ifile in os.listdir(task_dir):
-            if ifile.startswith(self.token):
-                ifile_path = os.path.join(task_dir, ifile)
-                for i in range(self.retry_num):
-                    try:
-                        os.remove(ifile_path)
-                    except:
-                        print(f"第 {i} 次清理文件 {ifile_path} 失败: {traceback.format_exc()}")
-                        time.sleep(self.interval_seconds)
-                    else:
-                        break
+            #if ifile.startswith(self.token):
+            ifile_path = os.path.join(task_dir, ifile)
+            for i in range(self.retry_num):
+                try:
+                    os.remove(ifile_path)
+                except:
+                    print(f"第 {i} 次清理文件 {ifile_path} 失败: {traceback.format_exc()}")
+                    time.sleep(self.interval_seconds)
                 else:
-                    ifok = False
+                    break
+            else:
+                ifok = False
         if not ifok:
             print(f"清理任务目录 {task_dir} 失败")
         else:
@@ -188,50 +196,51 @@ class DataReceiver(FileSystemEventHandler):
             json.dump({"token": self.token, "task_list": task_list, "task_group_idx": self.cmd.get("task_group_idx", -1), "salt": salt}, fp, ensure_ascii=False, indent=2)
     
     def handle_export_status(self):
-        export_status_file = os.path.join(self.main_dir, self.export_status_file)
-        for i in range(self.retry_num):
-            try:
-                with open(export_status_file, mode="r") as fp:
-                    export_status = json.load(fp)
-            except:
-                print(f"第 {i + 1} 次尝试打开文件 {export_status_file} 失败: {traceback.format_exc()}")
-                time.sleep(self.interval_seconds)
+        with self.lock:
+            export_status_file = os.path.join(self.main_dir, self.export_status_file)
+            for i in range(self.retry_num):
+                try:
+                    with open(export_status_file, mode="r") as fp:
+                        export_status = json.load(fp)
+                except:
+                    print(f"第 {i + 1} 次尝试打开文件 {export_status_file} 失败: {traceback.format_exc()}")
+                    time.sleep(self.interval_seconds)
+                else:
+                    break
             else:
-                break
-        else:
-            print(f"打开文件 {export_status_file} 失败")
-            return
-        istatus, task_group_idx = export_status.get("status", None), export_status["task_group_idx"]
-        if (istatus in ("finished", "task_group_finished")) and (task_group_idx != self.import_status["task_group_idx"]):
-            self.import_status["task_group_idx"] = task_group_idx
-            self.import_status["status"] = "running"
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            self.import_status["task_start_time"] = dt.datetime.now().isoformat()
-            with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-            
-            print(f"导出任务 {task_group_idx} 完成，用时 {running_time} 秒，执行数据迁移！")
-            self.exec_data_transfer(self.import_status["task_list"][task_group_idx])
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            self.import_status["task_start_time"] = dt.datetime.now().isoformat()
-            self.import_status["status"] = "task_group_finished"
-            with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-            with open(os.path.join(self.target_dir, self.target_cmd_file), mode="w") as fp:
-                salt = uuid.uuid4().hex# 防止生成的 cmd 文件完全一样导致不发生同步
-                json.dump({"token": self.token, "table_list": [task["table_name"] for task in self.import_status["task_list"][task_group_idx]], "salt": salt}, fp, ensure_ascii=False, indent=2)
-            print(f"数据迁移任务 {task_group_idx} 完成，用时 {running_time} 秒！")
-        elif (istatus == "finished"):
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["start_time"])).seconds
-            print(f"任务已经全部完成，用时 {running_time} 秒!")
-            self.import_status["status"] = "finished"
-            with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
-            print("\n\n\n\n等待新的任务中...")
-        else:
-            running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
-            print(f"已经等待{running_time}秒，继续等待导出任务 {self.import_status['task_group_idx']+1} 完成...")
-            return
+                print(f"打开文件 {export_status_file} 失败")
+                return
+            istatus, task_group_idx = export_status.get("status", None), export_status["task_group_idx"]
+            if (istatus in ("finished", "task_group_finished")) and (task_group_idx > self.import_status["task_group_idx"]):
+                self.import_status["task_group_idx"] = task_group_idx
+                self.import_status["status"] = "running"
+                running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
+                self.import_status["task_start_time"] = dt.datetime.now().isoformat()
+                with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
+                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                
+                print(f"导出任务 {task_group_idx} 完成，用时 {running_time} 秒，执行数据迁移！")
+                self.exec_data_transfer(self.import_status["task_list"][task_group_idx])
+                running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
+                self.import_status["task_start_time"] = dt.datetime.now().isoformat()
+                self.import_status["status"] = "task_group_finished"
+                with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
+                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                with open(os.path.join(self.target_dir, self.target_cmd_file), mode="w") as fp:
+                    salt = uuid.uuid4().hex# 防止生成的 cmd 文件完全一样导致不发生同步
+                    json.dump({"token": self.token, "table_list": [task["table_name"] for task in self.import_status["task_list"][task_group_idx]], "salt": salt}, fp, ensure_ascii=False, indent=2)
+                print(f"数据迁移任务 {task_group_idx} 完成，用时 {running_time} 秒！")
+            elif (istatus == "finished"):
+                running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["start_time"])).seconds
+                print(f"任务已经全部完成，用时 {running_time} 秒!")
+                self.import_status["status"] = "finished"
+                with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
+                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                print("\n\n\n\n等待新的任务中...")
+            else:
+                running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
+                print(f"无效的导出文件变更: {export_status}，已经等待{running_time}秒，继续等待导出任务 {self.import_status['task_group_idx']+1} 完成...")
+                return
         
     def on_any_event(self, event):
         if event.is_directory: return

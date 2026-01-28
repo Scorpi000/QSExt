@@ -162,7 +162,8 @@ class SQLServerExporter:
                     WHERE i.is_primary_key = 1
                 ) pk ON c.object_id = pk.object_id AND c.column_id = pk.column_id
                 WHERE t.name = '{table_name}'
-                ORDER BY c.column_id""")
+                ORDER BY c.column_id
+            """)
             columns = cursor.fetchall()
             
             # 获取总行数

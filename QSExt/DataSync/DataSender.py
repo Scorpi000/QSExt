@@ -76,12 +76,14 @@ def transfer_data(sdir, tdir, task):
         file_list.append(index_file)
     elif (idx != 0) and (index_file in file_list):
         file_list.remove(index_file)
+    file_size = {}
     for ifile in file_list:
+        file_size[file] = os.path.getsize(sdir + os.sep + ifile)
         if os.path.isfile(tdir + os.sep + ifile): continue
         shutil.copy(sdir + os.sep + ifile, tdir + os.sep + ifile)
     exporter = task["exporter"]
     checkpoint = exporter.get_checkpoint(token, table_name)
-    checkpoint = checkpoint | {"data_file_num": len(file_list)}
+    checkpoint = checkpoint | {"data_file_num": len(file_list), "file_size": file_size,}
     checkpoint_file = tdir + os.sep + "export_checkpoint.json"
     with open(checkpoint_file, 'w', encoding='utf-8') as f:
         json.dump(checkpoint, f, ensure_ascii=False, indent=2)

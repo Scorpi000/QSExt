@@ -1,6 +1,7 @@
 import os
 import csv
 import json
+import traceback
 import datetime as dt
 from collections import deque
 from typing import List, Dict, Any
@@ -11,7 +12,7 @@ import psycopg2
 
 
 class PostgresImporter:
-    def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports"):
+    def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports", default_id_field: str = "JSID"):
         self.host = host
         self.port = port
         self.database = database
@@ -19,10 +20,11 @@ class PostgresImporter:
         self.password = password
         self.import_dir = import_dir
         self.checkpoint_file = "import_checkpoint.json"
+        self._default_id_field = default_id_field
     
     @property
     def default_id_field(self):
-        return "JSID"
+        return self._default_id_field
     
     def get_connection(self):
         """获取数据库连接"""
@@ -80,12 +82,17 @@ class PostgresImporter:
         cursor = conn.cursor()
         try:
             # 构建建表语句
-            column_defs = []
+            column_defs, pk_list = [], []
             for col in columns_info:
                 pg_type = self.map_sqlserver_type_to_postgres(col['type'])
                 nullable = 'NULL' if col['nullable'] == 'YES' else 'NOT NULL'
                 column_defs.append(f'{col["name"]} {pg_type} {nullable}')
-            create_sql = f'CREATE TABLE {table_name} ({", ".join(column_defs)})'
+                if col["pk"] == "YES": pk_list.append(col["name"])
+            if pk_list:
+                pk_def = f" PRIMARY KEY ({','.join(pk_list)})"
+            else:
+                pk_def = ""
+            create_sql = f'CREATE TABLE {table_name} ({", ".join(column_defs)}{pk_def})'
             cursor.execute(create_sql)
             conn.commit()
             print(f"表 {table_name} 已创建")
@@ -93,6 +100,30 @@ class PostgresImporter:
             cursor.close()
             conn.close()
         return False
+    
+    def create_index(self, table_name: str, index_info):
+        """创建索引"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        for index_name in index_info["index_name"].unique():
+            try:
+                iinfo = index_info[index_info["index_name"]==index_name]
+                constraint_type = iinfo["constraint_type"].unique()
+                if constraint_type.shape[0] > 1:
+                    print(f"表 {table_name} 的索引 {index_name} 有多种 constraint_type: {constraint_type}")
+                constraint_type = constraint_type[0]
+                if constraint_type in ("Unique Index", "Unique Constraint"):
+                    unique = " UNIQUE "
+                else:
+                    unique = " "
+                sql = f"""CREATE{unique}INDEX {index_name} ON {table_name}({', '.join(iinfo['column_name'].tolist())})"""
+                cursor.execute(sql)
+                conn.commit()
+                print(f"表 {table_name} 的索引 {index_name} 创建完成")
+            except:
+                print(f"表 {table_name} 的索引 {index_name} 创建失败: {traceback.format_exc()}")
+        cursor.close()
+        conn.close()
     
     def map_sqlserver_type_to_postgres(self, sqlserver_type: str) -> str:
         """SQL Server 类型映射到 PostgreSQL 类型"""
@@ -262,11 +293,17 @@ class PostgresImporter:
             headers = next(reader)# 读取表头
             data_type = next(reader)# 数据类型
             nullable = next(reader)# 是否可空
+            pk = next(reader)# 是否为主键
         # 创建表结构信息
-        columns_info = [{'name': col, 'type': data_type[i], 'nullable': nullable[i]} for i, col in enumerate(headers)]
+        columns_info = [{'name': col, 'type': data_type[i], 'nullable': nullable[i], 'pk': pk[i]} for i, col in enumerate(headers)]
         # 创建表（如果不存在）
         table_exists = self.create_table_if_not_exists(db_table_name, columns_info)
         self.create_del_table()
+        # 创建索引
+        index_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-INDEX.csv"
+        if os.path.isfile(index_file):
+            index_info = pd.read_csv(index_file, header=0, index_col=None)
+            self.create_index(table_name, index_info)
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(token, table_name) if resume else {}
@@ -274,7 +311,7 @@ class PostgresImporter:
         idx = int(checkpoint.get("idx", 0))
         
         # 读取CSV文件列表，并清理表里多余的数据
-        file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower()!="del") and int(ifile.split(".")[0].split("-")[-1]) >= idx)
+        file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower() not in ("del", "index")) and int(ifile.split(".")[0].split("-")[-1]) >= idx)
         if table_exists and file_list:
             id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
             with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
