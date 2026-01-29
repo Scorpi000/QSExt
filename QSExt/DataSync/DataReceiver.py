@@ -44,6 +44,7 @@ class DataReceiver(FileSystemEventHandler):
     
     def exec_data_transfer(self, task_list):
         task_list = task_list.copy()
+        pre_msg = None
         while task_list:
             time.sleep(self.interval_seconds)
             task = task_list.pop(0)
@@ -56,23 +57,35 @@ class DataReceiver(FileSystemEventHandler):
                 with open(checkpoint_path, mode="r") as fp:
                     task_export_checkpoint = json.load(fp)
             except:
-                print(f'尝试读取 {checkpoint_path} 失败：{traceback.format_exc()}')
+                msg = f'尝试读取 {checkpoint_path} 失败：{traceback.format_exc()}'
+                if pre_msg != msg:
+                    print(msg)
+                    pre_msg = msg
                 task_list.append(task)
                 continue
             if task_export_checkpoint.get("token", None) != self.token:
-                print(f"""{checkpoint_path} 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token""")
+                msg = f"""{checkpoint_path} 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token"""
+                if pre_msg != msg:
+                    print(msg)
+                    pre_msg = msg
                 task_list.append(task)
                 continue
             data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(self.token)]
             if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
-                print(f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})""")
+                msg = f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})"""
+                if pre_msg != msg:
+                    print(msg)
+                    pre_msg = msg
                 task_list.append(task)
                 continue
             file_size = task_export_checkpoint.get("file_size", {})
             for ifile in data_file_list:
                 ifile_size = os.path.getsize(os.path.join(task_dir, ifile))
                 if ifile_size != file_size[ifile]:
-                    print(f"""{task_dir} 中的文件({ifle}) 大小({ifile_size})不等于 checkpoint 中标记的文件大小({file_size[ifile]})""")
+                    msg = f"""{task_dir} 中的文件({ifile}) 大小({ifile_size})不等于 checkpoint 中标记的文件大小({file_size[ifile]})"""
+                    if pre_msg != msg:
+                        print(msg)
+                        pre_msg = msg
                     task_list.append(task)
                     break
             else:
@@ -88,13 +101,13 @@ class DataReceiver(FileSystemEventHandler):
             try:
                 shutil.copytree(sdir, tdir, dirs_exist_ok=True)
             except:
-                print(f"第 {i + 1} 次尝试复制目录 {sdir} -> {tdir} 失败: {traceback.format_exc()}")
+                msg = traceback.format_exc()
                 time.sleep(self.interval_seconds)
             else:
                 print(f"复制目录 {sdir} -> {tdir} 完成")
                 return True
         else:
-            print(f"复制目录 {sdir} -> {tdir} 失败")
+            print(f"复制目录 {sdir} -> {tdir} 失败: {msg}")
         return False
     
     def clear_data(self, task_dir):
@@ -106,11 +119,12 @@ class DataReceiver(FileSystemEventHandler):
                 try:
                     os.remove(ifile_path)
                 except:
-                    print(f"第 {i} 次清理文件 {ifile_path} 失败: {traceback.format_exc()}")
+                    msg = traceback.format_exc()
                     time.sleep(self.interval_seconds)
                 else:
                     break
             else:
+                print(f"清理文件 {ifile_path} 失败: {msg}")
                 ifok = False
         if not ifok:
             print(f"清理任务目录 {task_dir} 失败")
@@ -131,13 +145,13 @@ class DataReceiver(FileSystemEventHandler):
                 with open(cmd_file_path, mode="r") as fp:
                     self.cmd = json.load(fp)
             except:
-                print(f'第 {i} 次尝试读取 {cmd_file_path} 失败：{traceback.format_exc()}')
+                msg = traceback.format_exc()
                 time.sleep(self.interval_seconds)
                 continue
             else:
                 break
         else:
-            print(f'读取 {cmd_file_path} 失败')
+            print(f'读取 {cmd_file_path} 失败：{msg}')
             return
         self.token = self.cmd.get("token", None)
         if not self.token: self.token = uuid.uuid4().hex
@@ -203,12 +217,12 @@ class DataReceiver(FileSystemEventHandler):
                     with open(export_status_file, mode="r") as fp:
                         export_status = json.load(fp)
                 except:
-                    print(f"第 {i + 1} 次尝试打开文件 {export_status_file} 失败: {traceback.format_exc()}")
+                    msg = traceback.format_exc()
                     time.sleep(self.interval_seconds)
                 else:
                     break
             else:
-                print(f"打开文件 {export_status_file} 失败")
+                print(f"打开文件 {export_status_file} 失败: {msg}")
                 return
             istatus, task_group_idx = export_status.get("status", None), export_status["task_group_idx"]
             if (istatus in ("finished", "task_group_finished")) and (task_group_idx > self.import_status["task_group_idx"]):

@@ -85,7 +85,7 @@ class PostgresImporter:
             column_defs, pk_list = [], []
             for col in columns_info:
                 pg_type = self.map_sqlserver_type_to_postgres(col['type'])
-                nullable = 'NULL' if col['nullable'] == 'YES' else 'NOT NULL'
+                nullable = 'NOT NULL' if col['nullable']=="False" else 'NULL'
                 column_defs.append(f'{col["name"]} {pg_type} {nullable}')
                 if col["pk"] == "YES": pk_list.append(col["name"])
             if pk_list:
@@ -103,9 +103,15 @@ class PostgresImporter:
     
     def create_index(self, table_name: str, index_info):
         """创建索引"""
+        db_index_info = self.get_index_info(table_name=table_name)
+        db_index_list = [index_name.lower() for index_name in db_index_info["index_name"].tolist()]
+        print(db_index_list)
         conn = self.get_connection()
         cursor = conn.cursor()
         for index_name in index_info["index_name"].unique():
+            if index_name.lower() in db_index_list:
+                print(f"表 {table_name} 的索引 {index_name} 已存在，跳过创建")
+                continue
             try:
                 iinfo = index_info[index_info["index_name"]==index_name]
                 constraint_type = iinfo["constraint_type"].unique()
@@ -116,7 +122,8 @@ class PostgresImporter:
                     unique = " UNIQUE "
                 else:
                     unique = " "
-                sql = f"""CREATE{unique}INDEX {index_name} ON {table_name}({', '.join(iinfo['column_name'].tolist())})"""
+                col_def = ", ".join(iinfo['column_name'].iloc[i] + " " + iinfo['sort_direction'].iloc[i] for i in range(iinfo.shape[0]))
+                sql = f"""CREATE{unique}INDEX {index_name} ON {table_name}({col_def})"""
                 cursor.execute(sql)
                 conn.commit()
                 print(f"表 {table_name} 的索引 {index_name} 创建完成")
@@ -174,7 +181,7 @@ class PostgresImporter:
         
         return 'TEXT'  # 默认类型
     
-    def create_del_table(self, table_name:str="JYDB_DeleteRec"):
+    def create_del_table_if_not_exists(self, table_name:str="JYDB_DeleteRec"):
         # 检查表是否存在
         if self.check_table_exists(table_name): return True
         conn = self.get_connection()
@@ -239,13 +246,32 @@ class PostgresImporter:
         if max_id: return max_id[0]
         else: return None
 
-    def import_del_table(self, token:str, table_name:str, exec_del:bool=True, del_table_name:str="JYDB_DeleteRec", cursor=None):
+    def get_index_info(self, table_name: str):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            sql = f"""
+                SELECT 
+                    indexname AS index_name,
+                    indexdef AS index_def
+                FROM pg_indexes
+                WHERE tablename = '{table_name.lower()}'
+                AND schemaname = 'public'
+            """
+            cursor.execute(sql)
+            index_info = cursor.fetchall()
+            return pd.DataFrame(index_info, columns=[col.name for col in cursor.description])
+        finally:
+            cursor.close()
+            conn.close()
+
+    def import_del_table(self, token:str, table_name:str, exec_del:bool=True, del_table_name:str="JYDB_DeleteRec", cursor=None, conn=None):
         del_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-DEL.csv"
         if not os.path.isfile(del_file):
             print(f"表 {table_name} 无删除文件!")
             return
         db_table_name = table_name.split("-")[0]
-        insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s)'
+        insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (ID) DO UPDATE SET TABLENAME=EXCLUDED.TABLENAME, RECID=EXCLUDED.RECID, XGRQ=EXCLUDED.XGRQ, JSID=EXCLUDED.JSID'
         with open(del_file, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             batch = [row for row in reader]
@@ -254,12 +280,12 @@ class PostgresImporter:
             conn = self.get_connection()
             cursor = conn.cursor()
         try:
-            # 先删除目标表中的数据
+            # 先执行删除表数据插入
+            cursor.executemany(insert_sql, batch)
+            # 再删除目标表中的数据
             if exec_del:
                 del_sql = f"""DELETE FROM {db_table_name} WHERE ID IN ('{"','".join(row[1] for row in batch)}')"""
                 cursor.execute(del_sql)
-            # 再执行删除表数据插入
-            cursor.executemany(insert_sql, batch)
             conn.commit()
         finally:
             if not imported_cursor:
@@ -267,7 +293,7 @@ class PostgresImporter:
                 conn.close()
         print(f"表 {table_name} 的删除文件导入完成!")
 
-    def clear_redundant_data(self, db_table_name: str, first_idx, last_idx=None, id_field:str="JSID", cursor=None):
+    def clear_redundant_data(self, db_table_name: str, first_idx, last_idx=None, id_field:str="JSID", cursor=None, conn=None):
         imported_cursor = (cursor is not None)
         if not imported_cursor:
             conn = self.get_connection()
@@ -298,7 +324,7 @@ class PostgresImporter:
         columns_info = [{'name': col, 'type': data_type[i], 'nullable': nullable[i], 'pk': pk[i]} for i, col in enumerate(headers)]
         # 创建表（如果不存在）
         table_exists = self.create_table_if_not_exists(db_table_name, columns_info)
-        self.create_del_table()
+        self.create_del_table_if_not_exists()
         # 创建索引
         index_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-INDEX.csv"
         if os.path.isfile(index_file):
@@ -312,20 +338,24 @@ class PostgresImporter:
         
         # 读取CSV文件列表，并清理表里多余的数据
         file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower() not in ("del", "index")) and int(ifile.split(".")[0].split("-")[-1]) >= idx)
-        if table_exists and file_list:
-            id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
-            with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
-                first_row = next(csv.reader(f))
-            first_idx = first_row[id_col_idx]
-            with open(os.path.join(self.import_dir, table_name, file_list[-1]), 'r', encoding='utf-8') as f:
-                last_row = next(iter(deque(csv.reader(f), maxlen=1)))
-            last_idx = last_row[id_col_idx]
-            self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
+        # if table_exists and file_list:
+        #     id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
+        #     with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
+        #         first_row = next(csv.reader(f))
+        #     first_idx = first_row[id_col_idx]
+        #     with open(os.path.join(self.import_dir, table_name, file_list[-1]), 'r', encoding='utf-8') as f:
+        #         last_row = next(iter(deque(csv.reader(f), maxlen=1)))
+        #     last_idx = last_row[id_col_idx]
+        #     self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
+        
+        # 导入删除表数据并执行删除
+        self.import_del_table(token=token, table_name=table_name, exec_del=table_exists)
 
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
-        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders})'
+        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower()!="id")
+        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
         
         datetime_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("date")]
         float_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("float")]
@@ -370,10 +400,25 @@ class PostgresImporter:
                         'import_time': dt.datetime.now().isoformat(),
                         'idx': idx,
                     })
-            
-            # 导入删除表数据
-            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor)
         finally:
             cursor.close()
             conn.close()
         return total_imported
+
+
+if __name__=="__main__":
+    config = {
+        'host': 'localhost',
+        'port': '5432',
+        'database': 'JYDB',
+        'username': 'shzq',
+        'password': 'shzq#321',
+        'import_dir': r'D:\Data\JYDBSync'
+    }
+    importer = PostgresImporter(**config)
+
+    # index_info = pd.read_csv(r"D:\Data\JYDBSync\CT_Personal\71b1c1afa43f43789ff4cf1ce98b1130-INDEX.csv", header=0, index_col=None)
+    # importer.create_index("CT_Personal", index_info=index_info)
+
+    index_info = importer.get_index_info(table_name="lc_exgindchange")
+    print(index_info)

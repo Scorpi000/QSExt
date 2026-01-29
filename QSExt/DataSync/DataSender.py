@@ -78,7 +78,7 @@ def transfer_data(sdir, tdir, task):
         file_list.remove(index_file)
     file_size = {}
     for ifile in file_list:
-        file_size[file] = os.path.getsize(sdir + os.sep + ifile)
+        file_size[ifile] = os.path.getsize(sdir + os.sep + ifile)
         if os.path.isfile(tdir + os.sep + ifile): continue
         shutil.copy(sdir + os.sep + ifile, tdir + os.sep + ifile)
     exporter = task["exporter"]
@@ -130,12 +130,12 @@ class DataSender(FileSystemEventHandler):
                     with open(import_status_file, mode="r") as fp:
                         import_status = json.load(fp)
                 except:
-                    print(f"第 {i + 1} 次尝试打开文件 {import_status_file} 失败: {traceback.format_exc()}")
+                    msg = traceback.format_exc()
                     time.sleep(self.interval_seconds)
                 else:
                     break
             else:
-                print(f"打开文件 {import_status} 失败")
+                print(f"打开文件 {import_status_file} 失败: {msg}")
                 return
             token = import_status.get("token", None)
             if token != self.cmd["token"]:
@@ -195,12 +195,12 @@ class DataSender(FileSystemEventHandler):
                     with open(cmd_file, mode="r") as fp:
                         self.cmd = json.load(fp)
                 except:
-                    print(f"第 {i + 1} 次尝试打开文件 {cmd_file} 失败: {traceback.format_exc()}")
+                    msg = traceback.format_exc()
                     time.sleep(self.interval_seconds)
                 else:
                     break
             else:
-                print(f"打开文件 {cmd_file} 失败")
+                print(f"打开文件 {cmd_file} 失败: {msg}")
                 return
             token = self.cmd["token"]
 

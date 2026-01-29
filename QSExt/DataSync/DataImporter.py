@@ -49,10 +49,11 @@ class DataImporter(FileSystemEventHandler):
                     try:
                         os.remove(ifile_path)
                     except:
-                        print(f"第 {i} 次清理文件 {ifile_path} 失败: {traceback.format_exc()}")
+                        msg = traceback.format_exc()
                     else:
                         break
                 else:
+                    print(f"清理文件 {ifile_path} 失败: {msg}")
                     ifok = False
         if not ifok:
             print(f"清理任务目录 {task_dir} 失败")
@@ -61,6 +62,7 @@ class DataImporter(FileSystemEventHandler):
         return ifok
     
     def check_proc(self):
+        has_proc = bool(self.proc_list)
         if self.concurrent_num > 0:
             while not self.queue.empty():
                 token, table_name, ifok, msg = self.queue.get()
@@ -68,11 +70,11 @@ class DataImporter(FileSystemEventHandler):
                     print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
                 else:
                     print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
-                self.proc_list.pop((token, table_name))
+                self.proc_list.pop((token, table_name), None)
             for token, table_name in list(self.proc_list.keys()):
                 if (not self.proc_list[(token, table_name)].is_alive()) and self.queue.empty():
                     print(f"任务 {token} 的表 {table_name} 导入失败: 工作进程错误")
-                    self.proc_list.pop((token, table_name))
+                    self.proc_list.pop((token, table_name), None)
         else:
             for token, table_name in list(self.proc_list.keys()):
                 if self.proc_list[(token, table_name)] is not None:
@@ -81,7 +83,9 @@ class DataImporter(FileSystemEventHandler):
                         print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
                     else:
                         print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
-                    self.proc_list.pop((token, table_name))
+                    self.proc_list.pop((token, table_name), None)
+        if has_proc and (not self.proc_list):
+            print("等待新的任务中...")
 
     def handle_cmd(self):
         cmd_file_path = os.path.join(self.target_dir, self.cmd_file)
@@ -90,13 +94,13 @@ class DataImporter(FileSystemEventHandler):
                 with open(cmd_file_path, mode="r") as fp:
                     cmd = json.load(fp)
             except:
-                print(f'第 {i} 次尝试读取 {cmd_file_path} 失败：{traceback.format_exc()}')
+                msg = traceback.format_exc()
                 time.sleep(self.interval_seconds)
                 continue
             else:
                 break
         else:
-            print(f'读取 {cmd_file_path} 失败')
+            print(f'读取 {cmd_file_path} 失败：{msg}')
             return
         token = cmd["token"]
         table_list = cmd.get("table_list", [])
@@ -148,6 +152,7 @@ if __name__ == "__main__":
     observer = Observer()
     observer.schedule(event_handler, path=target_dir, recursive=True)
     observer.start()
+    print("等待新的任务中...")
 
     try:
         while True:

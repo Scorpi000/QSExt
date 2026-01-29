@@ -114,7 +114,7 @@ class SQLServerExporter:
             port=str(self.port), 
             user=self.username,
             password=self.password,
-            charset='cp936'
+            charset='GB18030'
         )
     
     def get_checkpoint(self, token, table_name: str) -> Dict[str, Any]:
@@ -224,7 +224,7 @@ class SQLServerExporter:
                 INNER JOIN sys.types ty ON c.user_type_id = ty.user_type_id
                 INNER JOIN sys.data_spaces ds ON i.data_space_id = ds.data_space_id
                 WHERE s.name = 'dbo'
-                AND t.name = {table_name}
+                AND t.name = '{table_name}'
                 AND i.type > 0  -- 排除堆表(Heap)
                 ORDER BY 
                 i.is_primary_key DESC,  -- 主键排前面
@@ -295,6 +295,7 @@ class SQLServerExporter:
                 writer.writerow(column_names)
                 writer.writerow([col['type'] for col in table_info['columns']])
                 writer.writerow([col['nullable'] for col in table_info['columns']])
+                writer.writerow([col['is_pk'] for col in table_info['columns']])
         
         # 写入索引信息
         index_info = self.get_index_info(table_name=table_name)
