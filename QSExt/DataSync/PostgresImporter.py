@@ -105,7 +105,6 @@ class PostgresImporter:
         """创建索引"""
         db_index_info = self.get_index_info(table_name=table_name)
         db_index_list = [index_name.lower() for index_name in db_index_info["index_name"].tolist()]
-        print(db_index_list)
         conn = self.get_connection()
         cursor = conn.cursor()
         for index_name in index_info["index_name"].unique():
@@ -329,7 +328,7 @@ class PostgresImporter:
         index_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-INDEX.csv"
         if os.path.isfile(index_file):
             index_info = pd.read_csv(index_file, header=0, index_col=None)
-            self.create_index(table_name, index_info)
+            self.create_index(db_table_name, index_info)
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(token, table_name) if resume else {}
@@ -347,9 +346,6 @@ class PostgresImporter:
         #         last_row = next(iter(deque(csv.reader(f), maxlen=1)))
         #     last_idx = last_row[id_col_idx]
         #     self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
-        
-        # 导入删除表数据并执行删除
-        self.import_del_table(token=token, table_name=table_name, exec_del=table_exists)
 
         # 构建插入语句
         columns_str = ', '.join(headers)
@@ -388,6 +384,10 @@ class PostgresImporter:
 
                 cursor.executemany(insert_sql, batch)
                 conn.commit()
+                
+                # 导入删除表数据并执行删除
+                self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor, conn=conn)
+                
                 total_imported += len(batch)
                 idx += 1
                 
