@@ -270,7 +270,7 @@ class PostgresImporter:
             print(f"表 {table_name} 无删除文件!")
             return
         db_table_name = table_name.split("-")[0]
-        insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (ID) DO UPDATE SET TABLENAME=EXCLUDED.TABLENAME, RECID=EXCLUDED.RECID, XGRQ=EXCLUDED.XGRQ, JSID=EXCLUDED.JSID'
+        insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (JSID, TABLENAME) DO UPDATE SET RECID=EXCLUDED.RECID, XGRQ=EXCLUDED.XGRQ, ID=EXCLUDED.ID'
         with open(del_file, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             batch = [row for row in reader]
@@ -385,9 +385,6 @@ class PostgresImporter:
                 cursor.executemany(insert_sql, batch)
                 conn.commit()
                 
-                # 导入删除表数据并执行删除
-                self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor, conn=conn)
-                
                 total_imported += len(batch)
                 idx += 1
                 
@@ -400,6 +397,8 @@ class PostgresImporter:
                         'import_time': dt.datetime.now().isoformat(),
                         'idx': idx,
                     })
+            # 导入删除表数据并执行删除
+            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor, conn=conn)
         finally:
             cursor.close()
             conn.close()
