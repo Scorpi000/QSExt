@@ -58,7 +58,7 @@ def execute_task(task):
         exporter.save_checkpoint(table_name, {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
     for i in range(task["retry_num"]):
         try:
-            ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"])
+            ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"], del_table_name=task["del_table"], id_field=task["id_field"])
         except:
             ifok, msg = False, traceback.format_exc()
         if ifok: break
@@ -351,7 +351,7 @@ if __name__ == "__main__":
         source_dir=source_dir,
         exporter=exporter,
         interval_seconds=interval_seconds,
-        max_size=2,
+        max_size=4.5,
     )
     observer = Observer()
     observer.schedule(event_handler, path=main_dir, recursive=True)

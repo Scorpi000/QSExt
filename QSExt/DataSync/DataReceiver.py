@@ -38,6 +38,7 @@ class DataReceiver(FileSystemEventHandler):
         
         self.token = None
         self.cmd = {}
+        self.task_info = {}
         self.import_status = {}
         self.lock = Lock()
         return super().__init__()
@@ -158,30 +159,36 @@ class DataReceiver(FileSystemEventHandler):
         
         task_list = self.cmd.get("specific_task_list", [])
         table_list = self.cmd.get("table_list", [])
-        if table_list:
-            for itable in table_list:
-                itable = itable.split(":")
-                itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
-                task_list.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
         table_list_file = self.cmd.get("table_list_file", None)
         if table_list_file and os.path.isfile(table_list_file):
             with open(table_list_file, mode="r") as file:
-                for itable in file:
-                    if not itable.strip(): continue
-                    itable = itable.split(":")
-                    itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
-                    task_list.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
+                table_list += list(file)
         elif table_list_file:
             print(f"table_list_file {table_list_file} 不存在!")
+        for itable in table_list:
+            if not itable.strip(): continue
+            itable = itable.split(":")
+            itable_name = itable[0].strip()
+            if len(itable)>=2: id_field = itable[1].strip()
+            else: id_field = "JSID"
+            if len(itable)>=3: del_table = itable[2].strip()
+            else: del_table = "JYDB_DeleteRec"
+            task_list.append({
+                "table_name": itable_name, 
+                "id_field": id_field, 
+                "del_table": del_table, 
+                "max_id": self.importer.get_max_id(table_name=itable_name, id_field=id_field), 
+                "del_max_id": self.importer.get_del_max_id(table_name=itable_name, del_table_name=del_table)
+            })
         
         # 校验任务
-        table_set = set()
+        self.task_info = {}
         for task in task_list:
-            if task["table_name"] in table_set:
+            if task["table_name"] in self.task_info:
                 print(f"任务 {self.token} 的表 {task['table_name']} 有重复!")
                 return
             else:
-                table_set.add(task["table_name"])
+                self.task_info[task["table_name"]] = task
 
         print(f"执行任务: {self.token}")
         if not task_list:
@@ -232,7 +239,8 @@ class DataReceiver(FileSystemEventHandler):
                     json.dump(self.import_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 with open(os.path.join(self.target_dir, self.target_cmd_file), mode="w") as fp:
                     salt = uuid.uuid4().hex# 防止生成的 cmd 文件完全一样导致不发生同步
-                    json.dump({"token": self.token, "table_list": export_status["table_list"], "salt": salt}, fp, ensure_ascii=False, indent=2)
+                    del_table_list = [self.task_info[itable]["del_table"] for itable in export_status["table_list"]]
+                    json.dump({"token": self.token, "table_list": export_status["table_list"], "del_table_list": del_table_list, "salt": salt}, fp, ensure_ascii=False, indent=2)
                 print(f"数据迁移任务 {task_group_idx} 完成，用时 {running_time} 秒！")
             elif (istatus == "finished"):
                 running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["start_time"])).seconds

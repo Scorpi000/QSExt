@@ -277,7 +277,7 @@ class SQLServerExporter:
             writer.writerows(rows)
         return max_id
     
-    def export_table(self, token: str, table_name: str, order_by: str = None, where_clause: str = None, resume: bool = True) -> str:
+    def export_table(self, token: str, table_name: str, order_by: str = None, where_clause: str = None, del_table_name="JYDB_DeleteRec", id_field:str="JSID", resume: bool = True) -> str:
         """导出单个表"""
         print(f"开始导出表 {table_name}...")
         export_dir = os.path.join(self.export_dir, table_name)
@@ -379,7 +379,7 @@ class SQLServerExporter:
                     break
                 offset += self.batch_size
             # 导出删除记录
-            last_del_id = self.export_del_table(token=token, table_name=table_name, last_del_id=last_del_id, cursor=cursor)
+            last_del_id = self.export_del_table(token=token, table_name=table_name, last_del_id=last_del_id, del_table_name=del_table_name, id_field=id_field, cursor=cursor)
         except Exception as e:
             ifok, msg = False, traceback.format_exc()
         else:

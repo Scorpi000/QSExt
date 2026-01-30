@@ -47,7 +47,7 @@ def execute_task(task):
         break
     
     try:
-        imported_rows = task["importer"].import_table(task["token"], task["table_name"])
+        imported_rows = task["importer"].import_table(task["token"], task["table_name"], del_table_name=task["del_table"])
     except:
         ifok, msg = False, traceback.format_exc()
     else:
@@ -141,6 +141,7 @@ class DataImporter(FileSystemEventHandler):
             return
         token = cmd["token"]
         table_list = cmd.get("table_list", [])
+        del_table_list = cmd.get("del_table_list", [])
 
         if not table_list:
             print(f"{token} 任务列表为空!")
@@ -148,15 +149,15 @@ class DataImporter(FileSystemEventHandler):
         print(f"执行任务: {token}")
         
         # 启动导入任务
-        for itable in table_list:
+        for i, itable in enumerate(table_list):
             if (token, itable) in self.proc_list:
                 print(f"任务 {token} 的表 {itable} 已经在导入，无需重复执行!")
                 continue
             if self.concurrent_num <= 0:
                 self.proc_list[(token, itable)] = None
-                self.proc_list[(token, itable)] = execute_task({"importer": self.importer, "token": token, "table_name": itable})
+                self.proc_list[(token, itable)] = execute_task({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i]})
             else:
-                self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "queue": self.queue},))
+                self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "queue": self.queue},))
                 self.proc_list[(token, itable)].start()
 
     def on_any_event(self, event):

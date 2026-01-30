@@ -276,7 +276,8 @@ class PostgresImporter:
         insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (JSID, TABLENAME) DO UPDATE SET RECID=EXCLUDED.RECID, XGRQ=EXCLUDED.XGRQ, ID=EXCLUDED.ID'
         with open(del_file, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
-            batch = [row for row in reader]
+            batch = list(reader)
+            if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
         imported_cursor = (cursor is not None)
         if not imported_cursor:
             conn = self.get_connection()
@@ -310,7 +311,7 @@ class PostgresImporter:
                 cursor.close()
                 conn.close()
 
-    def import_table(self, token: str, table_name: str, resume: bool = True, id_field="JSID") -> int:
+    def import_table(self, token: str, table_name: str, resume: bool = True, id_field="JSID", del_table_name:str="JYDB_DeleteRec") -> int:
         print(f"开始导入任务 {token} 的表 {table_name}...")
         db_table_name = table_name.split("-")[0]
         header_file =  self.import_dir + os.sep + table_name + os.sep + f"{token}.csv"
@@ -406,7 +407,7 @@ class PostgresImporter:
                         'idx': idx,
                     })
             # 导入删除表数据并执行删除
-            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, cursor=cursor, conn=conn)
+            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, del_table_name=del_table_name, cursor=cursor, conn=conn)
         finally:
             cursor.close()
             conn.close()
