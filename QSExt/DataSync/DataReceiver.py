@@ -42,16 +42,16 @@ class DataReceiver(FileSystemEventHandler):
         self.lock = Lock()
         return super().__init__()
     
-    def exec_data_transfer(self, task_list):
-        task_list = task_list.copy()
+    def exec_data_transfer(self, table_list):
+        table_list = table_list.copy()
         pre_msg = None
-        while task_list:
+        while table_list:
             time.sleep(self.interval_seconds)
-            task = task_list.pop(0)
-            task_dir = os.path.join(self.main_dir, task["table_name"])
+            table_name = table_list.pop(0)
+            task_dir = os.path.join(self.main_dir, table_name)
             checkpoint_path = os.path.join(task_dir, "export_checkpoint.json")
             if not os.path.isfile(checkpoint_path):
-                task_list.append(task)
+                table_list.append(table_name)
                 continue
             try:
                 with open(checkpoint_path, mode="r") as fp:
@@ -61,24 +61,24 @@ class DataReceiver(FileSystemEventHandler):
                 if pre_msg != msg:
                     print(msg)
                     pre_msg = msg
-                task_list.append(task)
+                table_list.append(table_name)
                 continue
             if task_export_checkpoint.get("token", None) != self.token:
                 msg = f"""{checkpoint_path} 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token"""
                 if pre_msg != msg:
                     print(msg)
                     pre_msg = msg
-                task_list.append(task)
+                table_list.append(table_name)
                 continue
             data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(self.token)]
-            if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
-                msg = f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})"""
+            file_size = task_export_checkpoint.get("file_size", {})
+            if len(data_file_list) != len(file_size):
+                msg = f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({len(file_size)})"""
                 if pre_msg != msg:
                     print(msg)
                     pre_msg = msg
-                task_list.append(task)
+                table_list.append(table_name)
                 continue
-            file_size = task_export_checkpoint.get("file_size", {})
             for ifile in data_file_list:
                 ifile_size = os.path.getsize(os.path.join(task_dir, ifile))
                 if ifile_size != file_size[ifile]:
@@ -86,7 +86,7 @@ class DataReceiver(FileSystemEventHandler):
                     if pre_msg != msg:
                         print(msg)
                         pre_msg = msg
-                    task_list.append(task)
+                    table_list.append(table_name)
                     break
             else:
                 ifok = self.transfer_data(task_dir)
@@ -159,39 +159,29 @@ class DataReceiver(FileSystemEventHandler):
         task_list = self.cmd.get("specific_task_list", [])
         table_list = self.cmd.get("table_list", [])
         if table_list:
-            for itable_list in table_list:
-                tables_to_import = []
-                for itable in itable_list:
+            for itable in table_list:
+                itable = itable.split(":")
+                itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
+                task_list.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
+        table_list_file = self.cmd.get("table_list_file", None)
+        if table_list_file and os.path.isfile(table_list_file):
+            with open(table_list_file, mode="r") as file:
+                for itable in file:
+                    if not itable.strip(): continue
                     itable = itable.split(":")
                     itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
-                    tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
-                if tables_to_import: task_list.append(tables_to_import)
-        table_list_file = self.cmd.get("table_list_file", None)
-        if table_list_file:
-            if os.path.isfile(table_list_file):
-                tables_to_import = []
-                with open(table_list_file, mode="r") as file:
-                    for itable in file:
-                        if itable.strip() == "---":
-                            if tables_to_import: task_list.append(tables_to_import)
-                            tables_to_import = []
-                        else:
-                            itable = itable.split(":")
-                            itable, id_field = itable[0].strip(), (self.importer.default_id_field if len(itable) == 1 else itable[1].strip())
-                            tables_to_import.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
-                    if tables_to_import: task_list.append(tables_to_import)
-            else:
-                print(f"table_list_file {table_list_file} 不存在!")
+                    task_list.append({"table_name": itable, "id_field": id_field, "max_id": self.importer.get_max_id(itable, id_field), "del_max_id": self.importer.get_del_max_id(itable)})
+        elif table_list_file:
+            print(f"table_list_file {table_list_file} 不存在!")
         
         # 校验任务
         table_set = set()
-        for task_group in task_list:
-            for task in task_group:
-                if task["table_name"] in table_set:
-                    print(f"任务 {self.token} 的表 {task['table_name']} 有重复!")
-                    return
-                else:
-                    table_set.add(task["table_name"])
+        for task in task_list:
+            if task["table_name"] in table_set:
+                print(f"任务 {self.token} 的表 {task['table_name']} 有重复!")
+                return
+            else:
+                table_set.add(task["table_name"])
 
         print(f"执行任务: {self.token}")
         if not task_list:
@@ -231,25 +221,25 @@ class DataReceiver(FileSystemEventHandler):
                 running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
                 self.import_status["task_start_time"] = dt.datetime.now().isoformat()
                 with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                    json.dump(self.import_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 
                 print(f"导出任务 {task_group_idx} 完成，用时 {running_time} 秒，执行数据迁移！")
-                self.exec_data_transfer(self.import_status["task_list"][task_group_idx])
+                self.exec_data_transfer(export_status["table_list"])
                 running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds
                 self.import_status["task_start_time"] = dt.datetime.now().isoformat()
                 self.import_status["status"] = "task_group_finished"
                 with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                    json.dump(self.import_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 with open(os.path.join(self.target_dir, self.target_cmd_file), mode="w") as fp:
                     salt = uuid.uuid4().hex# 防止生成的 cmd 文件完全一样导致不发生同步
-                    json.dump({"token": self.token, "table_list": [task["table_name"] for task in self.import_status["task_list"][task_group_idx]], "salt": salt}, fp, ensure_ascii=False, indent=2)
+                    json.dump({"token": self.token, "table_list": export_status["table_list"], "salt": salt}, fp, ensure_ascii=False, indent=2)
                 print(f"数据迁移任务 {task_group_idx} 完成，用时 {running_time} 秒！")
             elif (istatus == "finished"):
                 running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["start_time"])).seconds
                 print(f"任务已经全部完成，用时 {running_time} 秒!")
                 self.import_status["status"] = "finished"
                 with open(os.path.join(self.main_dir, self.import_status_file), mode="w") as fp:
-                    json.dump(self.import_status, fp, ensure_ascii=False, indent=2)
+                    json.dump(self.import_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 print("\n\n\n\n等待新的任务中...")
             else:
                 running_time = (dt.datetime.now() - dt.datetime.fromisoformat(self.import_status["task_start_time"])).seconds

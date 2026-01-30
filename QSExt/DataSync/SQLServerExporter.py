@@ -137,6 +137,14 @@ class SQLServerExporter:
     
     def get_table_info(self, table_name: str) -> Dict[str, Any]:
         """获取表信息，包括列信息和总行数"""
+        def merge_sqlserver_type(col, max_length, precision, scale):
+            if col.lower() in ("varchar", "nvarchar", "char", "nchar", "binary", "varbinary"):
+                return f"{col}({max_length})"
+            elif col.lower() in ("decimal", "numeric"):
+                return f"{col}({precision},{scale})"
+            else:
+                return col
+        
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -146,9 +154,9 @@ class SQLServerExporter:
                 SELECT
                     c.name AS column_name,
                     ty.name AS data_type,
-                    -- c.max_length AS max_length,
-                    -- c.precision AS precision,
-                    -- c.scale AS scale,
+                    c.max_length AS max_length,
+                    c.precision AS precision,
+                    c.scale AS scale,
                     c.is_nullable AS is_nullable,
                     CASE WHEN pk.column_id IS NOT NULL THEN 'YES' ELSE 'NO' END AS is_pk,
                     CASE WHEN c.is_identity = 1 THEN 'YES' ELSE 'NO' END AS is_identity
@@ -171,7 +179,13 @@ class SQLServerExporter:
             total_rows = cursor.fetchone()[0]
             
             return {
-                'columns': [{'name': col[0], 'type': col[1], 'nullable': col[2], "is_pk": col[3], 'is_identity': col[4]} for col in columns],
+                'columns': [{
+                    'name': col[0], 
+                    'type': merge_sqlserver_type(col[1], col[2], col[3], col[4]), 
+                    'nullable': col[5], 
+                    "is_pk": col[6], 
+                    'is_identity': col[7]
+                } for col in columns],
                 'total_rows': total_rows
             }
         finally:

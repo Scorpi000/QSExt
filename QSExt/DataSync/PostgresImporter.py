@@ -164,6 +164,9 @@ class PostgresImporter:
             'xml': 'XML'
         }
         
+        # 特殊映射
+        if sqlserver_type.lower()=="varchar(-1)": return "TEXT"
+
         # 处理带长度的类型
         import re
         match = re.match(r'(\w+)(?:\((\d+)(?:,(\d+))?\))?', sqlserver_type.lower())
@@ -327,7 +330,11 @@ class PostgresImporter:
         # 创建索引
         index_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-INDEX.csv"
         if os.path.isfile(index_file):
-            index_info = pd.read_csv(index_file, header=0, index_col=None)
+            with open(index_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                index_info = list(reader)
+                if index_info and (index_info[-1][0]=="salt"): index_info = index_info[:-1]# 去掉最后一行的 salt
+            index_info = pd.DataFrame(index_info[1:], columns=index_info[0])
             self.create_index(db_table_name, index_info)
         
         # 获取断点信息
@@ -365,7 +372,8 @@ class PostgresImporter:
             for ifile in file_list:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f)
-                    batch = [row for row in reader]
+                    batch = list(reader)
+                    if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
                 
                 # 处理特殊类型的字段
                 batch = np.array(batch, dtype="O")

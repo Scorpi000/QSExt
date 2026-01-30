@@ -1,5 +1,7 @@
 import os
+import csv
 import json
+import uuid
 import time
 import shutil
 import traceback
@@ -30,6 +32,16 @@ def partitionList(data,m,n_head=0,n_tail=0):
         SubData.append(data[StartInd:EndInd])
     return SubData
 
+# 获取文件夹的大小
+def get_folder_size(folder_path):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for file in filenames:
+            file_path = os.path.join(dirpath, file)
+            total_size += os.path.getsize(file_path)
+    return total_size
+
+
 def execute_task(task):
     table_name = task["table_name"].split("-")
     if len(table_name) > 1:
@@ -53,41 +65,47 @@ def execute_task(task):
     #task["queue"].put((task["table_name"], ifok, msg))
     return task["table_name"], ifok, msg
 
-
 def transfer_data(sdir, tdir, task):
-    table_name = task["table_name"].split("-")
-    if len(table_name) > 1:
-        table_name, split_num, idx = table_name
-        split_num, idx = int(split_num), int(idx)
-        tdir = tdir + os.sep + table_name + f"-{split_num}-{idx}"
-    else:
-        table_name, split_num, idx = table_name[0], 1, 0
-        tdir = tdir + os.sep + table_name
+    table_name = task["table_name"]
+    tdir = tdir + os.sep + table_name
     sdir = sdir + os.sep + table_name
     if not os.path.isdir(tdir): os.mkdir(tdir)
     token = task["token"]
     file_list = sorted(ifile for ifile in os.listdir(sdir) if ifile.startswith(token) and ifile.endswith(".csv"))
-    file_list = partitionList(file_list, split_num)[idx]
-    header_file = token + ".csv"
-    if header_file not in file_list:
-        file_list.append(header_file)
-    index_file = token + "-INDEX.csv"
-    if (idx == 0) and (index_file not in file_list):
-        file_list.append(index_file)
-    elif (idx != 0) and (index_file in file_list):
-        file_list.remove(index_file)
+    start_idx, cum_size, max_size = task.get("start_idx", 0), task["cum_size"], task["max_size"]
     file_size = {}
-    for ifile in file_list:
-        file_size[ifile] = os.path.getsize(sdir + os.sep + ifile)
-        if os.path.isfile(tdir + os.sep + ifile): continue
+    salt = uuid.uuid4().hex# 防止文件跟之前的完全一样导致上传失败
+    for i in range(start_idx, len(file_list)):
+        ifile = file_list[i]
+        # if os.path.isfile(tdir + os.sep + ifile):
+        #     isize = os.path.getsize(ifile_path)
+        #    file_size[ifile] = isize
+        #     cum_size += isize
+        #     start_idx += 1
+        #     if cum_size + isize >= max_size:
+        #         break
+        #     else:
+        #         continue
+        ifile_path = os.path.join(sdir, ifile)
+        isize = os.path.getsize(ifile_path)
+        if cum_size + isize >= max_size:
+            start_idx = i
+            break
         shutil.copy(sdir + os.sep + ifile, tdir + os.sep + ifile)
+        with open(tdir + os.sep + ifile, mode="a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(("salt", salt))
+        isize = os.path.getsize(tdir + os.sep + ifile)
+        file_size[ifile] = isize
+        cum_size += isize
+        start_idx += 1
     exporter = task["exporter"]
     checkpoint = exporter.get_checkpoint(token, table_name)
     checkpoint = checkpoint | {"data_file_num": len(file_list), "file_size": file_size,}
     checkpoint_file = tdir + os.sep + "export_checkpoint.json"
     with open(checkpoint_file, 'w', encoding='utf-8') as f:
-        json.dump(checkpoint, f, ensure_ascii=False, indent=2)
-
+        json.dump(checkpoint | {"salt": uuid.uuid4().hex}, f, ensure_ascii=False, indent=2)
+    return {"start_idx": start_idx, "if_all": start_idx>=len(file_list), "cum_size": cum_size}
 
 class DataSender(FileSystemEventHandler):
     def __init__(self,
@@ -99,7 +117,8 @@ class DataSender(FileSystemEventHandler):
         export_status_file: str = "export_status.json", 
         interval_seconds: int = 3,
         retry_num: int = 3,
-        concurrent_num: int = 1
+        concurrent_num: int = 1,
+        max_size: float = 4.5# 单词最大传送的数据量，单位 G
     ):
         self.main_dir = main_dir
         self.source_dir = source_dir
@@ -110,13 +129,25 @@ class DataSender(FileSystemEventHandler):
         self.interval_seconds = interval_seconds
         self.retry_num = retry_num
         self.concurrent_num = concurrent_num
+        self.max_size = max_size * 1024 * 1024 * 1024# 转成单位为字节
         
         self.cmd = {}
         self.export_status = {}
         self.task_rslt = {}
+        self.task_start_idx = 0# 任务执行和数据传输的开始位置，随着传输的进行，该值会逐渐增大
+        self.task_file_start_idx = 0
         self.lock = Lock()
         return super().__init__()
     
+    def clear_data(self, table_name):
+        table_path = os.path.join(self.main_dir, table_name)
+        try:
+            shutil.rmtree(table_path)
+        except:
+            print(f"清除表 {table_name} 数据失败: {traceback.format_exc()}")
+            return get_folder_size(table_path)
+        return 0
+
     def handle_import_status(self):
         with self.lock:
             if self.export_status.get("status", "finished") in ("finished", "terminated"):
@@ -146,36 +177,57 @@ class DataSender(FileSystemEventHandler):
             if istatus == "terminated":
                 with open(export_status_file, mode="w") as fp:
                     self.export_status = self.export_status | {"token": token, "status": "terminated"}
-                    json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+                    json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 print(f"任务 {self.cmd['token']} 终止!")
                 return
             elif istatus == "task_group_finished":
-                # 按任务集同步数据
-                task_group_idx = max(0, import_status.get("task_group_idx", self.export_status.get("task_group_idx", -1)) + 1)
-                if task_group_idx >= len(self.cmd["task_list"]):
-                    # 发送导出完成信号
+                # 如果所有任务均以传输完，发送导出完成信号
+                if self.task_start_idx >= len(self.cmd["task_list"]):
                     with open(export_status_file, mode="w") as fp:
                         self.export_status = self.export_status | {"token": token, "status": "finished"}
-                        json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+                        json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
+                    self.task_rslt = {}
+                    self.task_start_idx = 0
+                    self.task_file_start_idx = 0
                     print(f"任务 {self.cmd['token']} 完成")
                     print("\n\n\n\n等待接受新的导出任务中...")
                     return
+                # 继续传输剩余任务数据
+                task_group_idx = max(0, import_status.get("task_group_idx", self.export_status.get("task_group_idx", -1)) + 1)
                 if task_group_idx <= self.export_status.get("task_group_idx", -1):
                     print(f"任务 {token} 的序号 {task_group_idx} 小于等于当前的序号 {self.export_status.get('task_group_idx', -1)}")
                     return
-                for task in self.cmd["task_list"][task_group_idx]:
+                cum_size, task_file_start_idx = 0, self.task_file_start_idx
+                table_list = []
+                for task in self.cmd["task_list"][self.task_start_idx:]:
                     ifok, msg = self.task_rslt[task["table_name"]]
-                    if not ifok: continue
+                    if not ifok: 
+                        self.task_start_idx += 1
+                        task_file_start_idx = 0
+                        continue
                     try:
-                        transfer_data(self.source_dir, self.main_dir, task | {"token": token, "exporter": self.exporter})
+                        transfer_rslt = transfer_data(self.source_dir, self.main_dir, task | {"token": token, "exporter": self.exporter, "cum_size": cum_size, "max_size": self.max_size, "start_idx": task_file_start_idx})
                     except:
                         print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移 ({self.source_dir} -> {self.main_dir}) 失败: {traceback.format_exc()}")
-                    else:
+                        cum_size += self.clear_data(task["table_name"])
+                        self.task_start_idx += 1
+                        task_file_start_idx = 0
+                        continue
+                    cum_size = transfer_rslt["cum_size"]
+                    if transfer_rslt["if_all"]:
                         print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移完成")
+                        self.task_start_idx += 1
+                        table_list.append(task["table_name"])
+                    else:
+                        print(f"任务 {token} 的表 {task['table_name']} 表的数据部分迁移完成")
+                        self.task_file_start_idx = transfer_rslt["start_idx"]
+                        table_list.append(task["table_name"])
+                        break
+                    task_file_start_idx = 0
                 # 发送导出完成信号
                 with open(export_status_file, mode="w") as fp:
-                    self.export_status = self.export_status | {"token": token, "status": "task_group_finished", "task_group_idx": task_group_idx,}
-                    json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+                    self.export_status = self.export_status | {"token": token, "status": "task_group_finished", "task_group_idx": task_group_idx, "table_list": table_list}
+                    json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 return
             elif istatus not in ("starting", "running", "finished"):
                 print(f"无法识别的任务状态: {istatus}")
@@ -209,23 +261,22 @@ class DataSender(FileSystemEventHandler):
                 print(f"{token}: 任务列表为空!")
                 with open(export_status_file, mode="w") as fp:
                     self.export_status = self.export_status | {"token": token, "status": "finished"}
-                    json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+                    json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
                 return
             
             # 任务列表非空
-            with open(export_status_file, mode="w") as fp:
-                self.export_status = self.export_status | {"token": token, "status": "running"}
-                json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+            self.export_status = self.export_status | {"token": token, "status": "running"}
+            # with open(export_status_file, mode="w") as fp:
+            #     json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
             
             # 提取数据
             self.task_rslt = {}
-            task_group_start_idx = max(0, self.cmd.get("task_group_idx", 0))
+            self.task_start_idx = max(0, self.cmd.get("task_start_idx", 0))
             # 执行导出任务
             with Pool(processes=self.concurrent_num) as pool:
-                for task_group in self.cmd["task_list"][task_group_start_idx:]:
-                    for task in task_group:
-                        print(f"任务 {token} 的表 {task['table_name']} 开始导出...")
-                        self.task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": self.source_dir, "exporter": self.exporter, "token": token, "retry_num": self.retry_num}, ))
+                for task in self.cmd["task_list"][self.task_start_idx:]:
+                    print(f"任务 {token} 的表 {task['table_name']} 开始导出...")
+                    self.task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": self.source_dir, "exporter": self.exporter, "token": token, "retry_num": self.retry_num}, ))
                 for table_name, proc in self.task_rslt.items():
                     try:
                         _, ifok, msg = proc.get()
@@ -236,23 +287,37 @@ class DataSender(FileSystemEventHandler):
                     else:
                         print(f"任务 {token} 的表 {table_name} 表导出失败: {msg}")
                     self.task_rslt[table_name] = (ifok, msg)
-
-            # 按任务集同步数据
-            task_group_idx = task_group_start_idx
-            for task in self.cmd["task_list"][task_group_idx]:
+            
+            # 同步数据
+            task_group_idx, cum_size = 0, 0
+            table_list = []
+            for task in self.cmd["task_list"][self.task_start_idx:]:
                 ifok, msg = self.task_rslt[task["table_name"]]
-                if ifok:
-                    try:
-                        transfer_data(self.source_dir, self.main_dir, task | {"token": token, "exporter": self.exporter})
-                    except:
-                        print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移 ({self.source_dir} -> {self.main_dir}) 失败: {traceback.format_exc()}")
-                    else:
-                        print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移完成")
+                if not ifok:
+                    self.task_start_idx += 1
+                    continue
+                try:
+                    transfer_rslt = transfer_data(self.source_dir, self.main_dir, task | {"token": token, "exporter": self.exporter, "cum_size": cum_size, "max_size": self.max_size, "start_idx": 0})
+                except:
+                    print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移 ({self.source_dir} -> {self.main_dir}) 失败: {traceback.format_exc()}")
+                    cum_size += self.clear_data(task["table_name"])
+                    self.task_start_idx += 1
+                    continue
+                cum_size = transfer_rslt["cum_size"]
+                if transfer_rslt["if_all"]:
+                    print(f"任务 {token} 的表 {task['table_name']} 表的数据迁移完成")
+                    self.task_start_idx += 1
+                    table_list.append(task["table_name"])
+                else:
+                    print(f"任务 {token} 的表 {task['table_name']} 表的数据部分迁移完成")
+                    self.task_file_start_idx = transfer_rslt["start_idx"]
+                    table_list.append(task["table_name"])
+                    break
             
             # 发送导出完成信号
             with open(export_status_file, mode="w") as fp:
-                self.export_status = self.export_status | {"token": token, "status": "task_group_finished", "task_group_idx": task_group_idx,}
-                json.dump(self.export_status, fp, ensure_ascii=False, indent=2)
+                self.export_status = self.export_status | {"token": token, "status": "task_group_finished", "task_group_idx": task_group_idx, "table_list": table_list}
+                json.dump(self.export_status | {"salt": uuid.uuid4().hex}, fp, ensure_ascii=False, indent=2)
 
     def on_any_event(self, event):
         if event.is_directory: return
@@ -281,7 +346,13 @@ if __name__ == "__main__":
     }
     exporter = SQLServerExporter(**config)
 
-    event_handler = DataSender(main_dir=main_dir, source_dir=source_dir, exporter=exporter, interval_seconds=interval_seconds)
+    event_handler = DataSender(
+        main_dir=main_dir,
+        source_dir=source_dir,
+        exporter=exporter,
+        interval_seconds=interval_seconds,
+        max_size=2,
+    )
     observer = Observer()
     observer.schedule(event_handler, path=main_dir, recursive=True)
     observer.start()

@@ -9,6 +9,43 @@ from watchdog.events import FileSystemEventHandler
 
 
 def execute_task(task):
+    table_name = task["table_name"]
+    # 等待数据到齐
+    pre_msg = None
+    task_dir = os.path.join(task["importer"].import_dir, table_name)
+    while True:
+        time.sleep(3)
+        checkpoint_path = os.path.join(task_dir, "export_checkpoint.json")
+        if not os.path.isfile(checkpoint_path):
+            msg = f"任务 {task['token']} 的表 {table_name} 目录中没有 export_checkpoint.json 文件"
+            if pre_msg != msg:
+                print(msg)
+                pre_msg = msg
+            continue
+        try:
+            with open(checkpoint_path, mode="r") as fp:
+                task_export_checkpoint = json.load(fp)
+        except:
+            msg = f'尝试读取 {checkpoint_path} 失败：{traceback.format_exc()}'
+            if pre_msg != msg:
+                print(msg)
+                pre_msg = msg
+            continue
+        if task_export_checkpoint.get("token", None) != task["token"]:
+            msg = f"""{checkpoint_path} 文件中的 token({task_export_checkpoint.get("token", None)}) 不等于任务 token"""
+            if pre_msg != msg:
+                print(msg)
+                pre_msg = msg
+            continue
+        data_file_list = [ifile for ifile in os.listdir(task_dir) if ifile.startswith(task["token"])]
+        if len(data_file_list) != task_export_checkpoint.get("data_file_num", None):
+            msg = f"""{task_dir} 中的文件数量({len(data_file_list)}) 不等于 checkpoint 中的文件数量({task_export_checkpoint.get("data_file_num", None)})"""
+            if pre_msg != msg:
+                print(msg)
+                pre_msg = msg
+            continue
+        break
+    
     try:
         imported_rows = task["importer"].import_table(task["token"], task["table_name"])
     except:
