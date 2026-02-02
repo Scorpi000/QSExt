@@ -5,6 +5,7 @@ import traceback
 import datetime as dt
 from collections import deque
 from typing import List, Dict, Any
+from multiprocessing import Lock
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ class PostgresImporter:
         self.import_dir = import_dir
         self.checkpoint_file = "import_checkpoint.json"
         self._default_id_field = default_id_field
+        self.lock = Lock()
     
     @property
     def default_id_field(self):
@@ -75,31 +77,32 @@ class PostgresImporter:
 
     def create_table_if_not_exists(self, table_name: str, columns_info: List[Dict[str, Any]]):
         """如果表不存在则创建表"""
-        # 检查表是否存在
-        if self.check_table_exists(table_name): return True
+        with self.lock:
+            # 检查表是否存在
+            if self.check_table_exists(table_name): return True
 
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        try:
-            # 构建建表语句
-            column_defs, pk_list = [], []
-            for col in columns_info:
-                pg_type = self.map_sqlserver_type_to_postgres(col['type'])
-                nullable = 'NOT NULL' if col['nullable']=="False" else 'NULL'
-                column_defs.append(f'{col["name"]} {pg_type} {nullable}')
-                if col["pk"] == "YES": pk_list.append(col["name"])
-            if pk_list:
-                pk_def = f" PRIMARY KEY ({','.join(pk_list)})"
-            else:
-                pk_def = ""
-            create_sql = f'CREATE TABLE {table_name} ({", ".join(column_defs)}{pk_def})'
-            cursor.execute(create_sql)
-            conn.commit()
-            print(f"表 {table_name} 已创建")
-        finally:
-            cursor.close()
-            conn.close()
-        return False
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            try:
+                # 构建建表语句
+                column_defs, pk_list = [], []
+                for col in columns_info:
+                    pg_type = self.map_sqlserver_type_to_postgres(col['type'])
+                    nullable = 'NOT NULL' if col['nullable']=="False" else 'NULL'
+                    column_defs.append(f'{col["name"]} {pg_type} {nullable}')
+                    if col["pk"] == "YES": pk_list.append(col["name"])
+                if pk_list:
+                    pk_def = f" PRIMARY KEY ({','.join(pk_list)})"
+                else:
+                    pk_def = ""
+                create_sql = f'CREATE TABLE IF NOT EXISTS {table_name} ({", ".join(column_defs)}{pk_def})'
+                cursor.execute(create_sql)
+                conn.commit()
+                print(f"表 {table_name} 已创建")
+            finally:
+                cursor.close()
+                conn.close()
+            return False
     
     def create_index(self, table_name: str, index_info):
         """创建索引"""
@@ -185,26 +188,39 @@ class PostgresImporter:
     
     def create_del_table_if_not_exists(self, table_name:str="JYDB_DeleteRec"):
         # 检查表是否存在
-        if self.check_table_exists(table_name): return True
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        try:
-            create_sql = f"""
-                CREATE TABLE {table_name} (
-                TABLENAME varchar(100) NOT NULL,
-                RECID bigint NOT NULL,
-                XGRQ timestamp(6) NOT NULL,
-                ID bigint NOT NULL,
-                JSID bigint NOT NULL
-                )
-            """
-            cursor.execute(create_sql)
-            conn.commit()
-            print(f"删除表 {table_name} 已创建")
-        finally:
-            cursor.close()
-            conn.close()
-        return False
+        with self.lock:
+            if self.check_table_exists(table_name): return True
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            try:
+                create_sql = f"""
+                    CREATE TABLE IF NOT EXISTS {table_name} (
+                    TABLENAME varchar(100) NOT NULL,
+                    RECID bigint NOT NULL,
+                    XGRQ timestamp(6) NOT NULL,
+                    ID bigint NOT NULL,
+                    JSID bigint NOT NULL
+                    )
+                """
+                cursor.execute(create_sql)
+                conn.commit()
+
+                # 创建索引
+                sql = f"""CREATE INDEX IX_JYDB_DeleteRec_DATE ON {table_name}(xgrq ASC)"""
+                cursor.execute(sql)
+                sql = f"""CREATE INDEX IX_JYDB_DeleteRec_ID ON {table_name}(id ASC)"""
+                cursor.execute(sql)
+                sql = f"""CREATE INDEX IX_JYDB_DeleteRec_JSID ON {table_name}(jsid ASC)"""
+                cursor.execute(sql)
+                sql = f"""CREATE UNIQUE INDEX IX_JYDB_DeleteRec_TNJS ON {table_name}(tablename ASC, jsid, ASC)"""
+                cursor.execute(sql)
+                conn.commit()
+
+                print(f"删除表 {table_name} 已创建")
+            finally:
+                cursor.close()
+                conn.close()
+            return False
 
     # 删除表，同时清空 del_table 中的删除记录
     def delete_table(self, table_name:str, del_table_name:str="JYDB_DeleteRec"):
@@ -358,8 +374,11 @@ class PostgresImporter:
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
-        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower()!="id")
-        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
+        if table_exists:
+            update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower()!="id")
+            insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
+        else:
+            insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders})'
         
         datetime_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("date")]
         float_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("float")]
@@ -417,7 +436,7 @@ class PostgresImporter:
 if __name__=="__main__":
     config = {
         'host': 'localhost',
-        'port': '5432',
+        'port': '5433',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',

@@ -273,7 +273,7 @@ if __name__ == "__main__":
     interval_seconds = 3
     config = {
         'host': 'localhost',
-        'port': '5432',
+        'port': '5433',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',

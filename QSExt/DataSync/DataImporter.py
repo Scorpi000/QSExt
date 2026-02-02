@@ -47,7 +47,7 @@ def execute_task(task):
         break
     
     try:
-        imported_rows = task["importer"].import_table(task["token"], task["table_name"], del_table_name=task["del_table"])
+        imported_rows = task["importer"].import_table(task["token"], task["table_name"], del_table_name=task["del_table"], resume=task.get("resume", True))
     except:
         ifok, msg = False, traceback.format_exc()
     else:
@@ -142,6 +142,7 @@ class DataImporter(FileSystemEventHandler):
         token = cmd["token"]
         table_list = cmd.get("table_list", [])
         del_table_list = cmd.get("del_table_list", [])
+        resume = cmd.get("resume", True)
 
         if not table_list:
             print(f"{token} 任务列表为空!")
@@ -155,9 +156,9 @@ class DataImporter(FileSystemEventHandler):
                 continue
             if self.concurrent_num <= 0:
                 self.proc_list[(token, itable)] = None
-                self.proc_list[(token, itable)] = execute_task({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i]})
+                self.proc_list[(token, itable)] = execute_task({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "resume": resume})
             else:
-                self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "queue": self.queue},))
+                self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "queue": self.queue, "resume": resume},))
                 self.proc_list[(token, itable)].start()
 
     def on_any_event(self, event):
@@ -176,7 +177,7 @@ if __name__ == "__main__":
     target_dir = r'D:\Data\JYDBSync'
     config = {
         'host': 'localhost',
-        'port': '5432',
+        'port': '5433',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',
