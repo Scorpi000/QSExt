@@ -41,6 +41,10 @@ class DataReceiver(FileSystemEventHandler):
         self.task_info = {}
         self.import_status = {}
         self.lock = Lock()
+        self.observation_list = {
+            self.cmd_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.cmd_file)).st_mtime),
+            self.export_status_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.export_status_file)).st_mtime)
+        }
         return super().__init__()
     
     def exec_data_transfer(self, table_list):
@@ -221,6 +225,10 @@ class DataReceiver(FileSystemEventHandler):
             else:
                 print(f"打开文件 {export_status_file} 失败: {msg}")
                 return
+            token = export_status.get("token", None)
+            if token != self.token:
+                print(f"收到的 export_status token({token}) 和当前执行的 token({self.token}) 不一致, 忽略接收到的 export_status 变更")
+                return
             istatus, task_group_idx = export_status.get("status", None), export_status["task_group_idx"]
             if (istatus in ("finished", "task_group_finished")) and (task_group_idx > self.import_status["task_group_idx"]):
                 self.import_status["task_group_idx"] = task_group_idx
@@ -256,10 +264,17 @@ class DataReceiver(FileSystemEventHandler):
         
     def on_any_event(self, event):
         if event.is_directory: return
-        if event.event_type not in ("created", "modified"):
-            return
+        if event.event_type not in ("created", "modified"): return
         file_path = event.src_path
         task_dir, file_name = os.path.split(file_path)
+        if file_name not in self.observation_list: return
+        modified_time = dt.datetime.fromtimestamp(os.stat(event.src_path).st_mtime)
+        if modified_time==self.observation_list[file_name]:
+            print(f"文件 {file_name} 的修改时间({modified_time}) 没有发生变化，忽略此次变更信号！")
+            return
+        else:
+            self.observation_list[file_name] = modified_time
+        
         if file_name == self.cmd_file:
             return self.handle_cmd()
         if file_name == self.export_status_file:

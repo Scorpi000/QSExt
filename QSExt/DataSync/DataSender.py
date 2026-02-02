@@ -137,6 +137,10 @@ class DataSender(FileSystemEventHandler):
         self.task_start_idx = 0# 任务执行和数据传输的开始位置，随着传输的进行，该值会逐渐增大
         self.task_file_start_idx = 0
         self.lock = Lock()
+        self.observation_list = {
+            self.cmd_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.cmd_file)).st_mtime),
+            self.import_status_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.import_status_file)).st_mtime)
+        }
         return super().__init__()
     
     def clear_data(self, table_name):
@@ -254,6 +258,13 @@ class DataSender(FileSystemEventHandler):
             else:
                 print(f"打开文件 {cmd_file} 失败: {msg}")
                 return
+            if self.cmd.get("status", None)=="accepted":
+                print(f"当前任务正在执行或已经执行过，忽略接收到的 {self.cmd_file} 变更!")
+                return
+            else:
+                self.cmd["status"] = "accepted"
+                with open(cmd_file, mode="w") as fp:
+                    json.dump(self.cmd, fp, ensure_ascii=False, indent=2)
             token = self.cmd["token"]
 
             print(f"接到新的导出任务: {token}")
@@ -321,10 +332,16 @@ class DataSender(FileSystemEventHandler):
 
     def on_any_event(self, event):
         if event.is_directory: return
-        if event.event_type not in ("created", "modified"):
-            return
+        if event.event_type not in ("created", "modified"):return
         file_path = event.src_path
         task_dir, file_name = os.path.split(file_path)
+        if file_name not in self.observation_list: return
+        modified_time = dt.datetime.fromtimestamp(os.stat(event.src_path).st_mtime)
+        if modified_time==self.observation_list[file_name]:
+            print(f"文件 {file_name} 的修改时间({modified_time}) 没有发生变化，忽略此次变更!")
+            return
+        else:
+            self.observation_list[file_name] = modified_time
         if file_name == self.cmd_file:
             return self.handle_cmd()
         elif file_name == self.import_status_file:
@@ -342,7 +359,7 @@ if __name__ == "__main__":
         'username': 'cwyspzb_04122',
         'password': 'Shzq@04122',
         'export_dir': source_dir,
-        'batch_size': 1000000
+        'batch_size': 2000000
     }
     exporter = SQLServerExporter(**config)
 

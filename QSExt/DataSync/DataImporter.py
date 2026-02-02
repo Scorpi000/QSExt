@@ -2,6 +2,7 @@ import os
 import json
 import time
 import traceback
+import datetime as dt
 from multiprocessing import Process, Queue
 
 from watchdog.observers import Observer
@@ -75,6 +76,9 @@ class DataImporter(FileSystemEventHandler):
 
         self.proc_list = {}# {(token, table_name): Process}
         self.queue = Queue()
+        self.observation_list = {
+            self.cmd_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.target_dir, self.cmd_file)).st_mtime)
+        }
         return super().__init__()
     
     def clear_data(self, task_dir):
@@ -168,6 +172,14 @@ class DataImporter(FileSystemEventHandler):
             return
         file_path = event.src_path
         _, file_name = os.path.split(file_path)
+        if file_name not in self.observation_list: return
+        modified_time = dt.datetime.fromtimestamp(os.stat(event.src_path).st_mtime)
+        if modified_time==self.observation_list[file_name]:
+            print(f"文件 {file_name} 的修改时间({modified_time}) 没有发生变化，忽略此次变更信号！")
+            return
+        else:
+            self.observation_list[file_name] = modified_time
+
         if file_name == self.cmd_file:
             return self.handle_cmd()
 
