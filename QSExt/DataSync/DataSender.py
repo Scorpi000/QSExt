@@ -138,8 +138,8 @@ class DataSender(FileSystemEventHandler):
         self.task_file_start_idx = 0
         self.lock = Lock()
         self.observation_list = {
-            self.cmd_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.cmd_file)).st_mtime),
-            self.import_status_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.main_dir, self.import_status_file)).st_mtime)
+            self.cmd_file: dt.datetime.fromtimestamp(os.path.getmtime(os.path.join(self.main_dir, self.cmd_file))),
+            self.import_status_file: dt.datetime.fromtimestamp(os.path.getmtime(os.path.join(self.main_dir, self.import_status_file)))
         }
         return super().__init__()
     
@@ -336,7 +336,7 @@ class DataSender(FileSystemEventHandler):
         file_path = event.src_path
         task_dir, file_name = os.path.split(file_path)
         if file_name not in self.observation_list: return
-        modified_time = dt.datetime.fromtimestamp(os.stat(event.src_path).st_mtime)
+        modified_time = dt.datetime.fromtimestamp(os.path.getmtime(event.src_path))
         if modified_time==self.observation_list[file_name]:
             print(f"文件 {file_name} 的修改时间({modified_time}) 没有发生变化，忽略此次变更!")
             return

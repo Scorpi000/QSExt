@@ -77,7 +77,7 @@ class DataImporter(FileSystemEventHandler):
         self.proc_list = {}# {(token, table_name): Process}
         self.queue = Queue()
         self.observation_list = {
-            self.cmd_file: dt.datetime.fromtimestamp(os.stat(os.path.join(self.target_dir, self.cmd_file)).st_mtime)
+            self.cmd_file: dt.datetime.fromtimestamp(os.path.getmtime(os.path.join(self.target_dir, self.cmd_file)))
         }
         return super().__init__()
     
@@ -173,7 +173,7 @@ class DataImporter(FileSystemEventHandler):
         file_path = event.src_path
         _, file_name = os.path.split(file_path)
         if file_name not in self.observation_list: return
-        modified_time = dt.datetime.fromtimestamp(os.stat(event.src_path).st_mtime)
+        modified_time = dt.datetime.fromtimestamp(os.path.getmtime(event.src_path))
         if modified_time==self.observation_list[file_name]:
             print(f"文件 {file_name} 的修改时间({modified_time}) 没有发生变化，忽略此次变更信号！")
             return
