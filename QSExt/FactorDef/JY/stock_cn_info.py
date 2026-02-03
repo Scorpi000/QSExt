@@ -26,11 +26,11 @@ def defFactor(args={}):
     
     # 证券特征
     FT = JYDB.getTable("A股证券主表")
-    # Factors.append(as_string(FT.getFactor("中文名称"), factor_args={"Name": "name"}))
-    # Factors.append(as_string(FT.getFactor("证券简称"), factor_args={"Name": "abbr"}))
+    Factors.append(as_string(FT.getFactor("中文名称"), factor_args={"Name": "name"}))
+    Factors.append(as_string(FT.getFactor("证券简称"), factor_args={"Name": "abbr"}))
     Factors.append(as_string(FT.getFactor("拼音证券简称"), factor_args={"Name": "pinyin_abbr"}))
-    # Factors.append(as_string(FT.getFactor("上市板块_R"), factor_args={"Name": "listed_sector"}))
-    # Factors.append(fo.Strftime(dt_format="%Y-%m-%d")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
+    Factors.append(as_string(FT.getFactor("上市板块_R"), factor_args={"Name": "listed_sector"}))
+    Factors.append(fo.Strftime(dt_format="%Y-%m-%d")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
     # FT = JYDB.getTable("公司概况")
     # Factors.append(FT.getFactor("省份_R", new_name="province"))

@@ -8,7 +8,7 @@ from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
 from QuantStudio.Core.BasicOperator import Factorize
-from QuantStudio.Core.FactorCache import HDF5Cache
+from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator, FactorOperatorized
 import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
@@ -27,17 +27,20 @@ if __name__=="__main__":
     DTRuler = JYDB.getTradeDay(start_date=StartDT.date() - dt.timedelta(365), end_date=EndDT.date())
     
     SectionIDs = JYDB.getStockID(is_current=False)
-    IDs = SectionIDs[:5]# DEBUG
+    IDs = SectionIDs#[:5]# DEBUG
     
     Args = {"JYDB": JYDB}
     Factors, UpdateArgs = defFactor(args=Args)
     
-    ExecEngine = Engine()
-    Cache = HDF5Cache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"D:\Data\FactorCache", "PIDs": ["0"], "ClearStart": True})
+    # ExecEngine = Engine()
+    # PIDList = ["0"]
+    ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
+    PIDList = [f"0-{i}" for i in range(3)]
+    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"D:\Data\FactorCache", "PIDs": PIDList, "ClearStart": True})
     Cache.start()
     Context = FactorContext(
         PID="0",
-        PIDList=["0"],
+        PIDList=PIDList,
         DTRuler=DTRuler,
         DefaultSectionIDs=SectionIDs,
         IDSplit="连续切分",
