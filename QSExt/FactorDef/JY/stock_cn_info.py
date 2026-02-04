@@ -9,7 +9,7 @@ from QuantStudio.Core.JYDB import JYDB
 from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
-from QuantStudio.Core.BasicOperator import Factorize
+from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorCache import HDF5Cache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator, FactorOperatorized
 import QuantStudio.Core.FactorOperator as fo
@@ -20,16 +20,13 @@ def defFactor(args={}):
     Factors = []
     
     JYDB = args["JYDB"]
-
-    # 算子
-    as_string = fo.AsType(dtype="string")
     
     # 证券特征
     FT = JYDB.getTable("A股证券主表")
-    Factors.append(as_string(FT.getFactor("中文名称"), factor_args={"Name": "name"}))
-    Factors.append(as_string(FT.getFactor("证券简称"), factor_args={"Name": "abbr"}))
-    Factors.append(as_string(FT.getFactor("拼音证券简称"), factor_args={"Name": "pinyin_abbr"}))
-    Factors.append(as_string(FT.getFactor("上市板块_R"), factor_args={"Name": "listed_sector"}))
+    Factors.append(rename(FT.getFactor("中文名称"), factor_name="name"))
+    Factors.append(rename(FT.getFactor("证券简称"), factor_name="abbr"))
+    Factors.append(rename(FT.getFactor("拼音证券简称"), factor_name="pinyin_abbr"))
+    Factors.append(rename(FT.getFactor("上市板块_R"), factor_name="listed_sector"))
     Factors.append(fo.Strftime(dt_format="%Y-%m-%d")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
     # FT = JYDB.getTable("公司概况")

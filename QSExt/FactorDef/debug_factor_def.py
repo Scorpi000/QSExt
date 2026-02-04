@@ -7,7 +7,7 @@ from QuantStudio.Core.JYDB import JYDB
 from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
-from QuantStudio.Core.BasicOperator import Factorize
+from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator, FactorOperatorized
 import QuantStudio.Core.FactorOperator as fo
