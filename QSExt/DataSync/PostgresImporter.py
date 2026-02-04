@@ -133,7 +133,18 @@ class PostgresImporter:
                 print(f"表 {table_name} 的索引 {index_name} 创建失败: {traceback.format_exc()}")
         cursor.close()
         conn.close()
-    
+
+    def get_update_on_fields(self, index_info):
+        unique_index_info = index_info[index_info["constraint_type"].isin(("Unique Index", "Unique Constraint"))]
+        index_name_list = set(unique_index_info["index_name"].tolist())
+        ID_JSID_index = set(unique_index_info[unique_index_info["column_name"].isin(("ID", "JSID"))]["index_name"].tolist())
+        selected_index = index_name_list.difference(ID_JSID_index)
+        if selected_index:
+            selected_index = sorted(selected_index)[0]
+            return unique_index_info[unique_index_info["index_name"]==selected_index]["column_name"].tolist()
+        else:
+            return ["ID"]
+
     def map_sqlserver_type_to_postgres(self, sqlserver_type: str) -> str:
         """SQL Server 类型映射到 PostgreSQL 类型"""
         type_mapping = {
@@ -353,6 +364,11 @@ class PostgresImporter:
                 if index_info and (index_info[-1][0]=="salt"): index_info = index_info[:-1]# 去掉最后一行的 salt
             index_info = pd.DataFrame(index_info[1:], columns=index_info[0])
             self.create_index(db_table_name, index_info)
+            update_on_fields = self.get_update_on_fields(index_info=index_info)
+            update_on_fields = [ifield.lower() for ifield in update_on_fields]
+        else:
+            update_on_fields = ["id"]
+        print(f"表 {db_table_name} 将根据字段 {update_on_fields} 执行更新式插入" )
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(token, table_name) if resume else {}
@@ -374,11 +390,8 @@ class PostgresImporter:
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
-        if table_exists:
-            update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower()!="id")
-            insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
-        else:
-            insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders})'
+        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() not in update_on_fields)
+        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({",".join(update_on_fields)}) DO UPDATE SET {update_str}'
         
         datetime_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("date")]
         float_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("float")]
