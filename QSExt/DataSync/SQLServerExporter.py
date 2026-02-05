@@ -1,4 +1,5 @@
 import os
+import gc
 import csv
 import json
 import time
@@ -383,7 +384,10 @@ class SQLServerExporter:
                     self.save_checkpoint(table_name, checkpoint)
                 if len(rows) < self.batch_size:
                     break
-                offset += self.batch_size
+                # offset += self.batch_size
+                del rows
+                rows = None
+                gc.collect()
             # 导出删除记录
             last_del_id = self.export_del_table(token=token, table_name=table_name, last_del_id=last_del_id, del_table_name=del_table_name, id_field=id_field, cursor=cursor)
         except Exception as e:
