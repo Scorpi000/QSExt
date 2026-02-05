@@ -135,7 +135,7 @@ class SQLServerExporter:
         with open(checkpoint_file, 'w', encoding='utf-8') as f:
             json.dump(checkpoint, f, ensure_ascii=False, indent=2)
     
-    def get_table_info(self, table_name: str) -> Dict[str, Any]:
+    def get_table_info(self, table_name: str, max_id:Optional[int]=None, id_field:str="JSID") -> Dict[str, Any]:
         """获取表信息，包括列信息和总行数"""
         def merge_sqlserver_type(col, max_length, precision, scale):
             if col.lower() in ("varchar", "nvarchar", "char", "nchar", "binary", "varbinary"):
@@ -175,7 +175,10 @@ class SQLServerExporter:
             columns = cursor.fetchall()
             
             # 获取总行数
-            cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+            if max_id is not None:
+                cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE {id_field} > {max_id}")
+            else:
+                cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
             total_rows = cursor.fetchone()[0]
             
             return {
@@ -282,17 +285,19 @@ class SQLServerExporter:
         print(f"开始导出表 {table_name}...")
         export_dir = os.path.join(self.export_dir, table_name)
         os.makedirs(export_dir, exist_ok=True)
-        
-        # 获取表信息
-        table_info = self.get_table_info(table_name)
-        column_names = [col['name'] for col in table_info['columns']]
 
         # 获取断点信息
         checkpoint = self.get_checkpoint(token, table_name)
+        max_id = checkpoint.get("max_id", None)
         last_id = checkpoint.get('last_id', None)
+        last_id = (max_id if last_id is None else last_id)
         last_del_id = checkpoint.get('last_del_id', None)
         idx = int(checkpoint.get("idx", 0))
         exported_rows = checkpoint.get('exported_rows', 0)
+
+        # 获取表信息
+        table_info = self.get_table_info(table_name, last_id=max_id, id_field=id_field)
+        column_names = [col['name'] for col in table_info['columns']]
         
         # 构建导出文件路径
         header_file = os.path.join(export_dir, f"{token}.csv")
@@ -334,7 +339,7 @@ class SQLServerExporter:
         
         conn = self.get_connection()
         cursor = conn.cursor()
-        offset = exported_rows
+        offset = 0# exported_rows
         total_exported = exported_rows
         try:
             while True:
@@ -368,6 +373,7 @@ class SQLServerExporter:
                     last_id = rows[-1][column_names.index(order_by)]
                     checkpoint = checkpoint | {
                         'token': token,
+                        'max_id': max_id,
                         'last_id': last_id,
                         'idx': idx,
                         'exported_rows': total_exported,
@@ -386,6 +392,7 @@ class SQLServerExporter:
             checkpoint = checkpoint | {
                 'token': token,
                 'data_file_num': idx + 1 + int(last_del_id is not None),
+                'max_id': max_id,
                 'last_id': last_id,
                 'last_del_id': last_del_id,
                 'idx': idx,

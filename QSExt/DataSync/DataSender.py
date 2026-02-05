@@ -55,7 +55,7 @@ def execute_task(task):
     exporter = task["exporter"]
     checkpoint = exporter.get_checkpoint(task["token"], table_name)
     if checkpoint.get("token", None) != task["token"]:
-        exporter.save_checkpoint(table_name, {'token': task["token"], "last_id": task["max_id"], "last_del_id": task["del_max_id"]})
+        exporter.save_checkpoint(table_name, {'token': task["token"], "max_id": task["max_id"], "last_del_id": task["del_max_id"]})
     for i in range(task["retry_num"]):
         try:
             ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"], del_table_name=task["del_table"], id_field=task["id_field"])
