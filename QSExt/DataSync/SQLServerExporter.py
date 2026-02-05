@@ -323,26 +323,26 @@ class SQLServerExporter:
             writer = csv.writer(f)
             writer.writerows(index_info)
         
-        # 构建查询语句
-        base_query = f"SELECT {', '.join([f'[{col}]' for col in column_names])} FROM [{table_name}]"
-        if where_clause:
-            base_query += f" WHERE {where_clause}"
-        
-        # 如果有排序字段，用于断点续传
-        if order_by:
-            if last_id is not None:
-                if where_clause:
-                    base_query += f" AND [{order_by}] > {last_id}"
-                else:
-                    base_query += f" WHERE [{order_by}] > {last_id}"
-            base_query += f" ORDER BY [{order_by}]"
-        
         conn = self.get_connection()
         cursor = conn.cursor()
         offset = 0# exported_rows
         total_exported = exported_rows
         try:
             while True:
+                # 构建查询语句
+                base_query = f"SELECT {', '.join([f'[{col}]' for col in column_names])} FROM [{table_name}]"
+                if where_clause:
+                    base_query += f" WHERE {where_clause}"
+                
+                # 如果有排序字段，用于断点续传
+                if order_by:
+                    if last_id is not None:
+                        if where_clause:
+                            base_query += f" AND [{order_by}] > {last_id}"
+                        else:
+                            base_query += f" WHERE [{order_by}] > {last_id}"
+                    base_query += f" ORDER BY [{order_by}]"
+
                 # 执行查询
                 query = f"{base_query} OFFSET {offset} ROWS FETCH NEXT {self.batch_size} ROWS ONLY"
                 if not order_by:  # 如果没有排序字段，使用简单的分页
