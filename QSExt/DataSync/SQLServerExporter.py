@@ -296,7 +296,7 @@ class SQLServerExporter:
         exported_rows = checkpoint.get('exported_rows', 0)
 
         # 获取表信息
-        table_info = self.get_table_info(table_name, last_id=max_id, id_field=id_field)
+        table_info = self.get_table_info(table_name, max_id=max_id, id_field=id_field)
         column_names = [col['name'] for col in table_info['columns']]
         
         # 构建导出文件路径
