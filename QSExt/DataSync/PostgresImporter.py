@@ -1,4 +1,5 @@
 import os
+import re
 import csv
 import json
 import traceback
@@ -134,7 +135,7 @@ class PostgresImporter:
         cursor.close()
         conn.close()
 
-    def get_update_on_fields(self, index_info):
+    def get_unique_fields(self, index_info):
         unique_index_info = index_info[index_info["constraint_type"].isin(("Unique Index", "Unique Constraint"))]
         index_name_list = set(unique_index_info["index_name"].tolist())
         ID_JSID_index = set(unique_index_info[unique_index_info["column_name"].isin(("ID", "JSID"))]["index_name"].tolist())
@@ -143,7 +144,7 @@ class PostgresImporter:
             selected_index = sorted(selected_index)[0]
             return unique_index_info[unique_index_info["index_name"]==selected_index]["column_name"].tolist()
         else:
-            return ["ID"]
+            return None
 
     def map_sqlserver_type_to_postgres(self, sqlserver_type: str) -> str:
         """SQL Server 类型映射到 PostgreSQL 类型"""
@@ -338,6 +339,46 @@ class PostgresImporter:
                 cursor.close()
                 conn.close()
 
+    def handle_unique_insert(self, table_name, ifile, batch, e, insert_sql, columns_info):
+        print(f"表 {table_name} 文件 {ifile} 出现唯一性错误: {e}, 开始处理...")
+        # 识别出错的行
+        pattern = r'\(([^)]+)\)'
+        matches = re.findall(pattern, e.diag.message_detail)
+        if len(matches)!=2:
+            raise Exception(f"表 {table_name} 文件 {ifile} 无法识别插入唯一性出错的行，错误信息: {e}")
+        else:
+            cols, row = matches
+        cols = [col.strip().lower() for col in cols.split(",")]
+        row = [val.strip() for val in row.split(",")]
+        mask = None
+        for i, col in enumerate(cols):
+            col_info = columns_info[col]
+            val = row[i]
+            if "int" in col_info["type"].lower(): val = int(val)
+            if mask is None:
+                mask = (batch[:, col_info["idx"]]==val)
+            else:
+                mask = mask & (batch[:, col_info["idx"]]==val)
+        err_rows, batch = batch[mask].tolist(), batch[~mask]
+        if batch.shape[0]==0: return err_rows
+        if not err_rows:
+            raise Exception(f"表 {table_name} 文件 {ifile} 未过滤出插入唯一性出错的行, 错误信息: {e}")
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.executemany(insert_sql, batch.tolist())
+            conn.commit()
+        except psycopg2.errors.UniqueViolation as e:# 处理唯一性错误
+            cursor.close()
+            conn.close()
+            err_rows += self.handle_unique_insert(table_name=table_name, ifile=ifile, batch=batch, e=e, insert_sql=insert_sql, columns_info=columns_info)
+        except Exception as e:
+            raise e
+        finally:
+            cursor.close()
+            conn.close()
+        return err_rows
+
     def import_table(self, token: str, table_name: str, resume: bool = True, id_field="JSID", del_table_name:str="JYDB_DeleteRec") -> int:
         print(f"开始导入任务 {token} 的表 {table_name}...")
         db_table_name = table_name.split("-")[0]
@@ -364,11 +405,14 @@ class PostgresImporter:
                 if index_info and (index_info[-1][0]=="salt"): index_info = index_info[:-1]# 去掉最后一行的 salt
             index_info = pd.DataFrame(index_info[1:], columns=index_info[0])
             self.create_index(db_table_name, index_info)
-            update_on_fields = self.get_update_on_fields(index_info=index_info)
-            update_on_fields = [ifield.lower() for ifield in update_on_fields]
+            unique_fields = self.get_unique_fields(index_info=index_info)
+            unique_fields = [ifield.lower() for ifield in unique_fields]
         else:
-            update_on_fields = ["id"]
-        print(f"表 {db_table_name} 将根据字段 {update_on_fields} 执行更新式插入" )
+            unique_fields = None
+        if not unique_fields:
+            print(f"表 {db_table_name} 无用于判断行唯一性的字段" )
+        else:
+            print(f"表 {db_table_name} 将根据字段 {unique_fields} 判断行的唯一性" )
         
         # 获取断点信息
         checkpoint = self.get_checkpoint(token, table_name) if resume else {}
@@ -376,7 +420,7 @@ class PostgresImporter:
         idx = int(checkpoint.get("idx", 0))
         
         # 读取CSV文件列表，并清理表里多余的数据
-        file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower() not in ("del", "index")) and int(ifile.split(".")[0].split("-")[-1]) >= idx)
+        file_list = sorted(ifile for ifile in os.listdir(self.import_dir + os.sep + table_name) if ifile.startswith(token+"-") and ifile.endswith(".csv") and (ifile.split(".")[0].split("-")[-1].lower() not in ("del", "index", "unique_error")) and int(ifile.split(".")[0].split("-")[-1]) >= idx)
         # if table_exists and file_list:
         #     id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
         #     with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
@@ -387,30 +431,46 @@ class PostgresImporter:
         #     last_idx = last_row[id_col_idx]
         #     self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
 
+        # 读取删除表数据
+        del_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-DEL.csv"
+        if os.path.isfile(del_file):
+            with open(del_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                del_data = list(reader)
+                if del_data and (del_data[-1][0]=="salt"): del_data = del_data[:-1]# 去掉最后一行的 salt
+            del_data = pd.DataFrame(del_data, columns=["TABLENAME", "RECID", "XGRQ", "ID", "JSID"])
+            del_ids = del_data["RECID"].astype(int).tolist()
+        else:
+            del_ids = None
+        
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
-        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() not in update_on_fields)
-        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({",".join(update_on_fields)}) DO UPDATE SET {update_str}'
+        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() != "id")
+        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
         
-        datetime_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("date")]
-        float_col_idx = [i for i, col in enumerate(columns_info) if col["type"].lower().startswith("float")]
-        int_col_idx = [i for i, col in enumerate(columns_info) if "int" in col["type"].lower()]
+        id_col_idx, datetime_col_idx, float_col_idx, int_col_idx = None, [], [], []
+        for i, col in enumerate(columns_info):
+            if col["name"].lower()=="id": id_col_idx = i
+            if col["type"].lower().startswith("date"): datetime_col_idx.append(i)
+            elif col["type"].lower().startswith("float"): float_col_idx.append(i)
+            elif "int" in col["type"].lower(): int_col_idx.append(i)
+        if id_col_idx is None: raise Exception(f"没有找到 ID 字段: {columns_info}")
         
         total_imported = imported_rows
         conn = self.get_connection()
         cursor = conn.cursor()
-        try:
-            # 导入表数据
-            for ifile in file_list:
+        # 导入表数据
+        for ifile in file_list:
+            try:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f)
                     batch = list(reader)
                     if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
-                
-                # 处理特殊类型的字段
+
                 batch = np.array(batch, dtype="O")
                 batch = np.where(batch!="", batch, None)
+                # 处理特殊类型的字段
                 # if datetime_col_idx:
                 #     for i in datetime_col_idx:
                 #         batch[:, i] = np.where(batch[:, i]!="", batch[:, i], None)
@@ -421,28 +481,60 @@ class PostgresImporter:
                     for i in int_col_idx:
                         mask = pd.isnull(batch[:, i])
                         batch[:, i] = np.where(mask, batch[:, i], np.where(mask, 0, batch[:, i]).astype(int))
-                batch = batch.tolist()
+                # 处理被删除的行
+                if del_ids is not None:
+                    batch = batch[np.isin(batch[:, id_col_idx], del_ids)]
 
-                cursor.executemany(insert_sql, batch)
+                cursor.executemany(insert_sql, batch.tolist())
                 conn.commit()
-                
-                total_imported += len(batch)
-                idx += 1
-                
-                # 保存断点
-                print(f"表 {table_name} 文件 {ifile} 导入完成!")
-                if resume:
-                    self.save_checkpoint(table_name, {
-                        'token': token,
-                        'imported_rows': total_imported,
-                        'import_time': dt.datetime.now().isoformat(),
-                        'idx': idx,
-                    })
-            # 导入删除表数据并执行删除
-            self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, del_table_name=del_table_name, cursor=cursor, conn=conn)
-        finally:
-            cursor.close()
-            conn.close()
+            except psycopg2.errors.UniqueViolation as e:# 处理唯一性错误
+                cursor.close()
+                conn.close()
+                try:
+                    unique_err_rows = self.handle_unique_insert(table_name=table_name, ifile=ifile, batch=batch, e=e, insert_sql=insert_sql, columns_info={col["name"].lower(): col | {"idx": i} for i, col in enumerate(columns_info)})
+                except:
+                    print(f"表 {table_name} 文件 {ifile} 唯一性错误处理失败, 导入失败!")
+                    raise e
+                conn = self.get_connection()
+                cursor = conn.cursor()
+                if unique_err_rows:
+                    unique_err_file = ".".join(ifile.split(".")[:-1])+"-UNIQUE_ERROR.csv"
+                    with open(self.import_dir + os.sep + table_name + os.sep + unique_err_file, 'w', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerows(unique_err_rows)
+                    unique_err_update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() not in unique_fields)
+                    unique_err_insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({",".join(unique_fields)}) DO UPDATE SET {unique_err_update_str}'
+                    try:
+                        cursor.executemany(unique_err_insert_sql, unique_err_rows)
+                        conn.commit()
+                    except Exception as e:
+                        cursor.close()
+                        conn.close()
+                        raise e
+                    else:
+                        print(f"表 {table_name} 文件 {ifile} 唯一性错误处理完成, 通过调整唯一键写入成功")
+            except Exception as e:
+                cursor.close()
+                conn.close()
+                print(f"表 {table_name} 文件 {ifile} 导入失败!")
+                raise e
+            # 保存断点
+            total_imported += batch.shape[0]
+            idx += 1
+            print(f"表 {table_name} 文件 {ifile} 导入完成!")
+            if resume:
+                self.save_checkpoint(table_name, {
+                    'token': token,
+                    'imported_rows': total_imported,
+                    'import_time': dt.datetime.now().isoformat(),
+                    'idx': idx,
+                })
+
+        cursor.close()
+        conn.close()
+
+        # 导入删除表数据并执行删除
+        self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, del_table_name=del_table_name)
         return total_imported
 
 
@@ -459,6 +551,9 @@ if __name__=="__main__":
 
     # index_info = pd.read_csv(r"D:\Data\JYDBSync\CT_Personal\71b1c1afa43f43789ff4cf1ce98b1130-INDEX.csv", header=0, index_col=None)
     # importer.create_index("CT_Personal", index_info=index_info)
+    # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    index_info = importer.get_index_info(table_name="lc_exgindchange")
-    print(index_info)
+    imported_rows = importer.import_table(token="a3eca8160aa04f3bb9a2fa43c34b5cd6", table_name="Test_CT_Keywords", del_table_name="JYDB_DeleteRec", resume=False)
+    print(imported_rows)
+
+    print("===")

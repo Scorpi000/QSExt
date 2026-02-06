@@ -12,8 +12,33 @@ from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator, FactorOperatorized
 import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
+from QSExt.FactorDef.FactorDefContent import FactorDefInput
 from QSExt.FactorDef.JY.stock_cn_info import defFactor
 
+
+if __name__=="__main__1":
+    import logging
+    Logger = logging.getLogger()
+    
+    JYDB = JYDB(logger=Logger).connect()
+    TDB = HDF5DB(logger=Logger).connect()
+
+    FactorDef = defFactor(FactorDefInput(FDB={"JYDB": JYDB}))
+    print(FactorDef)
+
+    iFactor = FactorDef.getFactor(factor_name="listed_date")
+    print(iFactor)
+    print("===")
+
+if __name__=="__main__1":
+    HDB = HDF5DB().connect()
+    print(HDB.TableNames)
+
+    FT = HDB.getTable("stock_cn_info")
+    DTs = FT.getDateTime()
+    Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
+    print(Data.iloc[:, 0])
+    print("===")
 
 if __name__=="__main__":
     import logging
@@ -28,9 +53,8 @@ if __name__=="__main__":
     
     SectionIDs = JYDB.getStockID(is_current=False)
     IDs = SectionIDs#[:5]# DEBUG
-    
-    Args = {"JYDB": JYDB}
-    Factors, UpdateArgs = defFactor(args=Args)
+
+    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": JYDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
     
     # ExecEngine = Engine()
     # PIDList = ["0"]
@@ -47,7 +71,7 @@ if __name__=="__main__":
         FactorDataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
-    Storer = FactorStorer(deps=Factors, args={"TargetFDB": TDB, "TargetTable": UpdateArgs["因子表"], "IfExists": "update"})
+    Storer = FactorStorer(deps=FactorDef.FactorList, args={"TargetFDB": TDB, "TargetTable": FactorDef.TargetTable, "IfExists": "update"})
     Rslt = ExecEngine.run([Storer], Context, fwd_data_list=[LocalContext], init_data_list=[{"dt_range": (DTs[0], DTs[-1]), "section_ids": SectionIDs}])
     print(Rslt)
     

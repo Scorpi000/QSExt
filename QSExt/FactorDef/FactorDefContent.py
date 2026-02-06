@@ -2,17 +2,18 @@
 import os
 import re
 import importlib
+import traceback
 import datetime as dt
-from typing import Literal, Any, List, Dict, Union, Callable
+from typing import Literal, Any, List, Dict, Union, Callable, Optional
 
 import numpy as np
 import pandas as pd
 from pydantic import Field
 
-from QuantStudio.FactorDataBase.FactorDB import CustomFT
-from QSExt.FactorDef.updateFactorData import getLogger
 from QuantStudio.Tools.DateTimeFun import getDateTimeSeries, getMonthLastDateTime, getWeekLastDateTime, getYearLastDateTime, getQuarterLastDateTime
-from QuantStudio import QSArgs, __QS_Error__
+from QuantStudio.Core import QSArgs, __QS_Error__
+from QuantStudio.Core.Factor import Factor
+from QuantStudio.Core.FactorDB import FactorDB, WritableFactorDB
 
 
 _IDFunMapping = {
@@ -139,7 +140,7 @@ class FactorDefContext(QSArgs):
             Proper = False
         if self.DTType!="自定义":
             if isinstance(self.Freq, str):
-                iFreq, iFreqType = int(re.findall("\d+", self.Freq)[0]), re.findall("\D+", self.Freq)[0].lower()
+                iFreq, iFreqType = int(re.findall(r"\d+", self.Freq)[0]), re.findall(r"\D+", self.Freq)[0].lower()
             else:
                 iFreqType = "自定义"
             if (iFreqType != "自定义") and (iFreqType not in self.SupportedFreq):
@@ -265,7 +266,7 @@ class FactorDefContext(QSArgs):
         else:
             return None, None
         if isinstance(self.Freq, str):
-            iFreq, iFreqType = int(re.findall("\d+", self.Freq)[0]), re.findall("\D+", self.Freq)[0].lower()
+            iFreq, iFreqType = int(re.findall(r"\d+", self.Freq)[0]), re.findall(r"\D+", self.Freq)[0].lower()
             if iFreqType == "y":
                 DTs = getYearLastDateTime(DTs)
                 DTRuler = getYearLastDateTime(DTRuler)
@@ -354,12 +355,80 @@ class FactorDefContext(QSArgs):
         self._IDs = None
 
 
-# 因子运行上下文对象
-class FactorRunningContext(QSArgs):
+class FactorDefInput(QSArgs):
+    Debug: bool = Field(default=False, title="调试环境", frozen=True)
+    FDB: Dict[str, FactorDB] = Field(default={}, title="可用因子库")
+    ModelArgs: Dict = Field(default={}, title="模型参数")
+    DTs: List[dt.datetime] = Field(default=[], title="计算时点")
+    DTRuler: List[dt.datetime] = Field(default=[], title="时点标尺")
+    IDs: List[str] = Field(default=[], title="ID序列")
+    SectionIDs: List[str] = Field(default=[], title="截面ID")
+    TDB: Optional[WritableFactorDB] = Field(default=None, title="写入因子库")
+
+# 因子定义对象
+class FactorDef(QSArgs):
+    FactorList: List[Factor] = Field(title="因子列表")
     TargetTable: str = Field(title="因子表")
+    IDType: str = Field(title="ID类型")
     DefaultStartDT: dt.datetime = Field(default=dt.datetime(2002, 1, 1), title="默认起始日")
     MaxLookback: int = Field(default=365, title="最大回溯期")
-    IDType: str = Field(title="ID类型")
+    DTType: Literal["自定义", "交易日", "自然日"] = Field(default="自定义", title="时点类型")
+    Freq: str = Field(default="1d", title="时点频率")
+    Author: str = Field(default="Anonymous", title="作者")
+    Description: str = Field(default="", title="描述信息")
+
+    @property
+    def FactorNames(self):
+        return [iFactor._QSArgs.Name for iFactor in self.FactorList]
+
+    # 查找因子对象, def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1/...， ...表示只在这层搜索，不查询该层的描述子
+    def getFactor(self, factor_name: Optional[str]=None, def_path: str="...", factor_id: Optional[str]=None, only_one=True):
+        if (factor_id is None) and (factor_name is None):
+            raise __QS_Error__(f"入参 factor_id、factor_name 不可同时为 None")
+
+        def _searchFactor(factors, factor_id, factor_name, recursive=True):
+            Factors = []
+            for iFactor in factors:
+                if ((factor_id is None) or (iFactor.QSID == factor_id)) and ((factor_name is None) or (iFactor._QSArgs.Name == factor_name)):
+                    Factors.append(iFactor)
+                if recursive:
+                    Factors += _searchFactor(iFactor.Descriptors, factor_id, factor_name)
+            return Factors
+
+        DefPath = def_path.strip().split("/")
+        LastPos = DefPath[-1]
+        if LastPos in ("", "..."): DefPath = DefPath[:-1]
+        if DefPath:
+            iFactor = self
+            for i, iIdx in enumerate(DefPath):
+                try:
+                    iIdx = int(iIdx)
+                except:
+                    try:
+                        iIdx = [iDep._QSArgs.Name for iDep in iFactor.Descriptors].index(iIdx)
+                    except:
+                        raise __QS_Error__(f"查找不到因子 path='{'/'.join(DefPath[:i+1])}': {traceback.format_exc()}")
+                try:
+                    iFactor = iFactor.Descriptors[iIdx]
+                except:
+                    raise __QS_Error__(f"查找不到因子 path='{'/'.join(DefPath[:i+2])}': {traceback.format_exc()}")
+            if (LastPos not in ("", "...")) and ((factor_name is None) or (iFactor._QSArgs.Name == factor_name)) and ((factor_id is None) or (iFactor.QSID==factor_id)):
+                return (iFactor if only_one else [iFactor])
+            elif LastPos in ("", "..."):
+                Factors = _searchFactor(factors=iFactor.Descriptors, factor_id=factor_id, factor_name=factor_name, recursive=(LastPos==""))
+            else:
+                raise __QS_Error__(f"查找不到因子: Name='{factor_name}', QSID='{factor_id}', def_path='{def_path}'")
+        else:
+            Factors = _searchFactor(factors=self.FactorList, factor_id=factor_id, factor_name=factor_name, recursive=(LastPos==""))
+        if only_one:
+            if (len(Factors) == 1) or ((len(Factors) > 1) and (factor_id is not None)):
+                return Factors[0]
+            elif len(Factors) == 0:
+                raise __QS_Error__(f"查找不到因子: Name='{factor_name}', QSID='{factor_id}', def_path='{def_path}'")
+            else:
+                raise __QS_Error__(f"查找到的因子 (Name='{factor_name}', QSID='{factor_id}', def_path='{def_path}') 不止一个!")
+        else:
+            return Factors
 
 
 if __name__=="__main__":
