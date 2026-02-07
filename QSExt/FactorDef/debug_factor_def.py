@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from QuantStudio.Core.JYDB import JYDB
+from QuantStudio.Core.BaoStockDB import BaoStockDB
 from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
@@ -13,19 +14,22 @@ from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, m
 import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
-from QSExt.FactorDef.JY.stock_cn_info import defFactor
+
+#from QSExt.FactorDef.JY.stock_cn_info import defFactor
+from QSExt.FactorDef.BaoStock.stock_cn_day_bar_adj_backward import defFactor
 
 
 if __name__=="__main__1":
     import logging
     Logger = logging.getLogger()
     
-    JYDB = JYDB(logger=Logger).connect()
+    #SDB = JYDB(logger=Logger).connect()
+    SDB =  BaoStockDB(logger=Logger).connect()
     TDB = HDF5DB(logger=Logger).connect()
 
-    FactorDef = defFactor(FactorDefInput(FDB={"JYDB": JYDB}))
+    FactorDef = defFactor(FactorDefInput(FDB={"BSDB": SDB}))
     print(FactorDef)
-
+    
     iFactor = FactorDef.getFactor(factor_name="listed_date")
     print(iFactor)
     print("===")
@@ -44,22 +48,23 @@ if __name__=="__main__":
     import logging
     Logger = logging.getLogger()
     
-    JYDB = JYDB(logger=Logger).connect()
+    #SDB = JYDB(logger=Logger).connect()
+    SDB = BaoStockDB(logger=Logger).connect()
     TDB = HDF5DB(logger=Logger).connect()
 
     StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
-    DTs = JYDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date())
-    DTRuler = JYDB.getTradeDay(start_date=StartDT.date() - dt.timedelta(365), end_date=EndDT.date())
+    DTs = SDB.getTradeDay(start_date=StartDT, end_date=EndDT)
+    DTRuler = SDB.getTradeDay(start_date=StartDT - dt.timedelta(365), end_date=EndDT)
     
-    SectionIDs = JYDB.getStockID(is_current=False)
-    IDs = SectionIDs#[:5]# DEBUG
-
-    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": JYDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
+    SectionIDs = SDB.getStockID(is_current=False)[:10]
+    IDs = SectionIDs[:5]# DEBUG
     
-    # ExecEngine = Engine()
-    # PIDList = ["0"]
-    ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
-    PIDList = [f"0-{i}" for i in range(3)]
+    FactorDef = defFactor(fdi=FactorDefInput(FDB={"BSDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
+    
+    ExecEngine = Engine()
+    PIDList = ["0"]
+    #ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
+    #PIDList = [f"0-{i}" for i in range(3)]
     Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"D:\Data\FactorCache", "PIDs": PIDList, "ClearStart": True})
     Cache.start()
     Context = FactorContext(
@@ -76,7 +81,7 @@ if __name__=="__main__":
     print(Rslt)
     
     TDB.disconnect()
-    JYDB.disconnect()
-
+    SDB.disconnect()
+    
     print("===")
     

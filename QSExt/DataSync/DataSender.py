@@ -118,7 +118,7 @@ class DataSender(FileSystemEventHandler):
         interval_seconds: int = 3,
         retry_num: int = 3,
         concurrent_num: int = 1,
-        max_size: float = 4.5# 单词最大传送的数据量，单位 G
+        max_size: float = 4.5# 单次最大传送的数据量，单位 G
     ):
         self.main_dir = main_dir
         self.source_dir = source_dir

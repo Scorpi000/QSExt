@@ -9,8 +9,7 @@ from QuantStudio.Core.BasicOperator import rename
 import QuantStudio.Core.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
-# args:
-# JYDB: 聚源因子库对象
+
 def defFactor(fdi: FactorDefInput):
     Factors = []
     
