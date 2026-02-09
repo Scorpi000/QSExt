@@ -38,7 +38,7 @@ if __name__=="__main__1":
     HDB = HDF5DB().connect()
     print(HDB.TableNames)
 
-    FT = HDB.getTable("stock_cn_info")
+    FT = HDB.getTable("stock_cn_day_bar_adj_backward")
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0])
@@ -61,18 +61,18 @@ if __name__=="__main__":
     
     FactorDef = defFactor(fdi=FactorDefInput(FDB={"BSDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
     
-    ExecEngine = Engine()
-    PIDList = ["0"]
-    #ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
-    #PIDList = [f"0-{i}" for i in range(3)]
-    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"D:\Data\FactorCache", "PIDs": PIDList, "ClearStart": True})
+    #ExecEngine = Engine()
+    #PIDList = ["0"]
+    ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
+    PIDList = [f"0-{i}" for i in range(3)]
+    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"C:\Users\hst\Project\Data\FactorCache", "PIDs": PIDList, "ClearStart": True})
     Cache.start()
     Context = FactorContext(
         PID="0",
         PIDList=PIDList,
         DTRuler=DTRuler,
         DefaultSectionIDs=SectionIDs,
-        IDSplit="连续切分",
+        SplitType="连续切分",
         FactorDataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)

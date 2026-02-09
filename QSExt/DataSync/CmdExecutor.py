@@ -89,7 +89,7 @@ class CmdExecutor(FileSystemEventHandler):
             
             token = cmd.get("token", None)
             if token in self.proc_list: return
-            
+            print(f"接到命令: {cmd}")
             self.proc_list[token] = Process(target=execute_cmd, args=({"cmd": cmd, "main_dir": self.main_dir,}, ))
             self.proc_list[token].start()
 
