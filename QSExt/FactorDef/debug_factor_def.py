@@ -15,8 +15,9 @@ import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
-#from QSExt.FactorDef.JY.stock_cn_info import defFactor
-from QSExt.FactorDef.BaoStock.stock_cn_day_bar_adj_backward import defFactor
+# from QSExt.FactorDef.BaoStock.stock_cn_day_bar_adj_backward import defFactor
+# from QSExt.FactorDef.JY.stock_cn_info import defFactor
+from QSExt.FactorDef.JY.stock_cn_industry import defFactor
 
 
 if __name__=="__main__1":
@@ -38,7 +39,7 @@ if __name__=="__main__1":
     HDB = HDF5DB().connect()
     print(HDB.TableNames)
 
-    FT = HDB.getTable("stock_cn_day_bar_adj_backward")
+    FT = HDB.getTable("stock_cn_industry")
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0])
@@ -48,8 +49,8 @@ if __name__=="__main__":
     import logging
     Logger = logging.getLogger()
     
-    #SDB = JYDB(logger=Logger).connect()
-    SDB = BaoStockDB(logger=Logger).connect()
+    SDB = JYDB(logger=Logger).connect()
+    # SDB = BaoStockDB(logger=Logger).connect()
     TDB = HDF5DB(logger=Logger).connect()
 
     StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
@@ -59,13 +60,13 @@ if __name__=="__main__":
     SectionIDs = SDB.getStockID(is_current=False)[:10]
     IDs = SectionIDs[:5]# DEBUG
     
-    FactorDef = defFactor(fdi=FactorDefInput(FDB={"BSDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
+    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
     
     #ExecEngine = Engine()
     #PIDList = ["0"]
     ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
     PIDList = [f"0-{i}" for i in range(3)]
-    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "CacheDir": r"C:\Users\hst\Project\Data\FactorCache", "PIDs": PIDList, "ClearStart": True})
+    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
     Cache.start()
     Context = FactorContext(
         PID="0",
