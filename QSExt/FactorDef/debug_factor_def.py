@@ -20,7 +20,8 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput
 # from QSExt.FactorDef.JY.stock_cn_industry import defFactor
 # from QSExt.FactorDef.JY.stock_cn_status import defFactor
 # from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor
-from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
+# from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
+from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor
 
 
 if __name__=="__main__1":
@@ -38,17 +39,17 @@ if __name__=="__main__1":
     print(iFactor)
     print("===")
 
-if __name__=="__main__":
+if __name__=="__main__1":
     HDB = HDF5DB().connect()
     print(HDB.TableNames)
 
-    FT = HDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
+    FT = HDB.getTable("stock_cn_factor_value")
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0])
     print("===")
 
-if __name__=="__main__1":
+if __name__=="__main__":
     import logging
     Logger = logging.getLogger()
     
