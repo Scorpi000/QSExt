@@ -8,15 +8,15 @@ import numpy as np
 import pandas as pd
 
 from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized, makeFactorOperator
+from QuantStudio.Core.FactorOperation import FactorOperatorized
 import QuantStudio.Core.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
-@FactorOperatorized(operator_type="Point", args={"DTMode": "多时点", "IDMode": "多ID", "DataType": "string"})
-def map_value(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Point", args={"Arity": 1, "DTMode": "多时点", "IDMode": "多ID", "DataType": "string"})
+def mapValue(f, idt, iid, x, args):
     Data = x[0]
-    Mapping = pd.Series(args["OperatorArg"]["mapping"])
+    Mapping = pd.Series(args["mapping"])
     TargetShape = Data.shape
     Data = Data.flatten(order="C")
     Rslt = np.full(shape=Data.shape, fill_value=None, dtype=Mapping.dtype)
@@ -30,95 +30,101 @@ def defFactor(fdi: FactorDefInput):
     
     JYDB = fdi.FDB["JYDB"]
     
-    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False})
-    
     # # 申万行业, 2014 版
-    # Factors.append(rename(FT.getFactor("一级行业名称", args={"行业划分标准": "24"}), factor_name="sw2014_level1"))
-    # Factors.append(rename(FT.getFactor("一级行业代码", args={"行业划分标准": "24"}), factor_name="sw2014_code_level1"))
-    # Factors.append(rename(FT.getFactor("二级行业名称", args={"行业划分标准": "24"}), factor_name="sw2014_level2"))
-    # Factors.append(rename(FT.getFactor("二级行业代码", args={"行业划分标准": "24"}), factor_name="sw2014_code_level2"))
-    # Factors.append(rename(FT.getFactor("三级行业名称", args={"行业划分标准": "24"}), factor_name="sw2014_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码", args={"行业划分标准": "24"}), factor_name="sw2014_code_level3"))
+    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "24"}})
+    # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="sw2014_level1"))
+    # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="sw2014_code_level1"))
+    # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="sw2014_level2"))
+    # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="sw2014_code_level2"))
+    # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="sw2014_level3"))
+    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="sw2014_code_level3"))
     
     # 申万行业, 2021 版
-    Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_level1"))
-    Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_code_level1"))
-    Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_level2"))
-    Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_code_level2"))
-    Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_level3"))
-    Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "38"}}), factor_name="sw2021_code_level3"))
+    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "38"}})
+    Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="sw2021_level1"))
+    Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="sw2021_code_level1"))
+    Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="sw2021_level2"))
+    Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="sw2021_code_level2"))
+    Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="sw2021_level3"))
+    Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="sw2021_code_level3"))
     
     # # 中信行业
-    # Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_level1"))
-    # Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_code_level1"))
-    # Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_level2"))
-    # Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_code_level2"))
-    # Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "3"}}), factor_name="citic_code_level3"))
+    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "3"}})
+    # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="citic_level1"))
+    # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="citic_code_level1"))
+    # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="citic_level2"))
+    # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="citic_code_level2"))
+    # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="citic_level3"))
+    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="citic_code_level3"))
     
     # 中信行业, 2019 版
-    Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_level1"))
-    Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_code_level1"))
-    Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_level2"))
-    Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_code_level2"))
-    Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_level3"))
-    Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "37"}}), factor_name="citic2019_code_level3"))
+    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "37"}})
+    Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="citic2019_level1"))
+    Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="citic2019_code_level1"))
+    Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="citic2019_level2"))
+    Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="citic2019_code_level2"))
+    Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="citic2019_level3"))
+    Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="citic2019_code_level3"))
     
     # 证监会行业, 2012 版
-    Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "22"}}), factor_name="csrc2012_level1"))
-    Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "22"}}), factor_name="csrc2012_code_level1"))
-    Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "22"}}), factor_name="csrc2012_level2"))
-    Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "22"}}), factor_name="csrc2012_code_level2"))
+    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "22"}})
+    Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="csrc2012_level1"))
+    Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="csrc2012_code_level1"))
+    Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="csrc2012_level2"))
+    Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="csrc2012_code_level2"))
     
     # # 中证指数行业, 2016 版
-    # Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_level1"))
-    # Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_code_level1"))
-    # Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_level2"))
-    # Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_code_level2"))
-    # Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_code_level3"))
-    # Factors.append(rename(FT.getFactor("四级行业名称", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_level4"))
-    # Factors.append(rename(FT.getFactor("四级行业代码", args={"AdditionalCondition": {"行业划分标准": "28"}}), factor_name="csi2016_code_level4"))
+    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "28"}})
+    # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="csi2016_level1"))
+    # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="csi2016_code_level1"))
+    # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="csi2016_level2"))
+    # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="csi2016_code_level2"))
+    # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="csi2016_level3"))
+    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="csi2016_code_level3"))
+    # Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="csi2016_level4"))
+    # Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="csi2016_code_level4"))
     
     # # GICS 行业, 不更新, 最后更新时点: 2020-11-25
-    # Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_level1"))
-    # Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_code_level1"))
-    # Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_level2"))
-    # Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_code_level2"))
-    # Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_code_level3"))
-    # Factors.append(rename(FT.getFactor("四级行业名称", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_level4"))
-    # Factors.append(rename(FT.getFactor("四级行业代码", args={"AdditionalCondition": {"行业划分标准": "6"}}), factor_name="gics_code_level4"))
+    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "6"}})
+    # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="gics_level1"))
+    # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="gics_code_level1"))
+    # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="gics_level2"))
+    # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="gics_code_level2"))
+    # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="gics_level3"))
+    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="gics_code_level3"))
+    # Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="gics_level4"))
+    # Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="gics_code_level4"))
     
     # # 聚源行业
-    # Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_level1"))
-    # Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_code_level1"))
-    # Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_level2"))
-    # Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_code_level2"))
-    # Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "21"}}), factor_name="jy_code_level3"))
+    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "21"}})
+    # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="jy_level1"))
+    # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="jy_code_level1"))
+    # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="jy_level2"))
+    # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="jy_code_level2"))
+    # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="jy_level3"))
+    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="jy_code_level3"))
     
     # 聚源行业, 2016 版, 类 GICS
-    Factors.append(rename(FT.getFactor("一级行业名称", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_level1"))
-    Factors.append(rename(FT.getFactor("一级行业代码", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_code_level1"))
-    Factors.append(rename(FT.getFactor("二级行业名称", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_level2"))
-    Factors.append(rename(FT.getFactor("二级行业代码", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_code_level2"))
-    Factors.append(rename(FT.getFactor("三级行业名称", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_level3"))
-    JY2016Level3Code = rename(FT.getFactor("三级行业代码", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_code_level3")
+    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "30"}})
+    Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="jy2016_level1"))
+    Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="jy2016_code_level1"))
+    Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="jy2016_level2"))
+    Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="jy2016_code_level2"))
+    Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="jy2016_level3"))
+    JY2016Level3Code = rename(FT.getFactor("三级行业代码"), factor_name="jy2016_code_level3")
     Factors.append(JY2016Level3Code)
-    Factors.append(rename(FT.getFactor("四级行业名称", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_level4"))
-    Factors.append(rename(FT.getFactor("四级行业代码", args={"AdditionalCondition": {"行业划分标准": "30"}}), factor_name="jy2016_code_level4"))
+    Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="jy2016_level4"))
+    Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="jy2016_code_level4"))
     
     # Barra CNE5 风险模型行业
-    # map_value1 = makeFactorOperator(map_value, operator_type="Point", args={"DTMode": "多时点", "IDMode": "多ID", "DataType": "string"})
-    JYIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_jy.csv"), header=0, index_col=5).iloc[:, 0]
+    JYIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_jy.csv"), header=0, index_col=5).iloc[:, 0].astype("O")
     JYIndustryMap.index = JYIndustryMap.index.astype(str)
-    JYBarraIndustry = map_value(JY2016Level3Code, JYIndustryMap)
-    GICSIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_gics.csv"), header=0, index_col=5).iloc[:, 0]
-    GICSIndustryMap.index = GICSIndustryMap.index.astype(str)
-    GICSBarraIndustry = map_value(JY2016Level3Code, GICSIndustryMap)
-    BarrayIndustry = fo.Where(dtype="string")(JYBarraIndustry, fo.NotNull()(JYBarraIndustry), GICSBarraIndustry, factor_args={"Name": "barra_industry"})
-    Factors.append(BarrayIndustry)
+    BarraIndustry = mapValue(JY2016Level3Code, factor_args={"Name": "barra_industry", "ModelArgs": {"mapping": JYIndustryMap}})
+    # GICSIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_gics.csv"), header=0, index_col=5).iloc[:, 0].astype("O")
+    # GICSIndustryMap.index = GICSIndustryMap.index.astype(str)
+    # GICSBarraIndustry = mapValue(JY2016Level3Code, factor_args={"ModelArgs": {"mapping": GICSIndustryMap}})
+    # BarraIndustry = fo.Where(dtype="string")(BarraIndustry, fo.NotNull()(BarraIndustry), GICSBarraIndustry, factor_args={"Name": "barra_industry"})
+    Factors.append(BarraIndustry)
     
     return FactorDef(
         FactorList=Factors,

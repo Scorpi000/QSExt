@@ -10,14 +10,17 @@ from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
 from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
-from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator, FactorOperatorized
+from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator
 import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
 # from QSExt.FactorDef.BaoStock.stock_cn_day_bar_adj_backward import defFactor
 # from QSExt.FactorDef.JY.stock_cn_info import defFactor
-from QSExt.FactorDef.JY.stock_cn_industry import defFactor
+# from QSExt.FactorDef.JY.stock_cn_industry import defFactor
+# from QSExt.FactorDef.JY.stock_cn_status import defFactor
+# from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor
+from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
 
 
 if __name__=="__main__1":
@@ -35,17 +38,17 @@ if __name__=="__main__1":
     print(iFactor)
     print("===")
 
-if __name__=="__main__1":
+if __name__=="__main__":
     HDB = HDF5DB().connect()
     print(HDB.TableNames)
 
-    FT = HDB.getTable("stock_cn_industry")
+    FT = HDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0])
     print("===")
 
-if __name__=="__main__":
+if __name__=="__main__1":
     import logging
     Logger = logging.getLogger()
     
@@ -57,15 +60,17 @@ if __name__=="__main__":
     DTs = SDB.getTradeDay(start_date=StartDT, end_date=EndDT)
     DTRuler = SDB.getTradeDay(start_date=StartDT - dt.timedelta(365), end_date=EndDT)
     
-    SectionIDs = SDB.getStockID(is_current=False)[:10]
-    IDs = SectionIDs[:5]# DEBUG
+    # SectionIDs = SDB.getStockID(is_current=False)
+    # IDs = SectionIDs
+    # DEBUG
+    SectionIDs = IDs = ["000001.SZ", "000003.SZ", "301111.SZ", "600519.SH", "688981.SH", "920726.BJ"]
     
     FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
     
-    #ExecEngine = Engine()
-    #PIDList = ["0"]
-    ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
-    PIDList = [f"0-{i}" for i in range(3)]
+    ExecEngine = Engine()
+    PIDList = ["0"]
+    # ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
+    # PIDList = [f"0-{i}" for i in range(3)]
     Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
     Cache.start()
     Context = FactorContext(
