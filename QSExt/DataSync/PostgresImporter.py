@@ -2,6 +2,7 @@ import os
 import re
 import csv
 import json
+import time
 import traceback
 import datetime as dt
 from collections import deque
@@ -14,7 +15,7 @@ import psycopg2
 
 
 class PostgresImporter:
-    def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports", default_id_field: str = "JSID"):
+    def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports", default_id_field: str = "JSID", conn_retry_num: int=3, conn_interval_seconds=30):
         self.host = host
         self.port = port
         self.database = database
@@ -23,6 +24,8 @@ class PostgresImporter:
         self.import_dir = import_dir
         self.checkpoint_file = "import_checkpoint.json"
         self._default_id_field = default_id_field
+        self.conn_retry_num = conn_retry_num
+        self.conn_inveral_seconds = conn_interval_seconds
         self.lock = Lock()
     
     @property
@@ -31,14 +34,19 @@ class PostgresImporter:
     
     def get_connection(self):
         """获取数据库连接"""
-        return psycopg2.connect(
-            host=self.host,
-            port=int(self.port), 
-            database=self.database,
-            user=self.username,
-            password=self.password
-        )
-    
+        for _ in range(self.conn_retry_num):
+            try:
+                return psycopg2.connect(
+                    host=self.host,
+                    port=int(self.port), 
+                    database=self.database,
+                    user=self.username,
+                    password=self.password
+                )
+            except Exception as e:
+                pass
+        raise Exception(f"数据库连接失败: {traceback.format_exc()}")
+
     def get_checkpoint(self, token: str, table_name: str) -> Dict[str, Any]:
         """获取断点信息"""
         checkpoint_file = self.import_dir + os.sep + table_name + os.sep + self.checkpoint_file
@@ -540,7 +548,7 @@ class PostgresImporter:
 
 if __name__=="__main__":
     config = {
-        'host': 'localhost',
+        'host': '172.25.109.134',
         'port': '5433',
         'database': 'JYDB',
         'username': 'shzq',

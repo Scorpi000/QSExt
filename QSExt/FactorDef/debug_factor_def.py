@@ -25,12 +25,9 @@ from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor
 
 
 if __name__=="__main__1":
-    import logging
-    Logger = logging.getLogger()
-    
-    #SDB = JYDB(logger=Logger).connect()
-    SDB =  BaoStockDB(logger=Logger).connect()
-    TDB = HDF5DB(logger=Logger).connect()
+    #SDB = JYDB().connect()
+    SDB =  BaoStockDB().connect()
+    TDB = HDF5DB().connect()
 
     FactorDef = defFactor(FactorDefInput(FDB={"BSDB": SDB}))
     print(FactorDef)
@@ -40,23 +37,26 @@ if __name__=="__main__1":
     print("===")
 
 if __name__=="__main__1":
-    HDB = HDF5DB().connect()
-    print(HDB.TableNames)
+    SDB = JYDB().connect()
+    TDB = HDF5DB().connect()
+    print(TDB.TableNames)
 
-    FT = HDB.getTable("stock_cn_factor_value")
+    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB}, DTs=[], IDs=[], SectionIDs=[], DTRuler=[]))
+    FT = TDB.getTable(FactorDef.TargetTable)
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0])
+
+    TDB.disconnect()
+    SDB.disconnect()
     print("===")
 
 if __name__=="__main__":
-    import logging
-    Logger = logging.getLogger()
-    
-    SDB = JYDB(logger=Logger).connect()
-    # SDB = BaoStockDB(logger=Logger).connect()
-    TDB = HDF5DB(logger=Logger).connect()
+    SDB = JYDB().connect()
+    # SDB = BaoStockDB().connect()
+    TDB = HDF5DB().connect()
 
+    SDB.Logger.info("开始因子计算...")
     StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
     DTs = SDB.getTradeDay(start_date=StartDT, end_date=EndDT)
     DTRuler = SDB.getTradeDay(start_date=StartDT - dt.timedelta(365), end_date=EndDT)

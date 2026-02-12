@@ -18,13 +18,19 @@ from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDa
 @FactorOperatorized(operator_type="Point", args={"Arity": 4, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcFwd12M(f, idt, iid, x, args):
     ForecastYear_FY0, NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2 = x
-    DTs = np.array([idt], dtype="O").T.repeat(ForecastYear_FY0.shape[1], axis=1)
+    NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2 = pd.DataFrame(NetProfitAvg_FY0).astype(float), pd.DataFrame(NetProfitAvg_FY1).astype(float), pd.DataFrame(NetProfitAvg_FY2).astype(float)
+    DTs = pd.DataFrame(np.array([idt], dtype="O").T.repeat(ForecastYear_FY0.shape[1], axis=1))
     Mask = pd.isnull(ForecastYear_FY0)
-    ForecastYear_FY0 = pd.DataFrame(ForecastYear_FY0).fillna(pd.NaT)
+    ForecastYear_FY0 = pd.DataFrame(ForecastYear_FY0).fillna(pd.NaT).astype(np.dtype("datetime64[ns]"))
     ForecastYear_FY1 = ForecastYear_FY0 + dt.timedelta(days=365)
-    Weight = (ForecastYear_FY0 - DTs).map(lambda d: d.days) / 365
-    Fwd12M = Weight * NetProfitAvg_FY0 + (1 - Weight) * NetProfitAvg_FY1
-    return Fwd12M
+    Weight = (ForecastYear_FY0 - DTs).map(lambda d: d.days if pd.notnull(d) else np.nan) / 365
+    Weight_FY1 = (ForecastYear_FY1 - DTs).map(lambda d: d.days if pd.notnull(d) else np.nan) / 365
+    Mask = ((Weight >= 0) | pd.isnull(Weight))
+    Weight = Weight.where(Mask, Weight_FY1)
+    NetProfitAvg0 = NetProfitAvg_FY0.where(Mask, NetProfitAvg_FY1)
+    NetProfitAvg1 = NetProfitAvg_FY1.where(Mask, NetProfitAvg_FY2)
+    Fwd12M = Weight * NetProfitAvg0 + (1 - Weight) * NetProfitAvg1
+    return Fwd12M.values
 
 @FactorOperatorized(operator_type="Point", args={"Arity": 2, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcDvd(f, idt, iid, x, args):
