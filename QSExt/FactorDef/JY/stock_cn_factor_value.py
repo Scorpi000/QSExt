@@ -133,80 +133,81 @@ def defFactor(fdi: FactorDefInput):
     NetProfitAvg_FY2 = FT.getFactor("预测净利润平均值(元)")
     NetProfitAvg_Fwd12M = calcFwd12M(ForecastYear_FY0, NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2, factor_args={"Name": "net_profit_fwd12m"})
 
-    # # ### 特征因子 #############################################################################
-    # StockIndustryDef = defStockIndustry(fdi=fdi)
-    # Sector = StockIndustryDef.getFactor("citic2019_level1")
-    # StockStatusDef = defStockStatus(fdi=fdi)
-    # IsListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
+    # ### 特征因子 #############################################################################
+    StockIndustryDef = defStockIndustry(fdi=fdi)
+    Sector = StockIndustryDef.getFactor("citic2019_level1")
+    StockStatusDef = defStockStatus(fdi=fdi)
+    IsListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
 
-    # # ### 行情因子 #############################################################################
-    # StockDayBarDef = defStockDayBar(fdi=fdi)
-    # MarketCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...")# 单位: 万元
+    # ### 行情因子 #############################################################################
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    MarketCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...")# 单位: 万元
     
-    # # #### 股息类 #############################################################################
-    # FT = JYDB.getTable("公司分红")
-    # CashDvdPerShare, BaseShare = FT.getFactor("派现(含税-人民币元)"), FT.getFactor("分红股本基数(股)")
-    # Dividend = calcDvd(CashDvdPerShare, BaseShare, factor_args={"Name": "税前现金总红利"})
-    # Factors.append(rename(fo.RollingSum(window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
+    # #### 股息类 #############################################################################
+    FT = JYDB.getTable("公司分红")
+    CashDvdPerShare, BaseShare = FT.getFactor("派现(含税-人民币元)"), FT.getFactor("分红股本基数(股)")
+    Dividend = calcDvd(CashDvdPerShare, BaseShare, factor_args={"Name": "税前现金总红利"})
+    Factors.append(rename(fo.RollingSum(window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
 
-    # # ### 盈利类 ########################################################################
-    # Factors.append(rename(NetProfit_TTM_Deducted / (MarketCap * 10000), factor_name="ep_ttm_deducted"))
+    # ### 盈利类 ########################################################################
+    Factors.append(rename(NetProfit_TTM_Deducted / (MarketCap * 10000), factor_name="ep_ttm_deducted"))
     
-    # EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / (MarketCap * 10000), factor_name="ep_lyr_deducted")
-    # Factors.append(EP_LYR_Deducted)
+    EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / (MarketCap * 10000), factor_name="ep_lyr_deducted")
+    Factors.append(EP_LYR_Deducted)
     
-    # EP_TTM = rename(NetProfit_TTM / (MarketCap * 10000), factor_name="ep_ttm")
-    # Factors.append(EP_TTM)
-    # Factors.append(rename(NetProfit_LYR / (MarketCap * 10000), factor_name="ep_lyr"))
-    # Factors.append(rename(NetProfitAvg_FY0 / (MarketCap * 10000), factor_name="ep_fy0"))
-    # Factors.append(rename(NetProfitAvg_FY1 / (MarketCap * 10000), factor_name="ep_fy1"))
-    # Factors.append(rename(NetProfitAvg_Fwd12M / (MarketCap * 10000), factor_name="ep_fwd12m"))
+    EP_TTM = rename(NetProfit_TTM / (MarketCap * 10000), factor_name="ep_ttm")
+    Factors.append(EP_TTM)
+    Factors.append(rename(NetProfit_LYR / (MarketCap * 10000), factor_name="ep_lyr"))
+    Factors.append(rename(NetProfitAvg_FY0 / (MarketCap * 10000), factor_name="ep_fy0"))
+    Factors.append(rename(NetProfitAvg_FY1 / (MarketCap * 10000), factor_name="ep_fy1"))
+    Factors.append(rename(NetProfitAvg_Fwd12M / (MarketCap * 10000), factor_name="ep_fwd12m"))
 
-    # # ### 现金流类 ######################################################################
-    # Factors.append(rename(OCF_TTM / (MarketCap * 10000), factor_name="ocfp_ttm"))
-    # OCFP_LYR=rename(OCF_LYR / (MarketCap * 10000), factor_name="ocfp_lyr")
-    # Factors.append(OCFP_LYR)
+    # ### 现金流类 ######################################################################
+    Factors.append(rename(OCF_TTM / (MarketCap * 10000), factor_name="ocfp_ttm"))
+    OCFP_LYR=rename(OCF_LYR / (MarketCap * 10000), factor_name="ocfp_lyr")
+    Factors.append(OCFP_LYR)
     
-    # Factors.append(rename(FCF_TTM / (MarketCap * 10000), factor_name="fcfp_ttm"))
-    # FCFP_LYR=rename(FCF_LYR / (MarketCap * 10000), factor_name="fcfp_lyr")
-    # Factors.append(FCFP_LYR)
+    Factors.append(rename(FCF_TTM / (MarketCap * 10000), factor_name="fcfp_ttm"))
+    FCFP_LYR=rename(FCF_LYR / (MarketCap * 10000), factor_name="fcfp_lyr")
+    Factors.append(FCFP_LYR)
 
-    # # ### 营业收入类 ########################################################################
-    # SP_TTM = rename(Sales_TTM / (MarketCap * 10000), factor_name="sp_ttm")
-    # Factors.append(SP_TTM)
-    # SP_LYR=rename(Sales_LYR / (MarketCap * 10000), factor_name="sp_lyr")
-    # Factors.append(SP_LYR)
+    # ### 营业收入类 ########################################################################
+    SP_TTM = rename(Sales_TTM / (MarketCap * 10000), factor_name="sp_ttm")
+    Factors.append(SP_TTM)
+    SP_LYR=rename(Sales_LYR / (MarketCap * 10000), factor_name="sp_lyr")
+    Factors.append(SP_LYR)
 
-    # # ### 账面净资产类 ######################################################################
-    # BP_LR = rename((TotalAsset - TotalLiability) / (MarketCap * 10000), factor_name="bp_lr")
-    # Factors.append(BP_LR)
-    # Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / (MarketCap * 10000), factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
+    # ### 账面净资产类 ######################################################################
+    BP_LR = rename((TotalAsset - TotalLiability) / (MarketCap * 10000), factor_name="bp_lr")
+    Factors.append(BP_LR)
+    Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / (MarketCap * 10000), factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
 
-    # # ### 企业价值类 ########################################################################
-    # EV = MarketCap * 10000 + InterestBearingObligation - MonetaryFund
-    # Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
-    # Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
-    # Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
+    # ### 企业价值类 ########################################################################
+    EV = MarketCap * 10000 + InterestBearingObligation - MonetaryFund
+    Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
+    Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
+    Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
     
-    # # ### 价值偏离度 ########################################################################
-    # EP_SectorMedian = calcSectorMedian(EP_TTM, Sector, IsListed, factor_args={"Name": "EP_SectorMedian"})
-    # EPResult = regressValueBias(EP_TTM, EP_SectorMedian, factor_args={"Name": "EPResult"})
-    # EP_DR = calcValueBias(EPResult, EP_TTM, EP_SectorMedian, factor_args={"Name": "ep_dr"})
-    # Factors.append(EP_DR)
+    # ### 价值偏离度 ########################################################################
+    EP_SectorMedian = calcSectorMedian(EP_TTM, Sector, IsListed, factor_args={"Name": "EP_SectorMedian"})
+    EPResult = regressValueBias(EP_TTM, EP_SectorMedian, factor_args={"Name": "EPResult"})
+    EP_DR = calcValueBias(EPResult, EP_TTM, EP_SectorMedian, factor_args={"Name": "ep_dr"})
+    Factors.append(EP_DR)
     
-    # SP_SectorMedian = calcSectorMedian(SP_TTM, Sector, IsListed, factor_args={"Name": "SP_SectorMedian"})
-    # SPResult = regressValueBias(SP_TTM, SP_SectorMedian, factor_args={"Name": "SPResult"})
-    # SP_DR = calcValueBias(SPResult, SP_TTM, SP_SectorMedian, factor_args={"Name": "sp_dr"})
-    # Factors.append(SP_DR)
+    SP_SectorMedian = calcSectorMedian(SP_TTM, Sector, IsListed, factor_args={"Name": "SP_SectorMedian"})
+    SPResult = regressValueBias(SP_TTM, SP_SectorMedian, factor_args={"Name": "SPResult"})
+    SP_DR = calcValueBias(SPResult, SP_TTM, SP_SectorMedian, factor_args={"Name": "sp_dr"})
+    Factors.append(SP_DR)
 
-    # BP_SectorMedian = calcSectorMedian(BP_LR, Sector, IsListed, factor_args={"Name": "BP_SectorMedian"})
-    # BPResult = regressValueBias(BP_LR, BP_SectorMedian, factor_args={"Name": "BPResult"})
-    # BP_DR = calcValueBias(BPResult, BP_LR, BP_SectorMedian, factor_args={"Name": "bp_dr"})
-    # Factors.append(BP_DR)
+    BP_SectorMedian = calcSectorMedian(BP_LR, Sector, IsListed, factor_args={"Name": "BP_SectorMedian"})
+    BPResult = regressValueBias(BP_LR, BP_SectorMedian, factor_args={"Name": "BPResult"})
+    BP_DR = calcValueBias(BPResult, BP_LR, BP_SectorMedian, factor_args={"Name": "bp_dr"})
+    Factors.append(BP_DR)
     
     return FactorDef(
-        FactorList=[NetProfitAvg_Fwd12M], # Factors,
+        FactorList=Factors,
         TargetTable="stock_cn_factor_value",
+        MaxLookBack=365 * 4,
         IDType="A股",
         Author="麦冬"
     )

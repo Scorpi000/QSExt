@@ -371,7 +371,7 @@ class FactorDef(QSArgs):
     TargetTable: str = Field(title="因子表")
     IDType: str = Field(title="ID类型")
     DefaultStartDT: dt.datetime = Field(default=dt.datetime(2002, 1, 1), title="默认起始日")
-    MaxLookback: int = Field(default=365, title="最大回溯期")
+    MaxLookBack: int = Field(default=365, title="最大回溯期")
     DTType: Literal["自定义", "交易日", "自然日"] = Field(default="自定义", title="时点类型")
     Freq: str = Field(default="1d", title="时点频率")
     Author: str = Field(default="Anonymous", title="作者")

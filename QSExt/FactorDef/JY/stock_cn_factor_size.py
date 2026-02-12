@@ -5,56 +5,53 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_size",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
-def defFactor(args={}):
+def defFactor(fdi: FactorDefInput):
     Factors = []
 
-    JYDB = args["JYDB"]
-    LDB = args["LDB"]
+    JYDB = fdi.FDB["JYDB"]
 
-    # ### 财务因子 ##########################################################################
-    Asset = JYDB.getTable("资产负债表_新会计准则").getFactor("资产总计", args={"计算方法":"最新", "报告期":"所有"})
-    Sales_TTM = JYDB.getTable("利润分配表_新会计准则").getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有"})
+    ### 财务因子 ##########################################################################
+    Asset = JYDB.getTable("资产负债表_新会计准则", args={"CalcType":"最新", "ReportDate":"所有"}).getFactor("资产总计")
+    Sales_TTM = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("营业收入")
 
     # ### 企业管理因子 ##########################################################################
-    #Num_Emp = JYDB.getTable("A股员工人数变更").getFactor("员工人数(人)", args={"时点字段":"公告日期", "回溯天数":np.inf})
+    # EmpNum = JYDB.getTable("A股员工人数变更", args={"DTField": "公告日期", "LookBack": np.inf}).getFactor("员工人数(人)")
 
-    #FT = JYDB.getTable("中国A股日行情估值指标")
-    #Float_Stk_Nums = FT.getFactor("当日自由流通股本", new_name="自由流通股本")
+    # FT = JYDB.getTable("中国A股日行情估值指标")
+    # FloatStkNums = FT.getFactor("当日自由流通股本")
 
-    # ### 行情因子 #############################################################################
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    FloatCap = FT.getFactor("float_cap")# 万元
-    TotalCap = FT.getFactor("total_cap")# 万元
-    Close = FT.getFactor("close")
+    ### 行情因子 #############################################################################
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    TotalCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...")# 单位: 万元
+    FloatCap = StockDayBarDef.getFactor(factor_name="float_cap", def_path="...")# 单位: 万元
+    Close = StockDayBarDef.getFactor(factor_name="close", def_path="...")
 
     Factors.append(TotalCap)
     Factors.append(FloatCap)
-    Factors.append(Factorize(Asset, "asset_lr"))
-    Factors.append(Factorize(Sales_TTM, "revenue_ttm"))
-    #Factors.append(Factorize(Num_Emp,"Num_Emp"))
+    Factors.append(rename(Asset, factor_name="asset_lr"))
+    Factors.append(rename(Sales_TTM, factor_name="revenue_ttm"))
+    # Factors.append(rename(EmpNum, factor_name="emp_num"))
 
-    Factors.append(fd.log(TotalCap, factor_name="ln_market_cap"))
-    Factors.append(fd.log(FloatCap, factor_name="ln_float_cap"))
-    Factors.append(fd.log(Asset, factor_name="ln_asset"))
-    Factors.append(fd.log(Sales_TTM, factor_name="ln_revenue_ttm"))
+    log = fo.Log()
+    Factors.append(log(TotalCap, factor_args={"Name": "ln_market_cap"}))
+    Factors.append(log(FloatCap, factor_args={"Name": "ln_float_cap"}))
+    Factors.append(log(Asset, factor_args={"Name": "ln_asset"}))
+    Factors.append(log(Sales_TTM, factor_args={"Name": "ln_revenue_ttm"}))
 
-    #Free_FloatCap = Factorize(Float_Stk_Nums * Close, "Free_FloatCap")
-    #FreeFloatCap_Ln = fd.log(Free_FloatCap, factor_name="FreeFloatCap_Ln")
-    #Factors.append(Free_FloatCap)
-    #Factors.append(FreeFloatCap_Ln)
+    # FreeFloatCap = rename(FloatStkNums * Close, factor_name="free_float_cap")
+    # Factors.append(FreeFloatCap)
+    # Factors.append(log(FreeFloatCap, factor_args={"Name": "ln_free_float_cap"}))
 
-    return Factors
-
-if __name__=="__main__":
-    pass
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_size",
+        IDType="A股",
+        Author="麦冬"
+    )

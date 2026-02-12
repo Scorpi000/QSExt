@@ -41,7 +41,15 @@ class PostgresImporter:
                     port=int(self.port), 
                     database=self.database,
                     user=self.username,
-                    password=self.password
+                    password=self.password,
+                    keepalives=1,           # 开启 TCP keepalive
+                    keepalives_idle=30,     # 30秒无数据开始发送探测包
+                    keepalives_interval=10, # 探测包间隔
+                    keepalives_count=5,     # 失败5次后断开
+                    # # 连接超时设置
+                    # connect_timeout=10,
+                    # # 应用层心跳
+                    # options='-c statement_timeout=0'
                 )
             except Exception as e:
                 pass
@@ -491,7 +499,7 @@ class PostgresImporter:
                         batch[:, i] = np.where(mask, batch[:, i], np.where(mask, 0, batch[:, i]).astype(int))
                 # 处理被删除的行
                 if del_ids is not None:
-                    batch = batch[np.isin(batch[:, id_col_idx], del_ids)]
+                    batch = batch[~np.isin(batch[:, id_col_idx], del_ids)]
 
                 cursor.executemany(insert_sql, batch.tolist())
                 conn.commit()
@@ -561,7 +569,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="a3eca8160aa04f3bb9a2fa43c34b5cd6", table_name="Test_CT_Keywords", del_table_name="JYDB_DeleteRec", resume=False)
+    imported_rows = importer.import_table(token="ee2eaf22b1ec444db68bd3adf2ab1fa4", table_name="LC_BalanceSheetAll", del_table_name="JYDB_DeleteRec", resume=False)
     print(imported_rows)
 
     print("===")

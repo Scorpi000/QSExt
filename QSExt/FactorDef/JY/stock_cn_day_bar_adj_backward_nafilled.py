@@ -18,15 +18,11 @@ def defFactor(fdi: FactorDefInput):
     JYDB = fdi.FDB["JYDB"]
     
     # 市场行情
-    # FT = JYDB.getTable("股票行情表现", args={"LookBack": 0})
-    # AvgPrice = rename(FT.getFactor("均价"), factor_name="avg")
-    # Turnover = rename(FT.getFactor("换手率(%)"), factor_name="turnover")
-    # Factors.append(AvgPrice)
-    # Factors.append(Turnover)
-    # Chg = rename(FT.getFactor("涨跌幅(%)") / 100, factor_name="chg")
-    # FT = JYDB.getTable("股票行情表现", args={"LookBack": np.inf})
-    # TotalCap = FT.getFactor("总市值(万元)")
-    # FloatCap = FT.getFactor("流通市值(万元)")
+    FT = JYDB.getTable("股票行情表现", args={"LookBack": 0})
+    AvgPrice = FT.getFactor("均价")
+    Turnover = rename(FT.getFactor("换手率(%)"), factor_name="turnover")
+    Factors.append(Turnover)
+    Chg = FT.getFactor("涨跌幅(%)") / 100
     
     where = fo.Where(dtype="double")
     notnull = fo.NotNull()
@@ -49,12 +45,12 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(where(High * AdjFactor, (High > 0), Close, factor_args={"Name": "high"}))
     Factors.append(where(Low * AdjFactor, (Low > 0), Close, factor_args={"Name": "low"}))
     Factors.append(AdjClose)
-    # Factors.append(rename(AvgPrice * AdjFactor, factor_name="avg"))
+    Factors.append(rename(AvgPrice * AdjFactor, factor_name="avg"))
     
-    # PreClose = where(PreClose, (PreClose > 0), Close / (1 + Chg))
-    # PreClose = where(PreClose, (PreClose > 0), np.nan)
-    # Factors.append(rename(PreClose * AdjFactor, factor_name="pre_close"))
-    # Factors.append(rename(Close / PreClose - 1, "chg_rate"))
+    PreClose = where(PreClose, (PreClose > 0), Close / (1 + Chg))
+    PreClose = where(PreClose, (PreClose > 0), np.nan)
+    Factors.append(rename(PreClose * AdjFactor, factor_name="pre_close"))
+    Factors.append(rename(Close / PreClose - 1, "chg_rate"))
     
     return FactorDef(
         FactorList=Factors,
