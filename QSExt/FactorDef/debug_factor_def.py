@@ -23,11 +23,11 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput
 # from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_size import defFactor
-# from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor
+from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor
 
-from QSExt.FactorDef.JY import stock_cn_status
-from QSExt.FactorDef.JY import stock_cn_day_bar_adj_backward_nafilled
-from QSExt.FactorDef.JY import stock_cn_factor_momentum
+# from QSExt.FactorDef.JY import stock_cn_status
+# from QSExt.FactorDef.JY import stock_cn_day_bar_adj_backward_nafilled
+# from QSExt.FactorDef.JY import stock_cn_factor_momentum
 
 
 if __name__=="__main__1":
@@ -57,7 +57,8 @@ if __name__=="__main__1":
     SDB.disconnect()
     print("===")
 
-if __name__=="__main__1":
+# 单定义
+if __name__=="__main__":
     SDB = JYDB().connect()
     # SDB = BaoStockDB().connect()
     TDB = HDF5DB().connect()
@@ -99,7 +100,7 @@ if __name__=="__main__1":
     print("===")
 
 # 多定义
-if __name__=="__main__":
+if __name__=="__main__1":
     SDB = JYDB().connect()
     # SDB = BaoStockDB().connect()
     TDB = HDF5DB().connect()
