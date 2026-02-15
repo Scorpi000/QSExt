@@ -137,7 +137,7 @@ class PostgresImporter:
                 if constraint_type.shape[0] > 1:
                     print(f"表 {table_name} 的索引 {index_name} 有多种 constraint_type: {constraint_type}")
                 constraint_type = constraint_type[0]
-                if constraint_type in ("Unique Index", "Unique Constraint"):
+                if constraint_type.lower() in ("unique index", "unique constraint"):
                     unique = " UNIQUE "
                 else:
                     unique = " "
@@ -152,7 +152,7 @@ class PostgresImporter:
         conn.close()
 
     def get_unique_fields(self, index_info):
-        unique_index_info = index_info[index_info["constraint_type"].isin(("Unique Index", "Unique Constraint"))]
+        unique_index_info = index_info[index_info["constraint_type"].str.lower().isin(("unique index", "unique constraint"))]
         index_name_list = set(unique_index_info["index_name"].tolist())
         ID_JSID_index = set(unique_index_info[unique_index_info["column_name"].isin(("ID", "JSID"))]["index_name"].tolist())
         selected_index = index_name_list.difference(ID_JSID_index)
@@ -240,7 +240,7 @@ class PostgresImporter:
                 cursor.execute(sql)
                 sql = f"""CREATE INDEX IX_JYDB_DeleteRec_JSID ON {table_name}(jsid ASC)"""
                 cursor.execute(sql)
-                sql = f"""CREATE UNIQUE INDEX IX_JYDB_DeleteRec_TNJS ON {table_name}(tablename ASC, jsid, ASC)"""
+                sql = f"""CREATE UNIQUE INDEX IX_JYDB_DeleteRec_TNJS ON {table_name}(tablename ASC, jsid ASC)"""
                 cursor.execute(sql)
                 conn.commit()
 
@@ -556,12 +556,12 @@ class PostgresImporter:
 
 if __name__=="__main__":
     config = {
-        'host': '172.25.109.134',
-        'port': '5433',
+        'host': 'localhost',
+        'port': '5432',
         'database': 'JYDB',
-        'username': 'shzq',
-        'password': 'shzq#321',
-        'import_dir': r'D:\Data\JYDBSync'
+        'username': 'postgres',
+        'password': 'shuntai11',
+        'import_dir': r'C:\Users\hst\Project\Data\PosgresSync'
     }
     importer = PostgresImporter(**config)
 
@@ -569,7 +569,12 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="ee2eaf22b1ec444db68bd3adf2ab1fa4", table_name="LC_BalanceSheetAll", del_table_name="JYDB_DeleteRec", resume=False)
-    print(imported_rows)
-
+    #imported_rows = importer.import_table(token="ee2eaf22b1ec444db68bd3adf2ab1fa4", table_name="LC_BalanceSheetAll", del_table_name="JYDB_DeleteRec", resume=False)
+    #print(imported_rows)
+    
+    #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
+    for itable in os.listdir(importer.import_dir):
+        imported_rows = importer.import_table(token="aha", table_name=itable, del_table_name="JYDB_DeleteRec", resume=False)
+        print(f"{itable} 导入 {imported_rows} 行")
+    
     print("===")

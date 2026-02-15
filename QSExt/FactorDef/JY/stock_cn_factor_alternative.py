@@ -7,9 +7,15 @@ import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
+from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
+from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor as defStockAdjDayBar
+from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor as defStockFactorMomentum
+
 
 UpdateArgs = {
     "因子表": "stock_cn_factor_alternative",
@@ -18,7 +24,8 @@ UpdateArgs = {
     "IDs": "股票"
 }
 
-def Price_52WHighFun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Time", args={"Arity": 2, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [240-1, 240-1], "IDMode": "多ID"})
+def calcPrice52WHigh(f, idt, iid, x, args):
     Close = x[0]
     LastClose = Close[-1,:]
     IfTrading = x[1]
@@ -28,7 +35,8 @@ def Price_52WHighFun(f, idt, iid, x, args):
     LastClose[(LastClose==0) | Mask] = np.nan    
     return HighClose/LastClose-1
 
-def RegressionFun(f,idt,iid,x,args):
+@FactorOperatorized(operator_type="Time", args={"Arity": 1, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [240-1], "IDMode": "单ID", "DTMode": "单时点"})
+def rollingRegress(f, idt, iid, x, args):
     Y = np.array(x[0])
     Mask = (~np.isnan(Y))
     L = Y.shape[0]
@@ -45,7 +53,8 @@ def RegressionFun(f,idt,iid,x,args):
     else:
         return Numerator/Denominator
 
-def MomentumChgFun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Time", args={"Arity": 1, 'ModelArgs': {"收益期": 5, "回归期": 5}, 'LookBack': [5+5+1]})
+def calcMomentumChg(f, idt, iid, x, args):
     Y = np.zeros(args["回归期"])
     for i in range(args["回归期"]):
         iDenorminator = x[0][-1-i-args['收益期']]
@@ -56,7 +65,9 @@ def MomentumChgFun(f, idt, iid, x, args):
     X = X[Mask]
     return (np.sum(Y*X)-Y.shape[0]*np.mean(Y)*np.mean(X))/np.sum((X-np.mean(X))**2)
 
-def Cls_Trun_Correl_Fun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Time", args={"Arity": 3, 'ModelArgs': {"非空率": 0.8}, "LookBack": [5-1, 5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
+def calcClsTrunCorrel(f, idt, iid, x, args):
     Turnover = x[0]
     AdjClose = x[1]
     IfTrading=x[2]
@@ -73,7 +84,9 @@ def Cls_Trun_Correl_Fun(f, idt, iid, x, args):
     spearman_cor[Mask] = np.nan
     return spearman_cor
 
-def HL_Vol_Correl_Fun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Time", args={"Arity": 4, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [5-1, 5-1, 5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
+def calcHLVolCorrel(f, idt, iid, x, args):
     Low = x[0]
     High = x[1]
     Vol = x[2]
@@ -92,7 +105,9 @@ def HL_Vol_Correl_Fun(f, idt, iid, x, args):
     spearman_cor[Mask] = np.nan
     return spearman_cor
 
-def HL_Fun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Time", args={"Arity": 3, 'ModelArgs': {"非空率": 0.8}, "LookBack": [5-1, 5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
+def calcHL(f, idt, iid, x, args):
     Low = x[0]
     High = x[1]
     IfTrading = x[2]
@@ -139,69 +154,69 @@ def SpreadBiasFun(f, idt, iid, x, args):
     return Rslt
     
 
-def defFactor(args={}):
+def defFactor(fdi: FactorDefInput):
     Factors = []
-
-    LDB = args["LDB"]
-
+    
     # ## 行情因子 ############################################
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    PreClose = FT.getFactor("pre_close")
-    DayReturn = FT.getFactor("chg_rate")
-    Turnover = FT.getFactor("turnover")# %
-    Volume = FT.getFactor("volume")# 手
-    Amount = FT.getFactor("amount")
-    IfTrading = FT.getFactor("if_trading")
-    Close = FT.getFactor("close")
-    Low = FT.getFactor("low")
-    High = FT.getFactor("high")
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    PreClose = StockDayBarDef.getFactor(factor_name="pre_close")
+    DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
+    Turnover = StockDayBarDef.getFactor(factor_name="turnover")
+    Volume = StockDayBarDef.getFactor(factor_name="volume")
+    Amount = StockDayBarDef.getFactor(factor_name="amount")
+    Close = StockDayBarDef.getFactor(factor_name="close")
+    High = StockDayBarDef.getFactor(factor_name="high")
+    Low = StockDayBarDef.getFactor(factor_name="low")
     
-    FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
-    AdjClose = FT.getFactor("close")
+    StockStatusDef = defStockStatus(fdi=fdi)
+    IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
     
-    FT = LDB.getTable("stock_cn_factor_momentum")
-    Ret20D = FT.getFactor("rtn_20d")    
+    StockAdjDayBarDef = defStockAdjDayBar(fdi=fdi)
+    AdjClose = StockAdjDayBarDef.getFactor(factor_name="close")
+    
+    StockFactorMomentumDef = defStockFactorMomentum(fdi=fdi)
+    Ret20D = StockFactorMomentumDef.getFactor("rtn_20d")
 
     #--收盘价的自然对数
-    Factors.append(fd.log(Close, factor_name="ln_price"))
+    Factors.append(fo.Log()(Close, factor_args={"Name": "ln_price"}))
 
     #计算MaxReturn_20D
-    Factors.append(fd.rolling_max(DayReturn, window=20, min_periods=int(20*0.8), factor_name="MaxReturn_20D"))
+    Factors.append(fo.RollingMax(window=20, min_periods=int(20*0.8))(DayReturn, factor_args={"Name": "MaxReturn_20D"}))
 
     #计算Price_52WHigh
-    Close2MaxClose_240D = QS.FactorDB.TimeOperation("close2max_close_240d", [AdjClose, IfTrading], {'算子':Price_52WHighFun,'参数':{"非空率":0.8},'回溯期数':[240-1,240-1],"运算ID":"多ID"})
+    Close2MaxClose_240D = calcPrice52WHigh(AdjClose, IfTrading, factor_args={"Name": "close2max_close_240d"})
     Factors.append(Close2MaxClose_240D)
 
     #计算PriceTrend_240D
-    CloseTrend_240D_Reg = QS.FactorDB.TimeOperation("close_trend_240d_reg", [AdjClose], {'算子':RegressionFun,'参数':{"非空率":0.8},'回溯期数':[240-1]})
+    CloseTrend_240D_Reg = rollingRegress(AdjClose, factor_args={"Name": "close_trend_240d_reg"})
     Factors.append(CloseTrend_240D_Reg)
 
     # CL, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
-    Factors.append(fd.rolling_sum((Close - Low) / Low, 5, factor_name="cl"))
+    Factors.append(fo.RollingSum(window=5)((Close - Low) / Low, factor_args={"Name": "cl"}))
 
     # 5日收益率增速, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
-    Factors.append(QS.FactorDB.TimeOperation("daily_return_5d_reg", [AdjClose], {'算子':MomentumChgFun,'参数':{"收益期":5,"回归期":5},'回溯期数':[5+5+1]}))
+    Factors.append(calcMomentumChg(AdjClose, factor_args={"Name": "daily_return_5d_reg"}))
 
     # 收盘价和换手率的相关性
-    Turnover_Close_5D_Corr = QS.FactorDB.TimeOperation("turnover_close_5d_corr", [Turnover, AdjClose, IfTrading], sys_args={"算子": Cls_Trun_Correl_Fun, '参数':{"非空率":0.8},"回溯期数": [5-1,5-1,5-1],"运算ID":"多ID"})
-    Turnover_Close_20D_Corr = QS.FactorDB.TimeOperation("turnover_close_20d_corr", [Turnover, AdjClose, IfTrading], sys_args={"算子": Cls_Trun_Correl_Fun, '参数':{"非空率":0.8},"回溯期数": [20-1,20-1,20-1],"运算ID":"多ID"})
-    Turnover_Close_60D_Corr = QS.FactorDB.TimeOperation("turnover_close_60d_corr", [Turnover, AdjClose, IfTrading], sys_args={"算子": Cls_Trun_Correl_Fun, '参数':{"非空率":0.8},"回溯期数": [60-1,60-1,60-1],"运算ID":"多ID"})
+    Turnover_Close_5D_Corr = calcClsTrunCorrel(Turnover, AdjClose, IfTrading, factor_args={"Name": "turnover_close_5d_corr"})
+    Turnover_Close_20D_Corr = calcClsTrunCorrel.new(args={"LookBack": [20 - 1, 20 - 1, 20 - 1]})(Turnover, AdjClose, IfTrading, factor_args={"Name": "turnover_close_20d_corr"})
+    Turnover_Close_60D_Corr = calcClsTrunCorrel.new(args={"LookBack": [60 - 1, 60 - 1, 60 - 1]})(Turnover, AdjClose, IfTrading, factor_args={"Name": "turnover_close_60d_corr"})
     Factors.append(Turnover_Close_5D_Corr)
     Factors.append(Turnover_Close_20D_Corr)
     Factors.append(Turnover_Close_60D_Corr)
 
     # 每一天的最高价/最低价与成交量的相关系数
-    High2Low_Vol_5D_Corr = QS.FactorDB.TimeOperation('high2low_vol_5d_corr',[Low, High, Volume, IfTrading],{'算子':HL_Vol_Correl_Fun,'参数':{"非空率":0.8},'回溯期数':[5-1,5-1,5-1,5-1],"运算ID":"多ID"})
-    High2Low_Vol_20D_Corr = QS.FactorDB.TimeOperation('high2low_vol_20d_corr',[Low, High, Volume, IfTrading],{'算子':HL_Vol_Correl_Fun,'参数':{"非空率":0.8},'回溯期数':[20-1,20-1,20-1,20-1],"运算ID":"多ID"})
-    High2Low_Vol_60D_Corr = QS.FactorDB.TimeOperation('high2low_vol_60d_corr',[Low, High, Volume, IfTrading],{'算子':HL_Vol_Correl_Fun,'参数':{"非空率":0.8},'回溯期数':[60-1,60-1,60-1,60-1],"运算ID":"多ID"})
+    High2Low_Vol_5D_Corr = calcHLVolCorrel(Low, High, Volume, IfTrading, factor_args={"Name": "high2low_vol_5d_corr"})
+    High2Low_Vol_20D_Corr = calcHLVolCorrel.new(args={"LookBack": [20-1, 20-1, 20-1, 20-1]})(Low, High, Volume, IfTrading, factor_args={"Name": "high2low_vol_20d_corr"})
+    High2Low_Vol_60D_Corr = calcHLVolCorrel.new(args={"LookBack": [60-1, 60-1, 60-1, 60-1]})(Low, High, Volume, IfTrading, factor_args={"Name": "high2low_vol_60d_corr"})
     Factors.append(High2Low_Vol_5D_Corr)
     Factors.append(High2Low_Vol_20D_Corr)
     Factors.append(High2Low_Vol_60D_Corr)
 
     # 过去一段时间最高价/最低价比值
-    High2Low_5D = QS.FactorDB.TimeOperation("high2low_5d", [Low, High, IfTrading], sys_args={"算子": HL_Fun,'参数':{"非空率":0.8}, "回溯期数": [5-1,5-1,5-1],"运算ID":"多ID"})
-    High2Low_20D = QS.FactorDB.TimeOperation("high2low_20d", [Low, High, IfTrading], sys_args={"算子": HL_Fun,'参数':{"非空率":0.8}, "回溯期数": [20-1,20-1,20-1],"运算ID":"多ID"})
-    High2Low_60D = QS.FactorDB.TimeOperation("high2low_60d", [Low, High, IfTrading], sys_args={"算子": HL_Fun,'参数':{"非空率":0.8}, "回溯期数": [60-1,60-1,60-1],"运算ID":"多ID"})
+    High2Low_5D = calcHL(Low, High, IfTrading, factor_args={"Name": "high2low_5d"})
+    High2Low_20D = calcHL.new(args={"LookBack": [20-1, 20-1, 20-1]})(Low, High, IfTrading, factor_args={"Name": "high2low_20d"})
+    High2Low_60D = calcHL.new(args={"LookBack": [60-1, 60-1, 60-1]})(Low, High, IfTrading, factor_args={"Name": "high2low_60d"})
     Factors.append(High2Low_5D)
     Factors.append(High2Low_20D)
     Factors.append(High2Low_60D)
@@ -241,7 +256,10 @@ def defFactor(args={}):
     )
     Factors.append(SpreadBias_120D)
     
-    return Factors
-
-if __name__=="__main__":
-    pass
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_alternative",
+        MaxLookBack=365 * 2,
+        IDType="A股",
+        Author="麦冬"
+    )

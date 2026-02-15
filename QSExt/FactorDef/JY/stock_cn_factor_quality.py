@@ -6,20 +6,17 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_factor_value import calcFwd12M
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_quality",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
 # 20180806_光大证券_金融工程深度：创新基本面因子：财务数据间线性关系初窥——多因子系列报告之十四_ws 系列二
 # 营业收入营业成本的线性关系推算
-def RROC_Fun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Point", args={"Arity": 16, "ModelArgs": {'非空率': 0.4}, "DataType": "double", "DTMode": "单时点", "IDMode": "单ID"})
+def calcRROC(f, idt, iid, x, args):
     Y = np.array(x[0:8])
     Mask = (~np.isnan(Y))
     L = Y.shape[0]
@@ -46,7 +43,8 @@ def RROC_Fun(f, idt, iid, x, args):
 
 # 20180909_光大证券_金融工程深度：创新基本面因子：提纯净利数据中的选股信息——多因子系列报告之十五_ws 系列三
 # 财务因子的提纯
-def LPNP_Fun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Point", args={"Arity": 24, "ModelArgs": {'非空率': 0.4}, "DataType": "double", "DTMode": "单时点", "IDMode": "单ID"})
+def calcLPNP(f, idt, iid, x, args):
     Y = np.array(x[0:8])
     Mask_y = (~np.isnan(Y))
 
@@ -82,7 +80,8 @@ def LPNP_Fun(f, idt, iid, x, args):
 
 # 20181101_光大证券_金融工程深度：创新基本面因子：捕捉产能利用率中的讯号——多因子系列报告之十六_ws 系列四
 # 用固定资产与营业成本捕捉产能利用率
-def OCFA_Fun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Point", args={"Arity": 16, "ModelArgs": {'非空率': 0.4}, "DataType": "object", "DTMode": "单时点", "IDMode": "单ID"})
+def calcOCFA(f, idt, iid, x, args):
     Y = np.array(x[0:8])
     X = np.array(x[8:])
     L = Y.shape[0]
@@ -107,320 +106,345 @@ def OCFA_Fun(f, idt, iid, x, args):
     residual = y - np.sum(para * x, axis=1)
     return (residual[-1], para[-1])
 
-def defFactor(args={}):
+
+def defFactor(fdi: FactorDefInput):
     Factors = []
 
-    JYDB = args["JYDB"]
-    LDB = args["LDB"]
+    JYDB = fdi.FDB["JYDB"]
 
     # ### 利润表因子 #############################################################################
-    FT = JYDB.getTable("利润分配表_新会计准则")
-    NetProfit_TTM = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    NetProfit_TTM_L1 = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":1})
-    NetProfit_TTM_L2 = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":2})
-    NetProfit_TTM_L3 = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":3})
-    NetProfit_TTM_L4 = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":4})
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有"})
+    NetProfit_TTM = FT.getFactor("归属于母公司所有者的净利润")
+    Sales_TTM = FT.getFactor("营业收入")
+    Cost_TTM = FT.getFactor("营业成本")
+    OpNetProfit_TTM = FT.getFactor("营业利润")
+    SalesExpenses_TTM = FT.getFactor("销售费用")
+    ManagementExpenses_TTM = FT.getFactor("管理费用")
+    FinancialExpenses_TTM = FT.getFactor("财务费用")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    NetProfit_TTM_L1 = FT.getFactor("归属于母公司所有者的净利润")
+    Sales_L1 = FT.getFactor("营业收入")
+    Cost_L1 = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 2})
+    NetProfit_TTM_L2 = FT.getFactor("归属于母公司所有者的净利润")
+    Sales_L2 = FT.getFactor("营业收入")
+    Cost_L2 = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 3})
+    NetProfit_TTM_L3 = FT.getFactor("归属于母公司所有者的净利润")
+    Sales_L3 = FT.getFactor("营业收入")
+    Cost_L3 = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 4})
+    NetProfit_TTM_L4 = FT.getFactor("归属于母公司所有者的净利润")
+    Sales_L4 = FT.getFactor("营业收入")
+    Cost_L4 = FT.getFactor("营业成本")
     
-    NetProfit_SQ0P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    NetProfit_SQ1P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    NetProfit_SQ2P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    NetProfit_SQ3P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    NetProfit_SQ4P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    NetProfit_SQ5P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    NetProfit_SQ6P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    NetProfit_SQ7P = FT.getFactor("归属于母公司所有者的净利润", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
-    
-    Non_Inc_SQ0P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    Non_Inc_SQ1P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    Non_Inc_SQ2P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    Non_Inc_SQ3P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    Non_Inc_SQ4P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    Non_Inc_SQ5P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    Non_Inc_SQ6P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    Non_Inc_SQ7P = FT.getFactor("加-营业外收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
-    
-    Sales_TTM = FT.getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    Sales_L1 = FT.getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":1})
-    Sales_L2 = FT.getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":2})
-    Sales_L3 = FT.getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":3})
-    Sales_L4 = FT.getFactor("营业收入", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":4})
-
-    Cost_TTM = FT.getFactor("营业成本", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    Cost_L1 = FT.getFactor("营业成本", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":1})
-    Cost_L2 = FT.getFactor("营业成本", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":2})
-    Cost_L3 = FT.getFactor("营业成本", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":3})
-    Cost_L4 = FT.getFactor("营业成本", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":4})
-
-    OpNetProfit_TTM = FT.getFactor("营业利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    SalesExpenses_TTM = FT.getFactor("销售费用", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    ManagementExpenses_TTM = FT.getFactor("管理费用", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    FinancialExpenses_TTM = FT.getFactor("财务费用", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-
-    Sales_SQ0P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    Sales_SQ1P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    Sales_SQ2P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    Sales_SQ3P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    Sales_SQ4P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    Sales_SQ5P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    Sales_SQ6P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    Sales_SQ7P = FT.getFactor("营业收入", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
-
-    Cost_SQ0P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    Cost_SQ1P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    Cost_SQ2P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    Cost_SQ3P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    Cost_SQ4P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    Cost_SQ5P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    Cost_SQ6P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    Cost_SQ7P = FT.getFactor("营业成本", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
+    NetProfit_SQ0P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ0P = FT.getFactor("加-营业外收入")
+    Sales_SQ0P = FT.getFactor("营业收入")
+    Cost_SQ0P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
+    NetProfit_SQ1P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ1P = FT.getFactor("加-营业外收入")
+    Sales_SQ1P = FT.getFactor("营业收入")
+    Cost_SQ1P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 2})
+    NetProfit_SQ2P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ2P = FT.getFactor("加-营业外收入")
+    Sales_SQ2P = FT.getFactor("营业收入")
+    Cost_SQ2P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 3})
+    NetProfit_SQ3P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ3P = FT.getFactor("加-营业外收入")
+    Sales_SQ3P = FT.getFactor("营业收入")
+    Cost_SQ3P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
+    NetProfit_SQ4P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ4P = FT.getFactor("加-营业外收入")
+    Sales_SQ4P = FT.getFactor("营业收入")
+    Cost_SQ4P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 5})
+    NetProfit_SQ5P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ5P = FT.getFactor("加-营业外收入")
+    Sales_SQ5P = FT.getFactor("营业收入")
+    Cost_SQ5P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 6})
+    NetProfit_SQ6P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ6P = FT.getFactor("加-营业外收入")
+    Sales_SQ6P = FT.getFactor("营业收入")
+    Cost_SQ6P = FT.getFactor("营业成本")
+    FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 7})
+    NetProfit_SQ7P = FT.getFactor("归属于母公司所有者的净利润")
+    Non_Inc_SQ7P = FT.getFactor("加-营业外收入")
+    Sales_SQ7P = FT.getFactor("营业收入")
+    Cost_SQ7P = FT.getFactor("营业成本")
     
     # ### 资产负债表因子 #############################################################################
-    FT = JYDB.getTable("资产负债表_新会计准则")
-    CurDebt = FT.getFactor("流动负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    CurDebt_L1 = FT.getFactor("流动负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    CurAsset = FT.getFactor("流动资产合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    CurAsset_L1 = FT.getFactor("流动资产合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    FixAsset = FT.getFactor("固定资产",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    FixAsset_L1 = FT.getFactor("固定资产",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    Asset = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    Asset_L1 = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-    Asset_L2 = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":2})
-    Asset_L3 = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":3})
-    Asset_L4 = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":4})
-    Asset_L5 = FT.getFactor("资产总计",{"计算方法":"最新", "报告期":"所有", "回溯年数":5})
-
-    Equity = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    Equity_L1 = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-    Equity_L2 = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":2})
-    Equity_L3 = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":3})
-    Equity_L4 = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":4})
-    Equity_L5 = FT.getFactor("归属母公司股东权益合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":5})
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
+    CurDebt = FT.getFactor("流动负债合计")
+    CurAsset = FT.getFactor("流动资产合计")
+    FixAsset = FT.getFactor("固定资产")
+    Asset = FT.getFactor("资产总计")
+    Equity = FT.getFactor("归属母公司股东权益合计")
+    AR = FT.getFactor("应收账款")
+    Debt = FT.getFactor("负债合计")
+    LTDebt = FT.getFactor("非流动负债合计")
+    Inventory = FT.getFactor("存货")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    CurDebt_L1 = FT.getFactor("流动负债合计")
+    CurAsset_L1 = FT.getFactor("流动资产合计")
+    FixAsset_L1 = FT.getFactor("固定资产")
+    Asset_L1 = FT.getFactor("资产总计")
+    Equity_L1 = FT.getFactor("归属母公司股东权益合计")
+    AR_L1 = FT.getFactor("应收账款")
+    Debt_L1 = FT.getFactor("负债合计")
+    LTDebt_L1 = FT.getFactor("非流动负债合计")
+    Inventory_L1 = FT.getFactor("存货")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 2})
+    Asset_L2 = FT.getFactor("资产总计")
+    Equity_L2 = FT.getFactor("归属母公司股东权益合计")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 3})
+    Asset_L3 = FT.getFactor("资产总计")
+    Equity_L3 = FT.getFactor("归属母公司股东权益合计")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 4})
+    Asset_L4 = FT.getFactor("资产总计")
+    Equity_L4 = FT.getFactor("归属母公司股东权益合计")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 5})
+    Asset_L5 = FT.getFactor("资产总计")
+    Equity_L5 = FT.getFactor("归属母公司股东权益合计")
     
-    AR = FT.getFactor("应收账款",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    AR_L1 = FT.getFactor("应收账款",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    Debt = FT.getFactor("负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    Debt_L1 = FT.getFactor("负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    LTDebt = FT.getFactor("非流动负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    LTDebt_L1 = FT.getFactor("非流动负债合计",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    Inventory = FT.getFactor("存货",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    Inventory_L1 = FT.getFactor("存货",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
-
-    Empl_Pay_SQ0P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    Empl_Pay_SQ1P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    Empl_Pay_SQ2P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    Empl_Pay_SQ3P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    Empl_Pay_SQ4P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    Empl_Pay_SQ5P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    Empl_Pay_SQ6P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    Empl_Pay_SQ7P = FT.getFactor("应付职工薪酬", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
-    
-    FixAsset_SQ0P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":0})
-    FixAsset_SQ1P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":1})
-    FixAsset_SQ2P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":2})
-    FixAsset_SQ3P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":3})
-    FixAsset_SQ4P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":4})
-    FixAsset_SQ5P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":5})
-    FixAsset_SQ6P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":6})
-    FixAsset_SQ7P = FT.getFactor("固定资产", args={"计算方法":"单季度", "报告期":"所有", "回溯期数":7})
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
+    Empl_Pay_SQ0P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ0P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
+    Empl_Pay_SQ1P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ1P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 2})
+    Empl_Pay_SQ2P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ2P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 3})
+    Empl_Pay_SQ3P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ3P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
+    Empl_Pay_SQ4P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ4P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 5})
+    Empl_Pay_SQ5P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ5P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 6})
+    Empl_Pay_SQ6P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ6P = FT.getFactor("固定资产")
+    FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 7})
+    Empl_Pay_SQ7P = FT.getFactor("应付职工薪酬")
+    FixAsset_SQ7P = FT.getFactor("固定资产")
 
     # ### 衍生报表数据 #############################################################################
-    FT = JYDB.getTable("中国A股财务指标")
-    CurDebt_NonInterset = FT.getFactor("无息流动负债",{"计算方法":"最新", "报告期":"所有"})
-    NonCurDebt_NonInterset = FT.getFactor("无息非流动负债",{"计算方法":"最新", "报告期":"所有"})
+    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "最新", "ReportDate": "所有"})
+    CurDebt_NonInterset = FT.getFactor("无息流动负债")
+    NonCurDebt_NonInterset = FT.getFactor("无息非流动负债")
+    TotalStock = FT.getFactor("期末总股本")
+    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    TotalStock_L1 = FT.getFactor("期末总股本")
     
-    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":0})
-    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的净利润", args={"计算方法":"TTM", "报告期":"所有", "回溯年数":1})    
-    
-    #TotalStock = FT.getFactor("期末总股本",{"计算方法":"最新", "报告期":"所有", "回溯年数":0})
-    #TotalStock_L1 = FT.getFactor("期末总股本",{"计算方法":"最新", "报告期":"所有", "回溯年数":1})
+    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "TTM", "ReportDate": "所有"})
+    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的净利润")
+    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的净利润")
     
     # ### 现金流量表因子 #############################################################################
-    FT = JYDB.getTable("现金流量表_新会计准则")
-    OCF_TTM = FT.getFactor("经营活动产生的现金流量净额",{"计算方法":"TTM", "报告期":"所有"})
-    #Capex_TTM = FT.getFactor("购建固定资产、无形资产和其他长期资产支付的现金", args={"计算方法":"TTM"})
+    FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有"})
+    OCF_TTM = FT.getFactor("经营活动产生的现金流量净额")
+    Capex_TTM = FT.getFactor("购建固定资产、无形资产和其他长期资产支付的现金")
     
     # ### 一致预期因子 #############################################################################
-    FT = LDB.getTable("stock_cn_consensus")
-    NetProfitAvg_FY0 = FT.getFactor("net_profit_fy0")# 万元
-    NetProfitAvg_Fwd12M = FT.getFactor("net_profit_fwd12m")# 万元
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t"}})
+    NetProfitAvg_FY0 = FT.getFactor("预测净利润平均值(元)")
+    ForecastYear_FY0 = FT.getFactor("预测年度")
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+1"}})
+    NetProfitAvg_FY1 = FT.getFactor("预测净利润平均值(元)")
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+2"}})
+    NetProfitAvg_FY2 = FT.getFactor("预测净利润平均值(元)")
+    NetProfitAvg_Fwd12M = calcFwd12M(ForecastYear_FY0, NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2, factor_args={"Name": "net_profit_fwd12m"})
 
     # ### 盈利能力 ################################################################################
-    ROE_FY0 = Factorize(NetProfitAvg_FY0*10000/Equity,"roe_fy0")
+    ROE_FY0 = rename(NetProfitAvg_FY0 / Equity, factor_name="roe_fy0")
     Factors.append(ROE_FY0)
 
-    ROE_Fwd12M = Factorize(NetProfitAvg_Fwd12M*10000/Equity,"roe_fwd12m")
+    ROE_Fwd12M = rename(NetProfitAvg_Fwd12M / Equity, factor_name="roe_fwd12m")
     Factors.append(ROE_Fwd12M)
 
-    ROE_TTM = Factorize(2*NetProfit_TTM/(Equity+Equity_L1),'roe_ttm')
+    ROE_TTM = rename(2 * NetProfit_TTM / (Equity + Equity_L1), factor_name='roe_ttm')
     Factors.append(ROE_TTM)
 
-    ROA_TTM = Factorize(2*NetProfit_TTM/(Asset+Asset_L1),'roa_ttm')
+    ROA_TTM = rename(2 * NetProfit_TTM / (Asset + Asset_L1), factor_name='roa_ttm')
     Factors.append(ROA_TTM)
 
-    InvestCapital_All = Equity+Debt-CurDebt_NonInterset-NonCurDebt_NonInterset
-    ROIC_TTM = Factorize(NetProfit_TTM/InvestCapital_All,"roic_ttm")
+    InvestCapital_All = Equity + Debt - CurDebt_NonInterset - NonCurDebt_NonInterset
+    ROIC_TTM = rename(NetProfit_TTM / InvestCapital_All, factor_name="roic_ttm")
     Factors.append(ROIC_TTM)
 
-    CFROE_TTM = Factorize(2*OCF_TTM/(Equity+Equity_L1),"cfroe_ttm")
+    CFROE_TTM = rename(2 * OCF_TTM / (Equity + Equity_L1), factor_name="cfroe_ttm")
     Factors.append(CFROE_TTM)
 
-    CFROA_TTM = Factorize(2*OCF_TTM/(Asset+Asset_L1),"cfroa_ttm")
+    CFROA_TTM = rename(2 * OCF_TTM / (Asset + Asset_L1), factor_name="cfroa_ttm")
     Factors.append(CFROA_TTM)
-
-    Sale2Asset_L1 = 2*Sales_L1/(Asset_L1+Asset_L2)
-    Revenue2Asset = Factorize(2*Sales_TTM/(Asset+Asset_L1),"revenue2asset")
+    
+    Revenue2Asset = rename(2 * Sales_TTM / (Asset + Asset_L1), factor_name="revenue2asset")
     Factors.append(Revenue2Asset)
 
-    GrossMargin_TTM = Factorize((Sales_TTM-Cost_TTM)/Sales_TTM,"gross_margin_ttm")
+    GrossMargin_TTM = rename((Sales_TTM - Cost_TTM) / Sales_TTM, factor_name="gross_margin_ttm")
     Factors.append(GrossMargin_TTM)
 
-    GrossProfit2SalesExpenses_TTM = Factorize((Sales_TTM-Cost_TTM)/SalesExpenses_TTM,"gross_profit2sales_expenses_ttm")
+    GrossProfit2SalesExpenses_TTM = rename((Sales_TTM - Cost_TTM) / SalesExpenses_TTM, factor_name="gross_profit2sales_expenses_ttm")
     Factors.append(GrossProfit2SalesExpenses_TTM)
 
-    OperProfitMargin_TTM = Factorize(OpNetProfit_TTM/Sales_TTM,"oper_profit_margin_ttm")
+    OperProfitMargin_TTM = rename(OpNetProfit_TTM / Sales_TTM, factor_name="oper_profit_margin_ttm")
     Factors.append(OperProfitMargin_TTM)
 
-    NetProfitMargin_TTM = Factorize(NetProfit_TTM/Sales_TTM,"net_profit_margin_ttm")
+    NetProfitMargin_TTM = rename(NetProfit_TTM / Sales_TTM, factor_name="net_profit_margin_ttm")
     Factors.append(NetProfitMargin_TTM)
 
-    OCF2OperProfit_TTM = Factorize(OCF_TTM/OpNetProfit_TTM,"ocf2oper_profit_ttm")
+    OCF2OperProfit_TTM = rename(OCF_TTM / OpNetProfit_TTM, factor_name="ocf2oper_profit_ttm")
     Factors.append(OCF2OperProfit_TTM)
 
-    ThreeCosts_TTM = SalesExpenses_TTM+ManagementExpenses_TTM+FinancialExpenses_TTM
-    ThreeCosts2Revenue_TTM = Factorize(ThreeCosts_TTM/Sales_TTM,"three_costs2revenue_ttm")
+    ThreeCosts_TTM = SalesExpenses_TTM + ManagementExpenses_TTM + FinancialExpenses_TTM
+    ThreeCosts2Revenue_TTM = rename(ThreeCosts_TTM / Sales_TTM, factor_name="three_costs2revenue_ttm")
     Factors.append(ThreeCosts2Revenue_TTM)
 
 
     # ### 盈利能力变动与稳定性 ######################################################################
-    ROE_TTM_L1 = 2*NetProfit_TTM_L1/(Equity_L1+Equity_L2)
-    ROE_TTM_L2 = 2*NetProfit_TTM_L2/(Equity_L2+Equity_L3)
-    ROE_TTM_L3 = 2*NetProfit_TTM_L3/(Equity_L3+Equity_L4)
-    ROE_TTM_L4 = 2*NetProfit_TTM_L4/(Equity_L4+Equity_L5)
+    ROE_TTM_L1 = 2 * NetProfit_TTM_L1 / (Equity_L1 + Equity_L2)
+    ROE_TTM_L2 = 2 * NetProfit_TTM_L2 / (Equity_L2 + Equity_L3)
+    ROE_TTM_L3 = 2 * NetProfit_TTM_L3 / (Equity_L3 + Equity_L4)
+    ROE_TTM_L4 = 2 * NetProfit_TTM_L4 / (Equity_L4 + Equity_L5)
 
-    ROE_mean = fd.nanmean(ROE_TTM,ROE_TTM_L1,ROE_TTM_L2,ROE_TTM_L3,ROE_TTM_L4)
-    ROE_std = fd.nanstd(ROE_TTM,ROE_TTM_L1,ROE_TTM_L2,ROE_TTM_L3,ROE_TTM_L4,ddof=0.0)
-    ROE_TTM_CV = Factorize(ROE_std/abs(ROE_mean),'roe_ttm_cv')
+    ROE_mean = fo.Mean()(ROE_TTM, ROE_TTM_L1, ROE_TTM_L2, ROE_TTM_L3, ROE_TTM_L4)
+    ROE_std = fo.Std(ddof=0.0)(ROE_TTM, ROE_TTM_L1, ROE_TTM_L2, ROE_TTM_L3, ROE_TTM_L4)
+    ROE_TTM_CV = rename(ROE_std / abs(ROE_mean), factor_name='roe_ttm_cv')
     Factors.append(ROE_TTM_CV)
 
-    ROE_TTM_YoY = Factorize(ROE_TTM/ROE_TTM_L1-1,'rot_ttm_yoy')
+    ROE_TTM_YoY = rename(ROE_TTM / ROE_TTM_L1 - 1, factor_name='rot_ttm_yoy')
     Factors.append(ROE_TTM_YoY)
 
-    ROA_TTM_L1 = 2*NetProfit_TTM_L1/(Asset_L1+Asset_L2)
-    ROA_TTM_L2 = 2*NetProfit_TTM_L2/(Asset_L2+Asset_L3)
-    ROA_TTM_L3 = 2*NetProfit_TTM_L3/(Asset_L3+Asset_L4)
-    ROA_TTM_L4 = 2*NetProfit_TTM_L4/(Asset_L4+Asset_L5)
+    ROA_TTM_L1 = 2 * NetProfit_TTM_L1 / (Asset_L1 + Asset_L2)
+    ROA_TTM_L2 = 2 * NetProfit_TTM_L2 / (Asset_L2 + Asset_L3)
+    ROA_TTM_L3 = 2 * NetProfit_TTM_L3 / (Asset_L3 + Asset_L4)
+    ROA_TTM_L4 = 2 * NetProfit_TTM_L4 / (Asset_L4 + Asset_L5)
 
-    ROA_mean = fd.nanmean(ROA_TTM,ROA_TTM_L1,ROA_TTM_L2,ROA_TTM_L3,ROA_TTM_L4)
-    ROA_std = fd.nanstd(ROA_TTM,ROA_TTM_L1,ROA_TTM_L2,ROA_TTM_L3,ROA_TTM_L4,ddof=0.0)
-    ROA_TTM_CV = Factorize(ROA_std/abs(ROA_mean),'roa_ttm_yoy')
+    ROA_mean = fo.Mean()(ROA_TTM, ROA_TTM_L1, ROA_TTM_L2, ROA_TTM_L3, ROA_TTM_L4)
+    ROA_std = fo.Std(ddof=0.0)(ROA_TTM, ROA_TTM_L1, ROA_TTM_L2, ROA_TTM_L3, ROA_TTM_L4)
+    ROA_TTM_CV = rename(ROA_std / abs(ROA_mean), factor_name='roa_ttm_yoy')
     Factors.append(ROA_TTM_CV)
 
-    ROA_TTM_YoY = Factorize(ROA_TTM/ROA_TTM_L1-1,'roa_ttm_cv')
+    ROA_TTM_YoY = rename(ROA_TTM / ROA_TTM_L1 - 1, factor_name='roa_ttm_cv')
     Factors.append(ROA_TTM_YoY)
 
-    GrossMargin_L1 = (Sales_L1-Cost_L1)/Sales_L1
-    GrossMargin_L2 = (Sales_L2-Cost_L2)/Sales_L2
-    GrossMargin_L3 = (Sales_L3-Cost_L3)/Sales_L3
-    GrossMargin_L4 = (Sales_L4-Cost_L4)/Sales_L4
+    GrossMargin_L1 = (Sales_L1 - Cost_L1) / Sales_L1
+    GrossMargin_L2 = (Sales_L2 - Cost_L2) / Sales_L2
+    GrossMargin_L3 = (Sales_L3 - Cost_L3) / Sales_L3
+    GrossMargin_L4 = (Sales_L4 - Cost_L4) / Sales_L4
 
-    GrossMargin_mean = fd.nanmean(GrossMargin_TTM,GrossMargin_L1,GrossMargin_L2,GrossMargin_L3,GrossMargin_L4)
-    GrossMargin_std = fd.nanstd(GrossMargin_TTM,GrossMargin_L1,GrossMargin_L2,GrossMargin_L3,GrossMargin_L4,ddof=0.0)
-    GrossMargin_TTM_CV = Factorize(GrossMargin_std/abs(GrossMargin_mean),'gross_margin_ttm_cv')
+    GrossMargin_mean = fo.Mean()(GrossMargin_TTM, GrossMargin_L1, GrossMargin_L2, GrossMargin_L3, GrossMargin_L4)
+    GrossMargin_std = fo.Std(ddof=0.0)(GrossMargin_TTM, GrossMargin_L1, GrossMargin_L2, GrossMargin_L3, GrossMargin_L4)
+    GrossMargin_TTM_CV = rename(GrossMargin_std / abs(GrossMargin_mean), factor_name='gross_margin_ttm_cv')
     Factors.append(GrossMargin_TTM_CV)
 
-    GrossMargin_TTM_YoY = Factorize((GrossMargin_TTM-GrossMargin_L1)/abs(GrossMargin_L1),'gross_margin_ttm_yoy')
+    GrossMargin_TTM_YoY = rename((GrossMargin_TTM - GrossMargin_L1) / abs(GrossMargin_L1), factor_name='gross_margin_ttm_yoy')
     Factors.append(GrossMargin_TTM_YoY)
 
 
     # ### 财务杠杆 ###################################################################################
-    CurrentRatio_L1 = CurAsset_L1/CurDebt_L1
-    CurrentRatio_LR = Factorize(CurAsset/CurDebt,"current_ratio_lr")
+    CurrentRatio_L1 = CurAsset_L1 / CurDebt_L1
+    CurrentRatio_LR = rename(CurAsset / CurDebt, factor_name="current_ratio_lr")
     Factors.append(CurrentRatio_LR)
 
-    QuickRatio_LR = Factorize((CurAsset-Inventory)/CurDebt,"quick_ratio_lr")
+    QuickRatio_LR = rename((CurAsset - Inventory) / CurDebt, factor_name="quick_ratio_lr")
     Factors.append(QuickRatio_LR)
 
-    InventoryTurnover = Factorize(2*Sales_TTM/(Inventory+Inventory_L1),"inventory_turnover")
+    InventoryTurnover = rename(2 * Sales_TTM / (Inventory + Inventory_L1), factor_name="inventory_turnover")
     Factors.append(InventoryTurnover)
 
-    ReceivablesTurnover = Factorize(2*Sales_TTM/(AR+AR_L1),"receivables_turnover")
+    ReceivablesTurnover = rename(2 * Sales_TTM / (AR + AR_L1), factor_name="receivables_turnover")
     Factors.append(ReceivablesTurnover)
 
-    LTDebt2Equity_LR = Factorize(LTDebt/Equity,"lt_debt2equity_lr")
+    LTDebt2Equity_LR = rename(LTDebt / Equity, factor_name="lt_debt2equity_lr")
     Factors.append(LTDebt2Equity_LR)
 
-    LTDebt2Equity_L1 = LTDebt_L1/Equity_L1
-    LTDebt2Equity_LR_YoY = Factorize((LTDebt2Equity_LR-LTDebt2Equity_L1)/abs(LTDebt2Equity_L1),"lt_debt2equity_lr_yoy")
+    LTDebt2Equity_L1 = LTDebt_L1 / Equity_L1
+    LTDebt2Equity_LR_YoY = rename((LTDebt2Equity_LR - LTDebt2Equity_L1) / abs(LTDebt2Equity_L1), factor_name="lt_debt2equity_lr_yoy")
     Factors.append(LTDebt2Equity_LR_YoY)
 
-    OCF2CurDebt = Factorize(2*OCF_TTM/(CurDebt+CurDebt_L1),'ocf2cur_debt')
+    OCF2CurDebt = rename(2 * OCF_TTM / (CurDebt + CurDebt_L1), factor_name='ocf2cur_debt')
     Factors.append(OCF2CurDebt)
 
 
     # ### 资本利用程度 ###################################################################################
-    CurAsset_LR_Gr = Factorize((CurAsset-CurAsset_L1)/abs(CurAsset_L1),"cur_asset_lr_gr")
+    CurAsset_LR_Gr = rename((CurAsset - CurAsset_L1) / abs(CurAsset_L1), factor_name="cur_asset_lr_gr")
     Factors.append(CurAsset_LR_Gr)
 
-    FixAsset_LR_Gr = Factorize((FixAsset-FixAsset_L1)/abs(FixAsset_L1),"fix_asset_lr_gr")
+    FixAsset_LR_Gr = rename((FixAsset - FixAsset_L1) / abs(FixAsset_L1), factor_name="fix_asset_lr_gr")
     Factors.append(FixAsset_LR_Gr)
 
-    CurDebt_LR_Gr = Factorize((CurDebt-CurDebt_L1)/abs(CurDebt_L1),"cur_debt_lr_gr")
+    CurDebt_LR_Gr = rename((CurDebt - CurDebt_L1) / abs(CurDebt_L1), factor_name="cur_debt_lr_gr")
     Factors.append(CurDebt_LR_Gr)
 
-    Debt_LR_Gr = Factorize((Debt-Debt_L1)/abs(Debt_L1),"debt_lr_gr")
+    Debt_LR_Gr = rename((Debt - Debt_L1) / abs(Debt_L1), factor_name="debt_lr_gr")
     Factors.append(Debt_LR_Gr)
 
-    Equity_LR_Gr = Factorize((Equity-Equity_L1)/abs(Equity_L1),"equity_lr_gr")
+    Equity_LR_Gr = rename((Equity - Equity_L1) / abs(Equity_L1), factor_name="equity_lr_gr")
     Factors.append(Equity_LR_Gr)
 
-    Asset_LR_Gr = Factorize((Asset-Asset_L1)/abs(Asset_L1),"asset_lr_gr")
+    Asset_LR_Gr = rename((Asset - Asset_L1) / abs(Asset_L1), factor_name="asset_lr_gr")
     Factors.append(Asset_LR_Gr)
 
     # ### 其他 ##############################################################################################
     #Piotroski_F_Score = (NetProfit_TTM_Deducted>0)+(OCF_TTM>0)+(NetProfit_TTM_Deducted>NetProfit_TTM_Deducted_L1)+(OCF_TTM>NetProfit_TTM_Deducted)
     #Piotroski_F_Score = Piotroski_F_Score + (LTDebt2Equity_LR<=LTDebt2Equity_L1)+(CurrentRatio_LR>CurrentRatio_L1)+(TotalStock<=TotalStock_L1)
     #Piotroski_F_Score = Piotroski_F_Score + (GrossMargin_TTM>GrossMargin_L1)+(Revenue2Asset>Sale2Asset_L1)
-    #Piotroski_F_Score = Factorize(Piotroski_F_Score,'Piotroski_F_Score')
+    #Piotroski_F_Score = rename(Piotroski_F_Score,'Piotroski_F_Score')
     #Factors.append(Piotroski_F_Score)
-    #Factors.append(Factorize(Capex_TTM/Sales_TTM,"Capex2Revenue"))#--来自于成长指标
+    #Factors.append(rename(Capex_TTM/Sales_TTM,"Capex2Revenue"))#--来自于成长指标
     ## ### 股利支付率 ##############################################################################################
     ##--股利支付率+留存收益率=1
     ##--股利包括现金分红加上股票股利；我们通常所说的股息率等是现金部分，正推不太好算
     ##--留存收益率实际上是所有者权益/净利润，所以我们可以反推
-    ##Dividend_Pay_Ratio=Factors.append(Factorize(1-Equity_Cur/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
+    ##Dividend_Pay_Ratio=Factors.append(rename(1-Equity_Cur/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
 
     # # #### 股利支付率#############################################################################
     # FT = JYDB.getTable("中国A股分红")
     # CashDvdPerShare, BaseShare = FT.getFactor("每股派息(税前)"), FT.getFactor("基准股本")
-    # Dividend_Pay_Ratio=Factors.append(Factorize(1-(CashDvdPerShare*BaseShare)/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
+    # Dividend_Pay_Ratio=Factors.append(rename(1-(CashDvdPerShare*BaseShare)/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
 
     # 20180806_光大证券_金融工程深度：创新基本面因子：财务数据间线性关系初窥——多因子系列报告之十四_ws 系列二
-    # 营业收入营业成本的线性关系推算 
-    PROC=QS.FactorDB.PointOperation("proc",[Sales_SQ7P,Sales_SQ6P,Sales_SQ5P,Sales_SQ4P,Sales_SQ3P,Sales_SQ2P,Sales_SQ1P,Sales_SQ0P,\
-                                            Cost_SQ7P,Cost_SQ6P,Cost_SQ5P,Cost_SQ4P,Cost_SQ3P,Cost_SQ2P,Cost_SQ1P,Cost_SQ0P],{'算子':RROC_Fun,"参数":{'非空率':0.4}})
+    # 营业收入营业成本的线性关系推算
+    PROC = calcRROC(
+        Sales_SQ7P, Sales_SQ6P, Sales_SQ5P, Sales_SQ4P, Sales_SQ3P, Sales_SQ2P, Sales_SQ1P, Sales_SQ0P,
+        Cost_SQ7P, Cost_SQ6P, Cost_SQ5P, Cost_SQ4P, Cost_SQ3P, Cost_SQ2P, Cost_SQ1P, Cost_SQ0P, 
+    factor_args={"Name": "proc"})
     Factors.append(PROC)
-
+    
     # 20180909_光大证券_金融工程深度：创新基本面因子：提纯净利数据中的选股信息——多因子系列报告之十五_ws 系列三
     # 财务因子的提纯
-    LPNP=QS.FactorDB.PointOperation("lpnp",[NetProfit_SQ7P,NetProfit_SQ6P,NetProfit_SQ5P,NetProfit_SQ4P,NetProfit_SQ3P,NetProfit_SQ2P,NetProfit_SQ1P,NetProfit_SQ0P,\
-                                            Empl_Pay_SQ7P,Empl_Pay_SQ6P,Empl_Pay_SQ5P,Empl_Pay_SQ4P,Empl_Pay_SQ3P,Empl_Pay_SQ2P,Empl_Pay_SQ1P,Empl_Pay_SQ0P,\
-                                            Non_Inc_SQ7P,Non_Inc_SQ6P,Non_Inc_SQ5P,Non_Inc_SQ4P,Non_Inc_SQ3P,Non_Inc_SQ2P,Non_Inc_SQ1P,Non_Inc_SQ0P],{'算子':LPNP_Fun,"参数":{'非空率':0.4}})
+    LPNP = calcLPNP(
+        NetProfit_SQ7P, NetProfit_SQ6P, NetProfit_SQ5P, NetProfit_SQ4P, NetProfit_SQ3P, NetProfit_SQ2P, NetProfit_SQ1P, NetProfit_SQ0P,
+        Empl_Pay_SQ7P, Empl_Pay_SQ6P, Empl_Pay_SQ5P, Empl_Pay_SQ4P, Empl_Pay_SQ3P, Empl_Pay_SQ2P, Empl_Pay_SQ1P, Empl_Pay_SQ0P,
+        Non_Inc_SQ7P, Non_Inc_SQ6P, Non_Inc_SQ5P, Non_Inc_SQ4P, Non_Inc_SQ3P, Non_Inc_SQ2P, Non_Inc_SQ1P, Non_Inc_SQ0P, 
+    factor_args={"Name": "lpnp"})
     Factors.append(LPNP)
 
     # 20181101_光大证券_金融工程深度：创新基本面因子：捕捉产能利用率中的讯号——多因子系列报告之十六_ws 系列四
     # 用固定资产与营业成本捕捉产能利用率
-    OCFA_val=QS.FactorDB.PointOperation("ocfa_val",[Cost_SQ7P,Cost_SQ6P,Cost_SQ5P,Cost_SQ4P,Cost_SQ3P,Cost_SQ2P,Cost_SQ1P,Cost_SQ0P,\
-                                                    FixAsset_SQ7P,FixAsset_SQ6P,FixAsset_SQ5P,FixAsset_SQ4P,FixAsset_SQ3P,FixAsset_SQ2P,FixAsset_SQ1P,FixAsset_SQ0P],{'算子':OCFA_Fun,"参数":{'非空率':0.4},"数据类型":"string"})
-    Factors.append(fd.fetch(OCFA_val,0,factor_name="OCFA_Resd"))
-    Factors.append(fd.fetch(OCFA_val,1,factor_name="OCFA_Para"))
+    OCFA_val = calcOCFA(
+        Cost_SQ7P, Cost_SQ6P, Cost_SQ5P, Cost_SQ4P, Cost_SQ3P, Cost_SQ2P, Cost_SQ1P, Cost_SQ0P,
+        FixAsset_SQ7P, FixAsset_SQ6P, FixAsset_SQ5P, FixAsset_SQ4P, FixAsset_SQ3P, FixAsset_SQ2P, FixAsset_SQ1P, FixAsset_SQ0P, 
+    factor_args={"Name": "ocfa_val"})
+    Factors.append(fo.Fetch(pos=0, dtype="double")(OCFA_val, factor_args={"Name": "ocfa_resid"}))
+    Factors.append(fo.Fetch(pos=1, dtype="double")(OCFA_val, factor_args={"Name": "ocfa_para"}))
 
-    return Factors
-
-if __name__=="__main__":
-    pass
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_quality",
+        MaxLookBack=365, 
+        IDType="A股",
+        Author="麦冬"
+    )

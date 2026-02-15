@@ -42,36 +42,37 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(RTN_5D)
     
     # 计算RTN_20D
-    # RTN_20D = QS.FactorDB.TimeOperation('rtn_20d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[21-1,21-1],"运算ID":"多ID"})
-    # Factors.append(RTN_20D)
+    RTN_20D = calcMomentum.new(args={"LookBack": [21-1, 21-1]})(AdjClose, Mask, factor_args={"Name": "rtn_20d"})
+    Factors.append(RTN_20D)
 
-    # #计算RTN_60D
-    # RTN_60D = QS.FactorDB.TimeOperation('rtn_60d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[61-1,61-1],"运算ID":"多ID"})
-    # Factors.append(RTN_60D)
+    # 计算RTN_60D
+    RTN_60D = calcMomentum.new(args={"LookBack": [61-1, 61-1]})(AdjClose, Mask, factor_args={"Name": "rtn_60d"})
+    Factors.append(RTN_60D)
     
-    # #计算RTN_120D
-    # RTN_120D = QS.FactorDB.TimeOperation('rtn_120d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[121-1,121-1],"运算ID":"多ID"})
-    # Factors.append(RTN_120D)
+    # 计算RTN_120D
+    RTN_120D = calcMomentum.new(args={"LookBack": [121-1, 121-1]})(AdjClose, Mask, factor_args={"Name": "rtn_120d"})
+    Factors.append(RTN_120D)
     
-    # #计算RTN_180D
-    # RTN_180D = QS.FactorDB.TimeOperation('rtn_180d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[181-1,181-1],"运算ID":"多ID"})
-    # Factors.append(RTN_180D)
+    # 计算RTN_180D
+    RTN_180D = calcMomentum.new(args={"LookBack": [181-1, 181-1]})(AdjClose, Mask, factor_args={"Name": "rtn_180d"})
+    Factors.append(RTN_180D)
     
-    # #计算RTN_240D
-    # RTN_240D = QS.FactorDB.TimeOperation('rtn_240d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[241-1,241-1],"运算ID":"多ID"})
-    # Factors.append(RTN_240D)
+    #计算RTN_240D
+    RTN_240D = calcMomentum.new(args={"LookBack": [241-1, 241-1]})(AdjClose, Mask, factor_args={"Name": "rtn_240d"})
+    Factors.append(RTN_240D)
 
-    # #计算RTN_720D
-    # RTN_720D = QS.FactorDB.TimeOperation('rtn_720d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[721-1,721-1],"运算ID":"多ID"})
-    # Factors.append(RTN_720D)
+    #计算RTN_720D
+    RTN_720D = calcMomentum.new(args={"LookBack": [721-1, 721-1]})(AdjClose, Mask, factor_args={"Name": "rtn_720d"})
+    Factors.append(RTN_720D)
     
-    # #计算RTN_1200D
-    # RTN_1200D = QS.FactorDB.TimeOperation('rtn_1200d', [AdjClose, Mask], {'算子':MomentumFun,'参数':{"非空率":0.8},'回溯期数':[1201-1,1201-1],"运算ID":"多ID"})
-    # Factors.append(RTN_1200D)
+    #计算RTN_1200D
+    RTN_1200D = calcMomentum.new(args={"LookBack": [1201-1, 1201-1]})(AdjClose, Mask, factor_args={"Name": "rtn_1200d"})
+    Factors.append(RTN_1200D)
     
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_momentum",
+        MaxLookBack=365 * 6, 
         IDType="A股",
         Author="麦冬"
     )

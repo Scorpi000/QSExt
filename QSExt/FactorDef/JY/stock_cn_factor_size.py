@@ -17,7 +17,7 @@ def defFactor(fdi: FactorDefInput):
 
     JYDB = fdi.FDB["JYDB"]
 
-    ### 财务因子 ##########################################################################
+    # ### 财务因子 ##########################################################################
     Asset = JYDB.getTable("资产负债表_新会计准则", args={"CalcType":"最新", "ReportDate":"所有"}).getFactor("资产总计")
     Sales_TTM = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("营业收入")
 

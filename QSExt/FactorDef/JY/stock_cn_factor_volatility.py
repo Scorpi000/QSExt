@@ -6,19 +6,30 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
+from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
+from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor as defStockFactorValue
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_volatility",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
-# 因子收益率
-def FactorReturnFun(f,idate,iid,x,args):
+@FactorOperatorized(operator_type="Time", args={"Arity": 1, "DataType": "double", "DTMode": "多时点", "IDMode": "多ID", "LookBack": [60 - 1]})
+def calcRollingSkew(f, idt, iid, x, args):
+    Data = pd.DataFrame(x[0])
+    args = args.copy()
+    return Data.rolling(**args).apply(lambda x : x.skew()).values[f.Args["LookBack"][0]:]
+
+@FactorOperatorized(operator_type="Time", args={"Arity": 1, "DataType": "double", "DTMode": "多时点", "IDMode": "多ID", "LookBack": [60 - 1]})
+def calcRollingKurt(f, idt, iid, x, args):
+    Data = pd.DataFrame(x[0])
+    args = args.copy()
+    return Data.rolling(**args).apply(lambda x : x.kurt()).values[f.Args["LookBack"][0]:]
+
+# 因子收益率(TODO)
+@FactorOperatorized(operator_type="Panel", args={"Arity": 5, "ModelArgs": {"ascending": False}, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [1, 0, 1, 1, 1]})
+def calcFactorReturn(f, idt, iid, x, args):
     FactorData = pd.Series(x[0][0,:])
     ReturnData = pd.Series(x[1][0,:])
     ST = pd.Series(x[2][0,:])
@@ -29,7 +40,8 @@ def FactorReturnFun(f,idate,iid,x,args):
     return np.zeros((FactorData.shape[0],))+PortfolioReturn[0]-PortfolioReturn[-1]
 
 # 市场收益率
-def MarketReturnFun(f,idate,iid,x,args):
+@FactorOperatorized(operator_type="Panel", args={"Arity": 4, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [0, 1, 1, 1]})
+def calcMarketReturn(f, idt, iid, x, args):
     ReturnData = x[0][0,:]
     ST = x[1][0,:]
     ListDays = x[2][0,:]
@@ -41,7 +53,8 @@ def MarketReturnFun(f,idate,iid,x,args):
     return np.zeros((x[0].shape[0],))+MarketReturn
 
 # 回归函数
-def RegressFun(f,idate,iid,x,args):
+@FactorOperatorized(operator_type="Time", args={"Arity": 4, "LookBack": [20, 20, 20, 20], "DataType": "object"})
+def calcIVFFAndIVR(f, idt, iid, x, args):
     X = np.array(x[1:]).T.astype("float")
     X = sm.add_constant(X,prepend=True)
     Y = x[0].astype("float")
@@ -49,50 +62,48 @@ def RegressFun(f,idate,iid,x,args):
         Result = sm.OLS(Y,X).fit()
     except:
         return (np.nan,np.nan)
-    return (np.nanstd(Result.resid)*np.sqrt(240.0),1-Result.rsquared_adj)
+    return (np.nanstd(Result.resid)*np.sqrt(240.0), 1-Result.rsquared_adj)
 
-def defFactor(args={}):
+def defFactor(fdi: FactorDefInput):
     Factors = []
 
-    JYDB = args["JYDB"]
-    LDB = args["LDB"]
-
     # ### 行情因子 #############################################################################
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    DayReturn = FT.getFactor("chg_rate")
-    FloatCap = FT.getFactor("float_cap")# 万元
-    Weight = FT.getFactor("float_cap")# 万元
-    IfTrading = FT.getFactor("if_trading")
-
-    FT = LDB.getTable("stock_cn_factor_value")
-    BP = FT.getFactor("bp_lr")
-
-    FT = LDB.getTable("stock_cn_info")
-    ST = FT.getFactor("st")
-    ListDays = FT.getFactor("listed_days")
-    IfListed = FT.getFactor("if_listed")
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
+    FloatCap = StockDayBarDef.getFactor(factor_name="float_cap")# 万元
+    Weight = StockDayBarDef.getFactor(factor_name="float_cap")# 万元
+    StockStatusDef = defStockStatus(fdi=fdi)
+    IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
+    IfListed = StockStatusDef.getFactor(factor_name="if_listed")
+    ST = StockStatusDef.getFactor("st")
+    ListDays = StockStatusDef.getFactor("listed_days")
+    StockFactorValue = defStockFactorValue(fdi=fdi)
+    BP = StockFactorValue.getFactor(factor_name="bp_lr")
 
     Mask = ((IfTrading==1) & (IfListed==1))
-    Mask_60D = (fd.rolling_sum(Mask, 60)>=60*0.8)
-    Mask_240D = (fd.rolling_sum(Mask, 240)>=240*0.8)
-
-    Factors.append(fd.where(fd.rolling_std(DayReturn, 60, min_periods=2), Mask_60D, np.nan, factor_name="realized_volatility_60d"))
-    Factors.append(fd.where(fd.rolling_std(DayReturn, 240, min_periods=2), Mask_240D, np.nan, factor_name="realized_volatility_240d"))
-    Factors.append(fd.where(fd.rolling_skew(DayReturn, 240, min_periods=2), Mask_240D, np.nan, factor_name="realized_skewness_240d"))
-    Factors.append(fd.where(fd.rolling_skew(DayReturn, 60, min_periods=2), Mask_60D, np.nan, factor_name="realized_skewness_60d"))
-    Factors.append(fd.where(fd.rolling_kurt(DayReturn, 240, min_periods=2), Mask_240D, np.nan, factor_name="realized_kurtosis_240d"))
-    Factors.append(fd.where(fd.rolling_kurt(DayReturn, 60, min_periods=2), Mask_60D, np.nan, factor_name="realized_kurtosis_60d"))
-
+    Mask_60D = (fo.RollingSum(window=60)(Mask) >= 60*0.8)
+    Mask_240D = (fo.RollingSum(window=240)(Mask) >= 240*0.8)
+    
+    where = fo.Where(dtype="double")
+    Factors.append(where(fo.RollingStd(window=60, min_periods=2)(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_volatility_60d"}))
+    Factors.append(where(fo.RollingStd(window=240, min_periods=2)(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_volatility_240d"}))
+    Factors.append(where(calcRollingSkew.new(args={"LookBack": [240 - 1], "ModelArgs": {"window": 240, "min_periods": 2}})(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_skewness_240d"}))
+    Factors.append(where(calcRollingSkew.new(args={"LookBack": [60 - 1], "ModelArgs": {"window": 60, "min_periods": 2}})(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_skewness_60d"}))
+    Factors.append(where(calcRollingKurt.new(args={"LookBack": [240 - 1], "ModelArgs": {"window": 240, "min_periods": 2}})(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_kurtosis_240d"}))
+    Factors.append(where(calcRollingKurt.new(args={"LookBack": [60 - 1], "ModelArgs": {"window": 60, "min_periods": 2}})(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_kurtosis_60d"}))    
+    
     # 特异性波动率
-    BPLSRet = QS.FactorDB.PanelOperation("BP收益率", [BP, DayReturn, ST, ListDays, Weight], {"算子":FactorReturnFun,"参数":{"ascending":False}, "输出形式":"全截面", "回溯期数":[1,0,1,1,1]})
-    FloatCapLSRet = QS.FactorDB.PanelOperation("流通市值收益率", [FloatCap, DayReturn, ST, ListDays, Weight], {"算子":FactorReturnFun, "参数":{"ascending":True}, "输出形式":"全截面", "回溯期数":[1,0,1,1,1]})
-    MarketRet = QS.FactorDB.PanelOperation("市场收益率", [DayReturn, ST, ListDays, Weight], {"算子":MarketReturnFun, "参数":{}, "输出形式":"全截面", "回溯期数":[0,1,1,1]})
-    RegressResult_20D = QS.FactorDB.TimeOperation(name="RegressResult", descriptors=[DayReturn, FloatCapLSRet, BPLSRet, MarketRet], sys_args={"算子": RegressFun, "回溯期数": [20,20,20,20], "数据类型":"object"})
-    #RegressResult_240D = QS.FactorDB.TimeOperation(name="RegressResult", descriptors=[DayReturn, FloatCapLSRet, BPLSRet, MarketRet], sys_args={"算子": RegressFun, "回溯期数": [240,240,240,240], "数据类型":"object"})
-    Factors.append(fd.fetch(RegressResult_20D, 0, factor_name="ivff_20d"))
-    Factors.append(fd.fetch(RegressResult_20D, 1, factor_name="ivr_20d"))
-
-    return Factors
-
-if __name__=="__main__":
-    pass
+    BPLSRet = calcFactorReturn(BP, DayReturn, ST, ListDays, Weight, factor_args={"Name": "BP收益率"})
+    FloatCapLSRet =  calcFactorReturn(FloatCap, DayReturn, ST, ListDays, Weight, factor_args={"Name": "流通市值收益率"})
+    MarketRet = calcMarketReturn(DayReturn, ST, ListDays, Weight, factor_args={"Name": "市场收益率"})
+    IVFFAndIVR = calcIVFFAndIVR(DayReturn, FloatCapLSRet, BPLSRet, MarketRet, factor_args={"Name": "IVFFAndIVR"})
+    Factors.append(fo.Fetch(pos=0, dtype="double")(RegressResult_20D, factor_args={"Name": "ivff_20d"}))
+    Factors.append(fo.Fetch(pos=1, dtype="double")(RegressResult_20D, factor_args={"Name": "ivr_20d"}))
+    
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_volatility",
+        MaxLookBack=365 * 2, 
+        IDType="A股",
+        Author="麦冬"
+    )
