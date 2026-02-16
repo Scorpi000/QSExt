@@ -1,0 +1,196 @@
+# coding=utf-8
+"""内置的因子运算"""
+import json
+import datetime as dt
+from typing import Optional, Dict, Union
+
+import numpy as np
+import pandas as pd
+
+from QuantStudio.FactorDataBase.FactorDB import Factor
+from QuantStudio.FactorDataBase.FactorOperation import PointOperator, TimeOperator, SectionOperator
+from QuantStudio.Tools import DataPreprocessingFun
+from QuantStudio.Tools.api import Panel
+
+class IsNull(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "isnull", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return pd.isnull(x[0])
+    
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Sign(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "sign", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return np.sign(x[0].astype(float))
+    
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Ceil(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "ceil", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return np.ceil(x[0].astype(float))
+    
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Floor(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "floor", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return np.floor(x[0].astype(float))
+    
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Fix(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "fix", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return np.fix(x[0].astype(float))
+    
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Clip(PointOperator):
+    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "clip", "入参数": 1, "最大入参数": 3, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "参数": {}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return np.clip(x[0].astype(float), x[1].astype(float), x[2].astype(float))
+    
+    def __call__(self, f, a_min, a_max, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, a_min, a_max, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class NanProd(PointOperator):
+    def __init__(self, all_nan:float=1, dtype:str="double", sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "nanprod", "入参数": 1, "最大入参数": -1, "数据类型": dtype, "运算时点": "多时点", "运算ID": "多ID", "参数": {"all_nan": all_nan}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        Data = np.array(x)
+        Rslt = np.nanprod(Data, axis=0)
+        Mask = (np.sum(pd.notnull(Data), axis=0)==0)
+        Rslt[Mask] = args["all_nan"]
+        return Rslt
+    
+    def __call__(self, *factors, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(*factors, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class FromTimestamp(PointOperator):
+    def __init__(self, unit:float=1e9, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "fromtimestamp", "入参数": 1, "最大入参数": 1, "数据类型": "object", "运算时点": "多时点", "运算ID": "多ID", "参数": {"unit": unit}}
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return pd.DataFrame(x[0]).applymap(lambda x: dt.datetime.fromtimestamp(x / args["unit"]) if pd.notnull(x) else None).values
+
+    def __call__(self, f, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class FillNa(TimeOperator):
+    def __init__(self, value=None, lookback=1, sys_args={}, config_file=None, **kwargs):
+        if value is None:
+            Args = {"名称": "fillna", "入参数": 1, "最大入参数": 1, "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [lookback], "参数": {"fill_value": False, "lookback": lookback}}
+        else:
+            Args = {"名称": "fillna", "入参数": 2, "最大入参数": 2, "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [0, 0], "参数": {"fill_value": True, "lookback": lookback}}
+        Args.update(sys_args)
+        self._Value = value
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        Data, Val = x
+        if not args["fill_value"]:
+            LookBack = args["lookback"]
+            return pd.DataFrame(Data).fillna(method="pad", limit=LookBack).values[LookBack:]
+        else:
+            return np.where(pd.notnull(Data), Data, Val)
+    
+    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        if self._Value is None:
+            return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+        else:
+            return super().__call__(f, self._Value, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class RollingSkew(TimeOperator):
+    def __init__(self, window:int=1, min_periods:int=1, win_type:Optional[str]=None, auto_lookback:bool=True, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "rollingSkew", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [1-1], "参数": {"window": window, "min_periods": min_periods, "win_type": win_type}}
+        if auto_lookback and (window is not None):
+            Args["回溯期数"] = [window-1]
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return pd.DataFrame(x[0]).rolling(**args).skew().values[self.Args["回溯期数"][0]:]
+    
+    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class RollingKurt(TimeOperator):
+    def __init__(self, window:int=1, min_periods:int=1, win_type:Optional[str]=None, auto_lookback:bool=True, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "rollingKurt", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [1-1], "参数": {"window": window, "min_periods": min_periods, "win_type": win_type}}
+        if auto_lookback and (window is not None):
+            Args["回溯期数"] = [window-1]
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        return pd.DataFrame(x[0]).rolling(**args).kurt().values[self.Args["回溯期数"][0]:]
+    
+    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class RollingProd(TimeOperator):
+    def __init__(self, window:int=1, min_periods:int=1, auto_lookback:bool=True, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "rollingProd", "入参数": 1, "最大入参数": 1, "数据类型": "double", "运算时点": "单时点", "运算ID": "多ID", "回溯期数": [1-1], "参数": {"window": window, "min_periods": min_periods}}
+        if auto_lookback and (window is not None):
+            Args["回溯期数"] = [window-1]
+        Args.update(args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        Rslt = np.nanprod(x[0], axis=0)
+        Rslt[np.sum(pd.notnull(x[0]), axis=0) < args["min_periods"]] = np.nan
+        return Rslt
+    
+    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+
+class Diff(TimeOperator):
+    def __init__(self, n:int=1, auto_lookback:bool=True, sys_args={}, config_file=None, **kwargs):
+        Args = {"名称": "diff", "入参数": 1, "最大入参数": 1, "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [1], "参数": {"n": int(n)}}
+        if auto_lookback:
+            Args["回溯期数"] = [int(n)]
+        Args.update(sys_args)
+        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f, idt, iid, x, args):
+        nDT = x[0].shape[0] - self.Args["回溯期数"][0]
+        return np.diff(x[0], n=args["n"], axis=0)[-nDT:]
+    
+    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
+        return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
