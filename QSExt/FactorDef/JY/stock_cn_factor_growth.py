@@ -10,6 +10,7 @@ import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
 
 # 以回归的方式计算增速
@@ -151,10 +152,9 @@ def defFactor(fdi: FactorDefInput):
     Equity_L1 = FT.getFactor("归属母公司股东权益合计")
     
     # ### 一致预期因子 #############################################################################
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t"}})
-    NetProfitAvg_FY0 = FT.getFactor("预测净利润平均值(元)")
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+1"}})
-    NetProfitAvg_FY1 = FT.getFactor("预测净利润平均值(元)")
+    StockConsensusDef = defStockConsensus(fdi=fdi)
+    NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
+    NetProfitAvg_FY1 = StockConsensusDef.getFactor(factor_name="net_profit_fy1")
     
     # #### 五年增速: 回归方式计算 ########################################################################
     Factors.append(calcRegressionGrowth(Sales_Y4, Sales_Y3, Sales_Y2, Sales_Y1, Sales_Y0, factor_args={"Name": "revenue_5y_gr"}))

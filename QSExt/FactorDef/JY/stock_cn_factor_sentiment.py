@@ -9,8 +9,8 @@ import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QSExt.FactorDef.JY.stock_cn_factor_value import calcFwd12M
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
+from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
 
 def defFactor(fdi: FactorDefInput):
@@ -23,20 +23,12 @@ def defFactor(fdi: FactorDefInput):
     Close = StockDayBarDef.getFactor("close")
 
     # ### 一致预期因子 #########################################################################
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t"}})
-    EPSAvg_FY0 = FT.getFactor("预测EPS平均值(元-股)")
-    NetProfitAvg_FY0 = FT.getFactor("预测净利润平均值(元)")
-    EPSStd_FY0 = FT.getFactor("预测EPS标准差")
-    ForecastYear_FY0 = FT.getFactor("预测年度")
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+1"}})
-    EPSAvg_FY1 = FT.getFactor("预测EPS平均值(元-股)")
-    NetProfitAvg_FY1 = FT.getFactor("预测净利润平均值(元)")
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+2"}})
-    EPSAvg_FY2 = FT.getFactor("预测EPS平均值(元-股)")
-    NetProfitAvg_FY2 = FT.getFactor("预测净利润平均值(元)")
-    EPSAvg_Fwd12M = calcFwd12M(ForecastYear_FY0, EPSAvg_FY0, EPSAvg_FY1, EPSAvg_FY2, factor_args={"Name": "eps_fwd12m"})    
-    NetProfitAvg_Fwd12M = calcFwd12M(ForecastYear_FY0, NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2, factor_args={"Name": "net_profit_fwd12m"})
-
+    StockConsensusDef = defStockConsensus(fdi=fdi)
+    NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
+    NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
+    EPSAvg_FY0 = StockConsensusDef.getFactor(factor_name="eps_fy0")
+    EPSAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="eps_fwd12m")
+    
     FT = JYDB.getTable("个股评级", args={"回溯天数": 180, "统计周期时间间隔": "180"})
     Rating = rename(FT.getFactor("评级标准分"), factor_name="rating")
     FT = JYDB.getTable("个股目标价")

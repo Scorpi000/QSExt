@@ -17,13 +17,6 @@ from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor 
 from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor as defStockFactorMomentum
 
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_alternative",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
-
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [240-1, 240-1], "IDMode": "多ID"})
 def calcPrice52WHigh(f, idt, iid, x, args):
     Close = x[0]
@@ -119,7 +112,9 @@ def calcHL(f, idt, iid, x, args):
     Val=High_Max/Low_Min
     return Val
 
-def VWAPPFun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Section", args={"Arity": 2, "IDMode": "单ID", "OutputMode": "全截面"})
+def calcVWAPP(f, idt, iid, x, args):
     X, Y = x[0], x[1]
     Rslt = np.full(shape=(X.shape[0],), fill_value=np.nan)
     Mask = (pd.notnull(X) & pd.notnull(Y))
@@ -134,7 +129,9 @@ def VWAPPFun(f, idt, iid, x, args):
     Rslt[Mask] = Result.resid
     return Rslt
 
-def PriceSpreadFun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [240-1, 1-1], "IDMode": "单ID", "OutputMode": "全截面"})
+def calcPriceSpread(f, idt, iid, x, args):
     ret = pd.DataFrame(x[0])
     ret20D = pd.Series(x[1][0, :])
     C = ret.corr(min_periods=int(240 * 0.8))
@@ -143,7 +140,9 @@ def PriceSpreadFun(f, idt, iid, x, args):
     ps = np.log(1+ret20D) - np.log(1+rp)
     return ps.values
 
-def SpreadBiasFun(f, idt, iid, x, args):
+
+@FactorOperatorized(operator_type="Time", args={"Arity": 1, "ModelArgs": {"非空率": 0.8}, "LookBack": [120-1], "IDMode": "多ID", "DTMode": "单时点"})
+def calcSpreadBias(f, idt, iid, x, args):
     Data = x[0]
     Avg = np.nanmean(Data, axis=0)
     Std = np.nanstd(Data, axis=0)
@@ -224,36 +223,20 @@ def defFactor(fdi: FactorDefInput):
     # 基于均价计算的日收益率
     VWAPReturn = Amount / (Volume / 100) / PreClose - 1
     # 日收益率相对于均价日收益率的截面回归残差
-    VWAPP = QS.FactorDB.SectionOperation("vwapp_ols", [DayReturn, VWAPReturn], {"算子": VWAPPFun})
+    VWAPP = calcVWAPP(DayReturn, VWAPReturn, factor_args={"Name": "vwapp_ols"})
     Factors.append(VWAPP)
     
-    VWAPP_5D = fd.rolling_mean(VWAPP, window=5, min_periods=int(5*0.8), factor_name="vwapp_5d")
+    VWAPP_5D = fo.RollingMean(window=5, min_periods=int(5*0.8))(VWAPP, factor_args={"Name": "vwapp_5d"})
     Factors.append(VWAPP_5D)
-    VWAPP_10D = fd.rolling_mean(VWAPP, window=10, min_periods=int(10*0.8), factor_name="vwapp_10d")
+    VWAPP_10D = fo.RollingMean(window=10, min_periods=int(10*0.8))(VWAPP, factor_args={"Name": "vwapp_10d"})
     Factors.append(VWAPP_10D)
-    VWAPP_20D = fd.rolling_mean(VWAPP, window=20, min_periods=int(20*0.8), factor_name="vwapp_20d")
+    VWAPP_20D = fo.RollingMean(window=20, min_periods=int(20*0.8))(VWAPP, factor_args={"Name": "vwapp_20d"})
     Factors.append(VWAPP_20D)
     
     # 价差偏离度因子
-    PriceSpread = QS.FactorDB.PanelOperation(
-        "price_spread",
-        [DayReturn, Ret20D],
-        sys_args={
-            "算子": PriceSpreadFun,
-            "回溯期数": [240-1, 1-1]
-        }
-    )
+    PriceSpread = calcPriceSpread(DayReturn, Ret20D, factor_args={"Name": "price_spread"})
     Factors.append(PriceSpread)
-    SpreadBias_120D = QS.FactorDB.TimeOperation(
-        "spread_bias_120d",
-        [PriceSpread],
-        sys_args={
-            "算子": SpreadBiasFun,
-            "参数": {"非空率": 0.8},
-            "回溯期数": [120-1],
-            "运算ID": "多ID"
-        }
-    )
+    SpreadBias_120D = calcSpreadBias(PriceSpread, factor_args={"Name": "spread_bias_120d"})
     Factors.append(SpreadBias_120D)
     
     return FactorDef(

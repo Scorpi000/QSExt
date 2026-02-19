@@ -6,18 +6,17 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.api as QS
-fd = QS.FactorDB.FactorTools
-Factorize = QS.FactorDB.Factorize
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_factor_barra_descriptor import defFactor as defBarraDescriptor
+from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
+from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_barra",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
-def StandardizeFun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "OutputMode": "全截面", "DTMode": "单时点"})
+def standardize(f, idt, iid, x, args):
     Mask = ((x[2]==1) & pd.notnull(x[0]) & pd.notnull(x[1]))
     Weight = x[1][Mask]
     Data = x[0][Mask]
@@ -25,7 +24,8 @@ def StandardizeFun(f, idt, iid, x, args):
     Std = np.nanstd(Data)
     return (x[0]-Avg)/Std
 
-def WinsorizeFun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Section", args={"Arity": 1, "OutputMode": "全截面", "DTMode": "单时点"})
+def winsorize(f, idt, iid, x, args):
     Data = x[0]
     Max = np.nanmax(Data)
     Min = np.nanmin(Data)
@@ -40,7 +40,8 @@ def WinsorizeFun(f, idt, iid, x, args):
     Rslt[Mask] = Data[Mask]
     return Rslt
 
-def OrthogonalizeFun(f, idt, iid, x, args):
+@FactorOperatorized(operator_type="Section", args={"Arity": None, "OutputMode": "全截面", "DTMode": "单时点"})
+def orthogonalize(f, idt, iid, x, args):
     StdData = np.zeros(x[0].shape)+np.nan
     Y = x[0].astype('float')
     X = np.array(x[2:]).T.astype('float')
@@ -53,69 +54,93 @@ def OrthogonalizeFun(f, idt, iid, x, args):
     StdData[Mask] = Result.resid
     return StdData
 
-def defFactor(args={}):
-    LDB = args["LDB"]
+@FactorOperatorized(operator_type="Section", args={"Arity": 4, "OutputMode": "全截面", "DTMode": "单时点"})
+def fillna(f, idt, iid, x, args):
+    Mask = (x[3]==1)
+    xAllData = np.log(x[1][Mask])
+    ClassData = x[2][Mask]
+    FactorData = x[0][Mask]
+    NotNAMask = pd.notnull(FactorData)
+    if FactorData.shape[0]>np.sum(NotNAMask):# 存在缺失值
+        AllClasses = pd.unique(ClassData[(~NotNAMask)])
+        for iClass in AllClasses:
+            if pd.isnull(iClass):
+                iNotNAMask = NotNAMask
+                iNAMask = ((~NotNAMask) & pd.isnull(ClassData))
+            else:
+                iNotNAMask = ((NotNAMask) & (ClassData==iClass))
+                iNAMask = ((~NotNAMask) & (ClassData==iClass))
+            xData = xAllData[iNotNAMask]
+            yData = FactorData[iNotNAMask]
+            iMask = pd.notnull(xData)
+            xData = xData[iMask]
+            yData = yData[iMask]
+            iNotNANum = xData.shape[0]
+            if iNotNANum==0:
+                continue
+            xMean = np.mean(xData)
+            yMean = np.mean(yData)
+            Beta = (np.sum(xData*yData)-iNotNANum*xMean*yMean)/(np.sum(xData**2)-iNotNANum*xMean**2)
+            Alpha = yMean-xMean*Beta
+            FactorData[iNAMask] = Alpha+Beta*xAllData[iNAMask]
+    Rslt = x[0]
+    Rslt[Mask] = FactorData
+    return Rslt
 
+def defFactor(fdi: FactorDefInput):
     # ### 描述子 ###########################################################################
+    BarraDescriptorDef = defBarraDescriptor(fdi=fdi)
     DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
-    FT = LDB.getTable("stock_cn_factor_barra_descriptor")
-    Descriptors = {iDescriptorName:FT.getFactor(iDescriptorName) for iDescriptorName in DescriptorNames}
+    Descriptors = {iDescriptorName: BarraDescriptorDef.getFactor(factor_name=iDescriptorName) for iDescriptorName in DescriptorNames}
 
     # ### 辅助因子 ###########################################################################
-    ESTU = FT.getFactor("ESTU")
-    Industry = FT.getFactor("Industry")
+    ESTU = BarraDescriptorDef.getFactor("ESTU")
+    Industry = BarraDescriptorDef.getFactor("barra_industry")
+    
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    Cap = StockDayBarDef.getFactor("total_cap")# 万元
+    
+    StockStatusDef = defStockStatus(fdi=fdi)
+    IsListed = StockStatusDef.getFactor("if_listed")
 
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    Cap = FT.getFactor("total_cap")
-    FT = LDB.getTable("stock_cn_info")
-    IsListed = FT.getFactor("if_listed")
-
-    # ### 描述子第一次标准化 ###########################################################################
     for iDescriptorName in DescriptorNames:
-        Descriptors[iDescriptorName] = QS.FactorDB.SectionOperation(iDescriptorName, [Descriptors[iDescriptorName], Cap, ESTU], {"算子":StandardizeFun})
-
-    # ### 描述子异常值处理 ###########################################################################
-    for iDescriptorName in DescriptorNames:
-        Descriptors[iDescriptorName] = QS.FactorDB.SectionOperation(iDescriptorName, [Descriptors[iDescriptorName]], {"算子":WinsorizeFun})
-
-    # ### 描述子第二次标准化 ###########################################################################
-    for iDescriptorName in DescriptorNames:
-        Descriptors[iDescriptorName] = QS.FactorDB.SectionOperation(iDescriptorName, [Descriptors[iDescriptorName], Cap, ESTU], {"算子":StandardizeFun})
-
+        iFactor = standardize(Descriptors[iDescriptorName], Cap, ESTU)# 描述子第一次标准化
+        iFactor = winsorize(iFactor)# 描述子异常值处理
+        Descriptors[iDescriptorName] = standardize(iFactor, Cap, ESTU)# 描述子第二次标准化
+    
     # ### 合并描述子 ##################################################################################
     Factors = {}
     Factors["Size"] = Descriptors["LNCAP"]
     Factors["Beta"] = Descriptors["BETA"]
     Factors["Momentum"] = Descriptors["RSTR"]
-    Factors["ResidualVolatility"] = fd.nanmean(Descriptors['DASTD'], Descriptors['CMRA'], Descriptors['HSIGMA'], weights=[0.74,0.16,0.1], ignore_nan_weight=True)
+    Factors["ResidualVolatility"] = fo.Mean(weights=[0.74, 0.16, 0.1], ignore_nan_weight=True)(Descriptors['DASTD'], Descriptors['CMRA'], Descriptors['HSIGMA'])
     Factors["NonlinearSize"] = Descriptors["NLSIZE"]
     Factors["BookToPrice"] = Descriptors["BTOP"]
-    Factors["Liquidity"] = fd.nanmean(Descriptors["STOM"], Descriptors["STOQ"], Descriptors["STOA"], weights=[0.35,0.35,0.3], ignore_nan_weight=True)
-    Factors["EarningsYield"] = fd.nanmean(Descriptors['EPFWD'], Descriptors['CETOP'], Descriptors['ETOP'], weights=[0.68,0.21,0.11], ignore_nan_weight=True)
-    Factors["Growth"] = fd.nanmean(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'], weights=[0.18,0.11,0.24,0.47], ignore_nan_weight=True)
-    Factors["Leverage"] = fd.nanmean(Descriptors['MLEV'], Descriptors['DTOA'], Descriptors['BLEV'], weights=[0.38,0.35,0.27], ignore_nan_weight=True)
+    Factors["Liquidity"] = fo.Mean(weights=[0.35, 0.35, 0.3], ignore_nan_weight=True)(Descriptors["STOM"], Descriptors["STOQ"], Descriptors["STOA"])
+    Factors["EarningsYield"] = fo.Mean(weights=[0.68, 0.21, 0.11], ignore_nan_weight=True)(Descriptors['EPFWD'], Descriptors['CETOP'], Descriptors['ETOP'])
+    Factors["Growth"] = fo.Mean(weights=[0.18, 0.11, 0.24, 0.47], ignore_nan_weight=True)(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'])
+    Factors["Leverage"] = fo.Mean(weights=[0.38, 0.35, 0.27], ignore_nan_weight=True)(Descriptors['MLEV'], Descriptors['DTOA'], Descriptors['BLEV'])
 
     # ### 风格因子第一次标准化 ###########################################################################
     for iFactorName, iFactor in Factors.items():
-        Factors[iFactorName] = QS.FactorDB.SectionOperation(iFactorName, [iFactor,Cap,ESTU], {"算子":StandardizeFun})
+        Factors[iFactorName] = standardize(iFactor, Cap, ESTU)
 
     # ### 正交化 ###########################################################################
-    Factors["ResidualVolatility"] = QS.FactorDB.SectionOperation("ResidualVolatility", [Factors["ResidualVolatility"],IsListed,Factors["Beta"],Factors["Size"]],{"算子":OrthogonalizeFun,"输出形式":"全截面"})
-    Factors["Liquidity"] = QS.FactorDB.SectionOperation("Liquidity",[Factors["Liquidity"],IsListed,Factors["Size"]],{"算子":OrthogonalizeFun,"输出形式":"全截面"})
-    Factors["ResidualVolatility"] = QS.FactorDB.SectionOperation("ResidualVolatility",[Factors["ResidualVolatility"],Cap,ESTU],{"算子":StandardizeFun})
-    Factors["Liquidity"] = QS.FactorDB.SectionOperation("Liquidity",[Factors["Liquidity"],Cap,ESTU],{"算子":StandardizeFun})
-
-    # ### 缺失值填充 ###########################################################################
+    Factors["ResidualVolatility"] = orthogonalize(Factors["ResidualVolatility"], IsListed, Factors["Beta"], Factors["Size"])
+    Factors["Liquidity"] = orthogonalize(Factors["Liquidity"], IsListed, Factors["Size"])
+    Factors["ResidualVolatility"] = standardize(Factors["ResidualVolatility"], Cap, ESTU)
+    Factors["Liquidity"] = standardize(Factors["Liquidity"], Cap, ESTU)
+    
     for iFactorName, iFactor in Factors.items():
-        Factors[iFactorName] = QS.FactorDB.SectionOperation(iFactorName, [iFactor,Cap,Industry,IsListed], {"算子":FillNaFun})
-
-    # ### 风格因子第二次标准化 ###########################################################################
-    for iFactorName, iFactor in Factors.items():
-        Factors[iFactorName] = QS.FactorDB.SectionOperation(iFactorName, [iFactor,Cap,ESTU], {"算子":StandardizeFun})
-
+        iFactor = fillna(iFactor, Cap, Industry, IsListed)# 缺失值填充
+        Factors[iFactorName] = standardize(iFactor, Cap, ESTU, factor_args={"Name": iFactorName})# 风格因子第二次标准化
+    
     Factors = [Factors[iFactor] for iFactor in sorted(Factors.keys())]
 
-    return Factors
-
-if __name__=="__main__":
-    pass
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_barra",
+        MaxLookBack=365, 
+        IDType="A股",
+        Author="麦冬"
+    )

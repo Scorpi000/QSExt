@@ -10,7 +10,7 @@ import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QSExt.FactorDef.JY.stock_cn_factor_value import calcFwd12M
+from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
 
 # 20180806_光大证券_金融工程深度：创新基本面因子：财务数据间线性关系初窥——多因子系列报告之十四_ws 系列二
@@ -257,15 +257,10 @@ def defFactor(fdi: FactorDefInput):
     Capex_TTM = FT.getFactor("购建固定资产、无形资产和其他长期资产支付的现金")
     
     # ### 一致预期因子 #############################################################################
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t"}})
-    NetProfitAvg_FY0 = FT.getFactor("预测净利润平均值(元)")
-    ForecastYear_FY0 = FT.getFactor("预测年度")
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+1"}})
-    NetProfitAvg_FY1 = FT.getFactor("预测净利润平均值(元)")
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+2"}})
-    NetProfitAvg_FY2 = FT.getFactor("预测净利润平均值(元)")
-    NetProfitAvg_Fwd12M = calcFwd12M(ForecastYear_FY0, NetProfitAvg_FY0, NetProfitAvg_FY1, NetProfitAvg_FY2, factor_args={"Name": "net_profit_fwd12m"})
-
+    StockConsensusDef = defStockConsensus(fdi=fdi)
+    NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
+    NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
+    
     # ### 盈利能力 ################################################################################
     ROE_FY0 = rename(NetProfitAvg_FY0 / Equity, factor_name="roe_fy0")
     Factors.append(ROE_FY0)
