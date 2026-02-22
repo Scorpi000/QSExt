@@ -4,44 +4,44 @@ import datetime as dt
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Core.BasicOperator import rename
+from QuantStudio.Core.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 
-UpdateArgs = {
-    "因子表": "stock_cn_factor_money_flow",
-    "默认起始日": dt.datetime(2002, 1, 1),
-    "最长回溯期": 365,
-    "IDs": "股票"
-}
 
-def defFactor(args={}):
+def defFactor(fdi: FactorDefInput):
     Factors = []
 
-    WDB = args["WDB"]
-    LDB = args["LDB"]
+    JYDB = fdi.FDB["JYDB"]
+    
+    StockDayBarDef = defStockDayBar(fdi=fdi)
+    Volume = StockDayBarDef.getFactor(factor_name="volume")# 股
 
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    Volume = FT.getFactor("volume")# 手
+    # ### Level1 指标因子 #############################################################################
+    FT = JYDB.getTable("股票交易资金流向", args={"AdditionalCondition": {"行情类别": "1"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
+    ActiveBuyAmount = FT.getFactor("流入金额(元)")
+    ActiveSellAmount = FT.getFactor("流出金额(元)")
+    ActiveBuyVolume = FT.getFactor("流入量(股)")
+    ActiveSellVolume = FT.getFactor("流出量(股)")
+    
+    # BS, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
+    Factors.append(fo.RollingSum(window=5)(ActiveBuyAmount - ActiveSellAmount, factor_args={"Name": "buy_minus_sell_5d_amt"}))
+    Factors.append(fo.RollingSum(window=5)(ActiveBuyVolume - ActiveSellVolume, factor_name={"Name": "BuyMinusSell_5D_Vol"}))
+    
+    # ### 散户量差
+    FT = JYDB.getTable("股票交易资金流向", args={"AdditionalCondition": {"行情类别": "1", "ValueRange": "1,2"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
+    SmallActiveBuyVolume = FT.getFactor("流入量(股)")
+    SmallActiveSellVolume = FT.getFactor("流出量(股)")    
+    
+    Factors.append(rename((SmallActiveBuyVolume - SmallActiveSellVolume) / Volume, factor_name="small_trade_flow_1d"))
 
-    # ### Level2 指标因子 #############################################################################
-    FT = WDB.getTable("中国A股Level2指标")
-    ActiveBuyAmount = FT.getFactor("主买总额(万元)")
-    ActiveSellAmount = FT.getFactor("主卖总额(万元)")
-    ActiveBuyVolume = FT.getFactor("主买总量(手)")
-    ActiveSellVolume = FT.getFactor("主卖总量(手)")
-
-    # 资金流向因子 
-    STVDelta = WDB.getTable("中国A股资金流向数据").getFactor("散户量差(仅主动)(手)")# 手
-    Factors.append(Factorize(STVDelta / Volume, factor_name="SmallTradeFlow_1D"))
-
-    # BS, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909-->从动量反转转移过来
-    Factors.append(fd.rolling_sum(ActiveBuyAmount - ActiveSellAmount, 5, factor_name="BuyMinusSell_5D_Amount"))
-    Factors.append(fd.rolling_sum(ActiveBuyVolume - ActiveSellVolume, 5, factor_name="BuyMinusSell_5D_Vol"))
-
-    return Factors
-
-if __name__=="__main__":
-    pass
+    return FactorDef(
+        FactorList=Factors,
+        TargetTable="stock_cn_factor_money_flow",
+        MaxLookBack=365,
+        IDType="A股",
+        Author="麦冬"
+    )
