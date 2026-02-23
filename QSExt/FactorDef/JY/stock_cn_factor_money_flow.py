@@ -28,8 +28,8 @@ def defFactor(fdi: FactorDefInput):
     ActiveSellVolume = FT.getFactor("流出量(股)")
     
     # BS, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
-    Factors.append(fo.RollingSum(window=5)(ActiveBuyAmount - ActiveSellAmount, factor_args={"Name": "buy_minus_sell_5d_amt"}))
-    Factors.append(fo.RollingSum(window=5)(ActiveBuyVolume - ActiveSellVolume, factor_name={"Name": "BuyMinusSell_5D_Vol"}))
+    Factors.append(fo.RollingApply(func=np.nansum, window=5)(ActiveBuyAmount - ActiveSellAmount, factor_args={"Name": "buy_minus_sell_5d_amt"}))
+    Factors.append(fo.RollingApply(func=np.nansum, window=5)(ActiveBuyVolume - ActiveSellVolume, factor_name={"Name": "BuyMinusSell_5D_Vol"}))
     
     # ### 散户量差
     FT = JYDB.getTable("股票交易资金流向", args={"AdditionalCondition": {"行情类别": "1", "ValueRange": "1,2"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})

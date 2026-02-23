@@ -180,7 +180,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Log()(Close, factor_args={"Name": "ln_price"}))
 
     #计算MaxReturn_20D
-    Factors.append(fo.RollingMax(window=20, min_periods=int(20*0.8))(DayReturn, factor_args={"Name": "MaxReturn_20D"}))
+    Factors.append(fo.RollingApply(func=np.nanmax, window=20, min_periods=int(20*0.8))(DayReturn, factor_args={"Name": "MaxReturn_20D"}))
 
     #计算Price_52WHigh
     Close2MaxClose_240D = calcPrice52WHigh(AdjClose, IfTrading, factor_args={"Name": "close2max_close_240d"})
@@ -191,7 +191,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(CloseTrend_240D_Reg)
 
     # CL, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
-    Factors.append(fo.RollingSum(window=5)((Close - Low) / Low, factor_args={"Name": "cl"}))
+    Factors.append(fo.RollingApply(func=np.nansum, window=5)((Close - Low) / Low, factor_args={"Name": "cl"}))
 
     # 5日收益率增速, 升序, 参考《银河量化十周年专题之五：选股因子及因子择时新视角》, 银河证券, 20140909
     Factors.append(calcMomentumChg(AdjClose, factor_args={"Name": "daily_return_5d_reg"}))

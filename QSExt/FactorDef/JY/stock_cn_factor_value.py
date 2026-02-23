@@ -127,7 +127,7 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("公司分红")
     CashDvdPerShare, BaseShare = FT.getFactor("派现(含税-人民币元)"), FT.getFactor("分红股本基数(股)")
     Dividend = calcDvd(CashDvdPerShare, BaseShare, factor_args={"Name": "税前现金总红利"})
-    Factors.append(rename(fo.RollingSum(window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
+    Factors.append(rename(fo.RollingApply(func=np.nansum, window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
 
     # ### 盈利类 ########################################################################
     Factors.append(rename(NetProfit_TTM_Deducted / (MarketCap * 10000), factor_name="ep_ttm_deducted"))

@@ -1,6 +1,7 @@
 # coding=utf-8
 """波动性因子"""
 import datetime as dt
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -81,12 +82,12 @@ def defFactor(fdi: FactorDefInput):
     BP = StockFactorValue.getFactor(factor_name="bp_lr")
 
     Mask = ((IfTrading==1) & (IfListed==1))
-    Mask_60D = (fo.RollingSum(window=60)(Mask) >= 60*0.8)
-    Mask_240D = (fo.RollingSum(window=240)(Mask) >= 240*0.8)
+    Mask_60D = (fo.RollingApply(func=np.nansum, window=60)(Mask) >= 60*0.8)
+    Mask_240D = (fo.RollingApply(func=np.nansum, window=240)(Mask) >= 240*0.8)
     
     where = fo.Where(dtype="double")
-    Factors.append(where(fo.RollingStd(window=60, min_periods=2)(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_volatility_60d"}))
-    Factors.append(where(fo.RollingStd(window=240, min_periods=2)(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_volatility_240d"}))
+    Factors.append(where(fo.RollingApply(func=partial(np.nanstd, ddof=1), window=60, min_periods=2)(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_volatility_60d"}))
+    Factors.append(where(fo.RollingApply(func=partial(np.nanstd, ddof=1), window=240, min_periods=2)(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_volatility_240d"}))
     Factors.append(where(calcRollingSkew.new(args={"LookBack": [240 - 1], "ModelArgs": {"window": 240, "min_periods": 2}})(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_skewness_240d"}))
     Factors.append(where(calcRollingSkew.new(args={"LookBack": [60 - 1], "ModelArgs": {"window": 60, "min_periods": 2}})(DayReturn), Mask_60D, np.nan, factor_args={"Name": "realized_skewness_60d"}))
     Factors.append(where(calcRollingKurt.new(args={"LookBack": [240 - 1], "ModelArgs": {"window": 240, "min_periods": 2}})(DayReturn), Mask_240D, np.nan, factor_args={"Name": "realized_kurtosis_240d"}))

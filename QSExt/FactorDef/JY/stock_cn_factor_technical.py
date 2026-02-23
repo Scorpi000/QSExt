@@ -362,7 +362,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(SI)
     ASI_Periods = [6, 10, 14, 20, 26]
     for iN in ASI_Periods:
-        ASI = fo.RollingSum(window=iN, min_periods=iN)(SI, factor_args={"Name": f"asi{iN}"})
+        ASI = fo.RollingApply(func=np.nansum, window=iN, min_periods=iN)(SI, factor_args={"Name": f"asi{iN}"})
         Factors.append(ASI)
     
     # VR

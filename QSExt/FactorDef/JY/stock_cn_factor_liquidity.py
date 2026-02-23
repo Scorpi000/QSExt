@@ -1,6 +1,7 @@
 # coding=utf-8
 """流动性因子"""
 import datetime as dt
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -27,8 +28,8 @@ def defFactor(fdi: FactorDefInput):
     IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
     IfListed = StockStatusDef.getFactor(factor_name="if_listed")
     Mask = ((IfListed==1) & (IfTrading==1))
-    Mask_20D = (fo.RollingSum(window=20)(Mask) >= 20*0.8)
-    Mask_240D = (fo.RollingSum(window=240)(Mask) >= 240*0.8)
+    Mask_20D = (fo.RollingApply(func=np.nansum, window=20)(Mask) >= 20*0.8)
+    Mask_240D = (fo.RollingApply(func=np.nansum, window=240)(Mask) >= 240*0.8)
     
     where = fo.Where(dtype="double")
     Factors.append(where(fo.RollingMean(window=20, min_periods=2)(Amount), Mask_20D, np.nan, factor_args={"Name": "amount_20d_avg"}))
@@ -44,7 +45,7 @@ def defFactor(fdi: FactorDefInput):
     VolAvg_240D = where(fo.RollingMean(Volume, 240, min_periods=2), Mask_240D, np.nan)
     Factors.append(rename(VolAvg_20D / VolAvg_240D, factor_name="vol_avg_20d_240d"))
 
-    VolStd_20D = where(fo.RollingStd(window=20, min_periods=2)(Volume), Mask_20D, np.nan)
+    VolStd_20D = where(fo.RollingApply(func=partial(np.nanstd, ddof=1), window=20, min_periods=2)(Volume), Mask_20D, np.nan)
     Factors.append(rename(VolStd_20D / VolAvg_20D, factor_name="vol_20d_cv"))
     
     return FactorDef(

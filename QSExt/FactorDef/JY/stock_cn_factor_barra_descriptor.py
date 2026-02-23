@@ -224,7 +224,7 @@ def defFactor(fdi: FactorDefInput):
     where, notnull = fo.Where(), fo.NotNull()
     
     # ### Estimation Universe, ESTU ###########################################################################
-    ESTU = rename(((ListDayNum>=30) & (fo.RollingSum(window=252)(notnull(ST))==0) & notnull(Industry) & notnull(TotalCap)), factor_name="ESTU")
+    ESTU = rename(((ListDayNum>=30) & (fo.RollingApply(func=np.nansum, window=252)(notnull(ST))==0) & notnull(Industry) & notnull(TotalCap)), factor_name="ESTU")
     Factors.append(ESTU)
     
     # ### 财务因子 #################################################################################
