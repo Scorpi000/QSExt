@@ -52,6 +52,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_size",
+        MaxLookBack=max(365, StockDayBarDef.MaxLookBack),
         IDType="A股",
         Author="麦冬"
     )

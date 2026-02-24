@@ -20,31 +20,31 @@ from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor as defStockFac
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [240-1, 240-1], "IDMode": "多ID"})
 def calcPrice52WHigh(f, idt, iid, x, args):
     Close = x[0]
-    LastClose = Close[-1,:]
+    LastClose = Close[-1, :].copy()
     IfTrading = x[1]
     HighClose = np.nanmax(Close)
     Len = IfTrading.shape[0]
-    Mask = (np.sum(IfTrading==1, axis=0)/Len<args['非空率'])
-    LastClose[(LastClose==0) | Mask] = np.nan    
-    return HighClose/LastClose-1
+    Mask = (np.sum(IfTrading==1, axis=0) / Len < args['非空率'])
+    LastClose[(LastClose==0) | Mask] = np.nan
+    return HighClose / LastClose - 1
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 1, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [240-1], "IDMode": "单ID", "DTMode": "单时点"})
 def rollingRegress(f, idt, iid, x, args):
     Y = np.array(x[0])
     Mask = (~np.isnan(Y))
     L = Y.shape[0]
-    if np.sum(Mask)/L<args['非空率']:
+    if np.sum(Mask) / L < args['非空率']:
         return np.nan
-    X = np.array(range(L),dtype='float')[Mask]
+    X = np.array(range(L), dtype='float')[Mask]
     Y = Y[Mask]
     x = X-np.nanmean(X)
     y = Y-np.nanmean(Y)
-    Numerator = np.nansum(x*y)/np.nansum(x*x)
+    Numerator = np.nansum(x * y) / np.nansum(x*x)
     Denominator = np.abs(np.nanmean(Y))
     if Denominator==0:
         return np.sign(Numerator)
     else:
-        return Numerator/Denominator
+        return Numerator / Denominator
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 1, 'ModelArgs': {"收益期": 5, "回归期": 5}, 'LookBack': [5+5+1]})
 def calcMomentumChg(f, idt, iid, x, args):
@@ -56,7 +56,7 @@ def calcMomentumChg(f, idt, iid, x, args):
     Mask = (~np.isnan(Y))
     Y = Y[Mask]
     X = X[Mask]
-    return (np.sum(Y*X)-Y.shape[0]*np.mean(Y)*np.mean(X))/np.sum((X-np.mean(X))**2)
+    return (np.sum(Y * X) - Y.shape[0] * np.mean(Y) * np.mean(X)) / np.sum((X - np.mean(X)) ** 2)
 
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 3, 'ModelArgs': {"非空率": 0.8}, "LookBack": [5-1, 5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
@@ -92,7 +92,7 @@ def calcHLVolCorrel(f, idt, iid, x, args):
         iRatio = Ratio[:,i]
         iVol = Vol[:,i]
         try:
-            spearman_cor[i] = stats.spearmanr(iRatio,iVol,nan_policy='omit').correlation
+            spearman_cor[i] = stats.spearmanr(iRatio, iVol, nan_policy='omit').correlation
         except:
             pass
     spearman_cor[Mask] = np.nan
@@ -161,8 +161,8 @@ def defFactor(fdi: FactorDefInput):
     PreClose = StockDayBarDef.getFactor(factor_name="pre_close")
     DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
     Turnover = StockDayBarDef.getFactor(factor_name="turnover")
-    Volume = StockDayBarDef.getFactor(factor_name="volume")
-    Amount = StockDayBarDef.getFactor(factor_name="amount")
+    Volume = StockDayBarDef.getFactor(factor_name="volume")# 股
+    Amount = StockDayBarDef.getFactor(factor_name="amount")# 元
     Close = StockDayBarDef.getFactor(factor_name="close")
     High = StockDayBarDef.getFactor(factor_name="high")
     Low = StockDayBarDef.getFactor(factor_name="low")
@@ -221,7 +221,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(High2Low_60D)
     
     # 基于均价计算的日收益率
-    VWAPReturn = Amount / (Volume / 100) / PreClose - 1
+    VWAPReturn = Amount / Volume / PreClose - 1
     # 日收益率相对于均价日收益率的截面回归残差
     VWAPP = calcVWAPP(DayReturn, VWAPReturn, factor_args={"Name": "vwapp_ols"})
     Factors.append(VWAPP)

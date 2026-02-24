@@ -83,14 +83,15 @@ def fillna(f, idt, iid, x, args):
             Beta = (np.sum(xData*yData)-iNotNANum*xMean*yMean)/(np.sum(xData**2)-iNotNANum*xMean**2)
             Alpha = yMean-xMean*Beta
             FactorData[iNAMask] = Alpha+Beta*xAllData[iNAMask]
-    Rslt = x[0]
+    Rslt = x[0].copy()
     Rslt[Mask] = FactorData
     return Rslt
 
 def defFactor(fdi: FactorDefInput):
     # ### 描述子 ###########################################################################
     BarraDescriptorDef = defBarraDescriptor(fdi=fdi)
-    DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
+    # DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
+    DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'MLEV', 'BLEV', 'DTOA']# DEBUG
     Descriptors = {iDescriptorName: BarraDescriptorDef.getFactor(factor_name=iDescriptorName) for iDescriptorName in DescriptorNames}
 
     # ### 辅助因子 ###########################################################################
@@ -118,7 +119,7 @@ def defFactor(fdi: FactorDefInput):
     Factors["BookToPrice"] = Descriptors["BTOP"]
     Factors["Liquidity"] = fo.Mean(weights=[0.35, 0.35, 0.3], ignore_nan_weight=True)(Descriptors["STOM"], Descriptors["STOQ"], Descriptors["STOA"])
     Factors["EarningsYield"] = fo.Mean(weights=[0.68, 0.21, 0.11], ignore_nan_weight=True)(Descriptors['EPFWD'], Descriptors['CETOP'], Descriptors['ETOP'])
-    Factors["Growth"] = fo.Mean(weights=[0.18, 0.11, 0.24, 0.47], ignore_nan_weight=True)(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'])
+    # Factors["Growth"] = fo.Mean(weights=[0.18, 0.11, 0.24, 0.47], ignore_nan_weight=True)(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'])# DEBUG
     Factors["Leverage"] = fo.Mean(weights=[0.38, 0.35, 0.27], ignore_nan_weight=True)(Descriptors['MLEV'], Descriptors['DTOA'], Descriptors['BLEV'])
 
     # ### 风格因子第一次标准化 ###########################################################################
@@ -140,7 +141,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_barra",
-        MaxLookBack=365, 
+        MaxLookBack=max(365, BarraDescriptorDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
         Author="麦冬"
     )

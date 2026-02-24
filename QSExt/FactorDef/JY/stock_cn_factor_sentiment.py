@@ -27,12 +27,13 @@ def defFactor(fdi: FactorDefInput):
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     EPSAvg_FY0 = StockConsensusDef.getFactor(factor_name="eps_fy0")
+    EPSStd_FY0 = StockConsensusDef.getFactor(factor_name="eps_std_fy0")
     EPSAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="eps_fwd12m")
     
-    FT = JYDB.getTable("个股评级", args={"回溯天数": 180, "统计周期时间间隔": "180"})
+    FT = JYDB.getTable("个股评级", args={"LookBack": 180, "AdditionalCondition": {"统计周期时间间隔": "180"}})
     Rating = rename(FT.getFactor("评级标准分"), factor_name="rating")
-    FT = JYDB.getTable("个股目标价")
-    TargetPrice = FT.getFactor("平均目标价(元)")
+    # FT = JYDB.getTable("个股目标价")
+    # TargetPrice = FT.getFactor("平均目标价(元)")
 
     # ### 资产负债表因子 #########################################################################
     Equity = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"}).getFactor("归属母公司股东权益合计")
@@ -46,6 +47,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rolling_change_rate_60d(EPSAvg_FY0, factor_args={"Name": "eps_fy0_r3m"}))
     Factors.append(rolling_change_rate_20d(EPSAvg_Fwd12M, factor_args={"Name": "eps_fwd12m_r1m"}))
     Factors.append(rolling_change_rate_60d(EPSAvg_Fwd12M, factor_args={"Name": "eps_fwd12m_r3m"}))
+    Factors.append(rename(EPSStd_FY0 / abs(EPSAvg_FY0), factor_name="eps_fy0_cv"))
 
     # ### ROE 预测变化 #########################################################################
     ROE_FY0 = NetProfitAvg_FY0 / Equity
@@ -62,14 +64,12 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rolling_change_rate_60d(Rating, factor_args={"Name": "raing_r3m"}))
 
     # ### 分析师预测目标收益率 #########################################################################
-    Factors.append(rename(TargetPrice / Close - 1, factor_name="target_return"))
-    
-    Factors.append(rename(EPSStd_FY0 / abs(EPSAvg_FY0), factor_name="eps_fy0_cv"))
+    # Factors.append(rename(TargetPrice / Close - 1, factor_name="target_return"))
 
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_sentiment",
-        MaxLookBack=365, 
+        MaxLookBack=max(365, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack),
         IDType="A股",
         Author="麦冬"
     )

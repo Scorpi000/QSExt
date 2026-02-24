@@ -93,14 +93,14 @@ def calcRSTR(f, idt, iid, x, args):
         Weight = (0.5**(1/args["半衰期"]))**np.arange(WindowLen)
         Weight = Weight[::-1]/np.sum(Weight)
         f.UserData['指数权重'] = Weight
-    Return = x[0][:WindowLen,:]
+    Return = x[0][:WindowLen, :].copy()
     Return[Return<=-1] = np.nan
-    RiskFreeReturn = x[1][:WindowLen]
+    RiskFreeReturn = x[1][:WindowLen].copy()
     RiskFreeReturn[pd.isnull(RiskFreeReturn) | (RiskFreeReturn<=-1)] = 0.0
     Mask = (~np.isnan(Return))
-    TotalWeight = np.sum(Mask.T*Weight,axis=1)
-    Rslt = np.nansum((np.log(1+Return)-np.log(1+RiskFreeReturn)).T*Weight, axis=1)
-    Rslt[np.sum(Mask,axis=0)/WindowLen<args['非空率']] = np.nan
+    TotalWeight = np.sum(Mask.T*Weight, axis=1)
+    Rslt = np.nansum((np.log(1 + Return) - np.log(1 + RiskFreeReturn)).T*Weight, axis=1)
+    Rslt = np.where(np.sum(Mask, axis=0) / WindowLen < args['非空率'], np.nan, Rslt)
     return Rslt / TotalWeight
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, "ModelArgs": {'半衰期': 42, '非空率': 0.8}, "LookBack": [252-1, 252-1], "IDMode": "多ID"})
@@ -110,56 +110,56 @@ def calcDASTD(f, idt, iid, x, args):
     Weight = f.UserData.get("指数权重")
     if Weight is None:
         Weight = (0.5**(1/args["半衰期"]))**np.arange(WindowLen)
-        Weight = Weight[::-1]/np.sum(Weight)
+        Weight = Weight[::-1] / np.sum(Weight)
         f.UserData['指数权重'] = Weight
     Mask = (~np.isnan(ExcessReturn))
-    TotalWeight = np.nansum(Weight*Mask.T,axis=1)
-    Avg = np.nansum(ExcessReturn.T*Weight,axis=1)/TotalWeight
-    Rslt = (np.nansum(Weight*(ExcessReturn-Avg).T**2,axis=1)/TotalWeight)**(1/2)
-    Rslt[np.sum(Mask,axis=0)/WindowLen<args['非空率']] = np.nan
+    TotalWeight = np.nansum(Weight * Mask.T, axis=1)
+    Avg = np.nansum(ExcessReturn.T * Weight, axis=1) / TotalWeight
+    Rslt = (np.nansum(Weight * (ExcessReturn-Avg).T ** 2, axis=1) / TotalWeight) ** 0.5
+    Rslt = np.where(np.sum(Mask, axis=0) / WindowLen < args['非空率'], np.nan, Rslt)
     return Rslt
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, "ModelArgs": {'T1': 21, 'T': 12, '非空率': 0.8}, "LookBack": [21*(12-1), 21*(12-1)], "IDMode": "多ID"})
 def calcCMRA(f, idt, iid, x, args):
     MReturn = x[0]
-    MonthInds = np.arange(0,args['T1']*(args['T']-1)+1,args['T1'])
-    RiskFreeRate = x[1][MonthInds, :]
-    RiskFreeRate[RiskFreeRate<=-1] = np.nan
-    MReturn = MReturn[MonthInds,:]
+    MonthInds = np.arange(0, args['T1']*(args['T']-1)+1, args['T1'])
+    RiskFreeRate = x[1][MonthInds, :].copy()
+    RiskFreeRate[RiskFreeRate <= -1] = np.nan
+    MReturn = MReturn[MonthInds, :].copy()
     MReturn[MReturn<=-1] = np.nan
-    Temp = np.log(MReturn+1)-np.log(RiskFreeRate+1)
+    Temp = np.log(MReturn + 1) - np.log(RiskFreeRate + 1)
     Mask = np.isnan(Temp)
-    NaMask = (np.sum(~Mask,axis=0)/args["T"]<args['非空率'])
+    NaMask = (np.sum(~Mask,axis=0) / args["T"] < args['非空率'])
     Temp[Mask] = 0.0
-    Temp = np.cumsum(Temp,axis=0)
+    Temp = np.cumsum(Temp, axis=0)
     Temp[Mask] = np.nan
-    ZMax = np.nanmax(Temp,axis=0)
-    ZMin = np.nanmin(Temp,axis=0)
-    Rslt = np.log(1+ZMax)-np.log(1+ZMin)
+    ZMax = np.nanmax(Temp, axis=0)
+    ZMin = np.nanmin(Temp, axis=0)
+    Rslt = np.log(1 + ZMax) - np.log(1 + ZMin)
     Rslt[NaMask | np.isinf(Rslt)] = np.nan
     return Rslt
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 4, "ModelArgs": {'半衰期': 63,'非空率': 0.8}, "LookBack": [252-1, 252-1, 1-1, 252-1]})
 def calcEPSILON(f, idt, iid, x, args):
-    ExcessReturn = x[0]-x[3]
+    ExcessReturn = x[0] - x[3]
     iExcessReturn = ExcessReturn[-1]
-    MarketExcessReturn = x[1]-x[3]
+    MarketExcessReturn = x[1] - x[3]
     iMarketExcessReturn = MarketExcessReturn[-1]
     WindowLen = ExcessReturn.shape[0]
     Weight = f.UserData.get("指数权重")
     if Weight is None:
-        Weight = (0.5**(1/args["半衰期"]))**np.arange(WindowLen)
-        Weight = Weight[::-1]/np.sum(Weight)
+        Weight = (0.5**(1 / args["半衰期"]))**np.arange(WindowLen)
+        Weight = Weight[::-1] / np.sum(Weight)
         f.UserData['指数权重'] = Weight
     Mask = (~(np.isnan(ExcessReturn) | np.isnan(MarketExcessReturn)))
-    if np.sum(Mask)/WindowLen<args['非空率']: return np.nan
+    if np.sum(Mask) / WindowLen < args['非空率']: return np.nan
     Beta = x[2][-1]
     ExcessReturn = ExcessReturn[Mask]
     MarketExcessReturn = MarketExcessReturn[Mask]
     Weight = Weight[Mask]
-    Weight = Weight/np.sum(Weight)
-    Alpha = np.nansum(ExcessReturn*Weight)-Beta*np.nansum(MarketExcessReturn*Weight)
-    return iExcessReturn-Alpha-Beta*iMarketExcessReturn
+    Weight = Weight / np.sum(Weight)
+    Alpha = np.nansum(ExcessReturn * Weight) - Beta * np.nansum(MarketExcessReturn * Weight)
+    return iExcessReturn - Alpha - Beta * iMarketExcessReturn
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 1, "ModelArgs": {'半衰期': 63, '非空率': 0.8}, "LookBack": [252-1], "IDMode": "多ID"})
 def calcHSIGMA(f, idt, iid, x, args):
@@ -167,14 +167,14 @@ def calcHSIGMA(f, idt, iid, x, args):
     WindowLen = Epsilon.shape[0]
     Weight = f.UserData.get("指数权重")
     if Weight is None:
-        Weight = (0.5**(1/args["半衰期"]))**np.arange(WindowLen)
-        Weight = Weight[::-1]/np.sum(Weight)
+        Weight = (0.5 ** (1/args["半衰期"])) ** np.arange(WindowLen)
+        Weight = Weight[::-1] / np.sum(Weight)
         f.UserData['指数权重'] = Weight
     Mask = (~np.isnan(Epsilon))
-    TotalWeight = np.sum(Weight*Mask.T,axis=1)
-    Avg = np.nansum(Epsilon.T*Weight,axis=1)/TotalWeight
-    Rslt = (np.nansum(Weight*(Epsilon-Avg).T**2,axis=1)/TotalWeight)**(1/2)
-    Mask = (np.sum(Mask,axis=0)/WindowLen<args['非空率'])
+    TotalWeight = np.sum(Weight * Mask.T, axis=1)
+    Avg = np.nansum(Epsilon.T * Weight, axis=1) / TotalWeight
+    Rslt = (np.nansum(Weight * (Epsilon - Avg).T ** 2, axis=1) / TotalWeight) ** 0.5
+    Mask = (np.sum(Mask, axis=0) / WindowLen < args['非空率'])
     Rslt[Mask] = np.nan
     return Rslt
 
@@ -183,7 +183,7 @@ def calcSTOM(f, idt, iid, x, args):
     Turnover = x[0]
     TradeStatus = x[1]
     WindowLen = Turnover.shape[0]
-    Rslt = np.log(np.nansum(Turnover,axis=0))
+    Rslt = np.log(np.nansum(Turnover, axis=0))
     Mask = (np.sum((TradeStatus==1), axis=0) / WindowLen < args['非空率'])
     Rslt[Mask] = np.nan
     return Rslt
@@ -192,10 +192,10 @@ def calcSTOM(f, idt, iid, x, args):
 def calcSTOQ(f, idt, iid, x, args):
     T = args['T']
     T1 = args['T1']
-    STOM = x[0][np.arange(0,T1*(T-1)+1,T1),:]
-    NotNANum = np.sum(pd.notnull(STOM),axis=0)
-    Rslt = np.log(np.nansum(np.exp(STOM),axis=0)/NotNANum)
-    Rslt[NotNANum<args['非空数']] = np.nan
+    STOM = x[0][np.arange(0, T1*(T-1)+1, T1), :]
+    NotNANum = np.sum(pd.notnull(STOM), axis=0)
+    Rslt = np.log(np.nansum(np.exp(STOM), axis=0) / NotNANum)
+    Rslt[NotNANum < args['非空数']] = np.nan
     return Rslt
 
 
@@ -274,9 +274,10 @@ def defFactor(fdi: FactorDefInput):
     PowerNum = FT.getFactor("量纲系数")
     PowerNum = where(PowerNum, notnull(PowerNum), 0)
     RiskFreeRate = FT.getFactor("指标数据")
-    PowerNum = where(RiskFreeRate, notnull(RiskFreeRate), 0) / 100 * 10 ** PowerNum
+    RiskFreeRate = where(RiskFreeRate, notnull(RiskFreeRate), 0) / 100 * 10 ** PowerNum
     DayRiskFreeRate = fo.Disaggregate(aggr_ids=[RiskFreeRateID])(RiskFreeRate / ND_RF)
     MonthRiskFreeRate = fo.Disaggregate(aggr_ids=[RiskFreeRateID])(RiskFreeRate / 12)
+    DayRiskFreeRate = MonthRiskFreeRate = 0# DEBUG
 
     # LNCAP
     LNCAP = fo.Log()(TotalCap, factor_args={"Name": "LNCAP"})
@@ -322,7 +323,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(STOQ)
 
     # STOA
-    STOA = calcSTOQ.new(args={"ModelArgs": {'T': 12, 'T1': 21, '非空数': 4}})(STOM, factor_args={"Name": "STOA"})
+    STOA = calcSTOQ.new(args={"ModelArgs": {'T': 12, 'T1': 21, '非空数': 4}, "LookBack": [21*(12-1)]})(STOM, factor_args={"Name": "STOA"})
     Factors.append(STOA)
 
     # EPFWD
@@ -348,11 +349,11 @@ def defFactor(fdi: FactorDefInput):
 
     # EGRO
     EGRO = fo.RegressChangeRate()(EPS4, EPS3, EPS2, EPS1, EPS0, factor_args={"Name": "EGRO"})
-    Factors.append(EGRO)
+    # Factors.append(EGRO)# DEBUG
 
     # SGRO
     SGRO = fo.RegressChangeRate()(SPS4, SPS3, SPS2, SPS1, SPS0, factor_args={"Name": "SGRO"})
-    Factors.append(SGRO)
+    # Factors.append(SGRO)# DEBUG
 
     # MLEV
     MLEV = rename((LongDebt / 10000 + TotalCap) / TotalCap, factor_name="MLEV")
@@ -369,7 +370,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_barra_descriptor",
-        MaxLookBack=3650, 
+        MaxLookBack=max(3650, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockIndustryDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
         Author="麦冬"
     )

@@ -20,13 +20,13 @@ from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor as defStockFactor
 def calcRollingSkew(f, idt, iid, x, args):
     Data = pd.DataFrame(x[0])
     args = args.copy()
-    return Data.rolling(**args).apply(lambda x : x.skew()).values[f.Args["LookBack"][0]:]
+    return Data.rolling(**args).apply(lambda x : x.skew()).values[f.Operator.Args["LookBack"][0]:]
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 1, "DataType": "double", "DTMode": "多时点", "IDMode": "多ID", "LookBack": [60 - 1]})
 def calcRollingKurt(f, idt, iid, x, args):
     Data = pd.DataFrame(x[0])
     args = args.copy()
-    return Data.rolling(**args).apply(lambda x : x.kurt()).values[f.Args["LookBack"][0]:]
+    return Data.rolling(**args).apply(lambda x : x.kurt()).values[f.Operator.Args["LookBack"][0]:]
 
 # 因子收益率(TODO)
 @FactorOperatorized(operator_type="Panel", args={"Arity": 5, "ModelArgs": {"ascending": False}, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [1, 0, 1, 1, 1]})
@@ -62,7 +62,7 @@ def calcIVFFAndIVR(f, idt, iid, x, args):
     try:
         Result = sm.OLS(Y,X).fit()
     except:
-        return (np.nan,np.nan)
+        return (np.nan, np.nan)
     return (np.nanstd(Result.resid)*np.sqrt(240.0), 1-Result.rsquared_adj)
 
 def defFactor(fdi: FactorDefInput):
@@ -98,13 +98,13 @@ def defFactor(fdi: FactorDefInput):
     FloatCapLSRet =  calcFactorReturn(FloatCap, DayReturn, ST, ListDays, Weight, factor_args={"Name": "流通市值收益率"})
     MarketRet = calcMarketReturn(DayReturn, ST, ListDays, Weight, factor_args={"Name": "市场收益率"})
     IVFFAndIVR = calcIVFFAndIVR(DayReturn, FloatCapLSRet, BPLSRet, MarketRet, factor_args={"Name": "IVFFAndIVR"})
-    Factors.append(fo.Fetch(pos=0, dtype="double")(RegressResult_20D, factor_args={"Name": "ivff_20d"}))
-    Factors.append(fo.Fetch(pos=1, dtype="double")(RegressResult_20D, factor_args={"Name": "ivr_20d"}))
+    Factors.append(fo.Fetch(pos=0, dtype="double")(IVFFAndIVR, factor_args={"Name": "ivff_20d"}))
+    Factors.append(fo.Fetch(pos=1, dtype="double")(IVFFAndIVR, factor_args={"Name": "ivr_20d"}))
     
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_volatility",
-        MaxLookBack=365 * 2, 
+        MaxLookBack=max(365 * 2, StockDayBarDef.MaxLookBack, StockFactorValue.MaxLookBack, StockStatusDef.MaxLookBack),
         IDType="A股",
         Author="麦冬"
     )

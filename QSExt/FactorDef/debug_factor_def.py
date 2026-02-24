@@ -7,7 +7,7 @@ from QuantStudio.Core.JYDB import JYDB
 from QuantStudio.Core.BaoStockDB import BaoStockDB
 from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
-from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext
+from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext, FactorInitData
 from QuantStudio.Core.BasicOperator import rename
 from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator
@@ -15,15 +15,26 @@ import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
-# from QSExt.FactorDef.BaoStock.stock_cn_day_bar_adj_backward import defFactor
 # from QSExt.FactorDef.JY.stock_cn_info import defFactor
 # from QSExt.FactorDef.JY.stock_cn_industry import defFactor
 # from QSExt.FactorDef.JY.stock_cn_status import defFactor
 # from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor
 # from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_growth import defFactor# TODEBUG
+from QSExt.FactorDef.JY.stock_cn_factor_quality import defFactor# TODEBUG
+# from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_size import defFactor
-from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_liquidity import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_sentiment import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_money_flow import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_volatility import defFactor# TODEBUG
+# from QSExt.FactorDef.JY.stock_cn_factor_alternative import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_barra_descriptor import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_barra import defFactor
+# from QSExt.FactorDef.JY.stock_cn_margin_trading import defFactor
+# from QSExt.FactorDef.JY.stock_cn_index_component import defFactor
 
 # from QSExt.FactorDef.JY import stock_cn_status
 # from QSExt.FactorDef.JY import stock_cn_day_bar_adj_backward_nafilled
@@ -42,7 +53,7 @@ if __name__=="__main__1":
     print(iFactor)
     print("===")
 
-if __name__=="__main__1":
+if __name__=="__main__":
     SDB = JYDB().connect()
     TDB = HDF5DB().connect()
     print(TDB.TableNames)
@@ -51,20 +62,20 @@ if __name__=="__main__1":
     FT = TDB.getTable(FactorDef.TargetTable)
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
-    print(Data.iloc[:, 0])
+    print(Data.iloc[:, 0].T)
 
     TDB.disconnect()
     SDB.disconnect()
     print("===")
 
 # 单定义
-if __name__=="__main__":
+if __name__=="__main__1":
     SDB = JYDB().connect()
     # SDB = BaoStockDB().connect()
     TDB = HDF5DB().connect()
 
     SDB.Logger.info("开始因子计算...")
-    StartDT, EndDT = dt.datetime(2022, 10, 1), dt.datetime(2022, 10, 15)
+    StartDT, EndDT = dt.datetime(2021, 7, 1), dt.datetime(2021, 7, 15)
     DTs = SDB.getTradeDay(start_date=StartDT, end_date=EndDT)
     DTRuler = SDB.getTradeDay(start_date=StartDT - dt.timedelta(365), end_date=EndDT)
     
@@ -91,7 +102,7 @@ if __name__=="__main__":
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
     Storer = FactorStorer(deps=FactorDef.FactorList, args={"TargetFDB": TDB, "TargetTable": FactorDef.TargetTable, "IfExists": "update"})
-    Rslt = ExecEngine.run([Storer], Context, fwd_data_list=[LocalContext], init_data_list=[{"dt_range": (DTs[0], DTs[-1]), "section_ids": SectionIDs}])
+    Rslt = ExecEngine.run([Storer], Context, fwd_data_list=[LocalContext], init_data_list=[FactorInitData(DTRange=(DTs[0], DTs[-1]), SectionIDs=SectionIDs)])
     print(Rslt)
     
     TDB.disconnect()

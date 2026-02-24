@@ -92,7 +92,8 @@ def calcOCFA(f, idt, iid, x, args):
         Mask = Mask_y
     else:
         Mask = Mask_x
-    if np.sum(Mask) / L < args['非空率']: return (np.nan, np.nan)
+    if np.sum(Mask) / L < args['非空率']:
+        return (np.nan, np.nan)
     Y = Y[Mask]
     X = X[Mask]
 
@@ -183,7 +184,7 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
     CurDebt = FT.getFactor("流动负债合计")
     CurAsset = FT.getFactor("流动资产合计")
-    FixAsset = FT.getFactor("固定资产")
+    FixAsset = FT.getFactor("固定资产合计")
     Asset = FT.getFactor("资产总计")
     Equity = FT.getFactor("归属母公司股东权益合计")
     AR = FT.getFactor("应收账款")
@@ -193,7 +194,7 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
     CurDebt_L1 = FT.getFactor("流动负债合计")
     CurAsset_L1 = FT.getFactor("流动资产合计")
-    FixAsset_L1 = FT.getFactor("固定资产")
+    FixAsset_L1 = FT.getFactor("固定资产合计")
     Asset_L1 = FT.getFactor("资产总计")
     Equity_L1 = FT.getFactor("归属母公司股东权益合计")
     AR_L1 = FT.getFactor("应收账款")
@@ -215,41 +216,42 @@ def defFactor(fdi: FactorDefInput):
     
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
     Empl_Pay_SQ0P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ0P = FT.getFactor("固定资产")
+    FixAsset_SQ0P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
     Empl_Pay_SQ1P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ1P = FT.getFactor("固定资产")
+    FixAsset_SQ1P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 2})
     Empl_Pay_SQ2P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ2P = FT.getFactor("固定资产")
+    FixAsset_SQ2P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 3})
     Empl_Pay_SQ3P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ3P = FT.getFactor("固定资产")
+    FixAsset_SQ3P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
     Empl_Pay_SQ4P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ4P = FT.getFactor("固定资产")
+    FixAsset_SQ4P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 5})
     Empl_Pay_SQ5P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ5P = FT.getFactor("固定资产")
+    FixAsset_SQ5P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 6})
     Empl_Pay_SQ6P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ6P = FT.getFactor("固定资产")
+    FixAsset_SQ6P = FT.getFactor("固定资产合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 7})
     Empl_Pay_SQ7P = FT.getFactor("应付职工薪酬")
-    FixAsset_SQ7P = FT.getFactor("固定资产")
+    FixAsset_SQ7P = FT.getFactor("固定资产合计")
 
     # ### 衍生报表数据 #############################################################################
-    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "最新", "ReportDate": "所有"})
+    FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "最新", "ReportDate": "所有"})
     CurDebt_NonInterset = FT.getFactor("无息流动负债")
     NonCurDebt_NonInterset = FT.getFactor("无息非流动负债")
+    FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有"})
+    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
+    FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的归母净利润")
+
+    FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
     TotalStock = FT.getFactor("期末总股本")
-    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
     TotalStock_L1 = FT.getFactor("期末总股本")
-    
-    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "TTM", "ReportDate": "所有"})
-    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的净利润")
-    FT = JYDB.getTable("中国A股财务指标", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
-    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的净利润")
     
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有"})
@@ -274,9 +276,9 @@ def defFactor(fdi: FactorDefInput):
     ROA_TTM = rename(2 * NetProfit_TTM / (Asset + Asset_L1), factor_name='roa_ttm')
     Factors.append(ROA_TTM)
 
-    InvestCapital_All = Equity + Debt - CurDebt_NonInterset - NonCurDebt_NonInterset
-    ROIC_TTM = rename(NetProfit_TTM / InvestCapital_All, factor_name="roic_ttm")
-    Factors.append(ROIC_TTM)
+    # InvestCapital_All = Equity + Debt - CurDebt_NonInterset - NonCurDebt_NonInterset
+    # ROIC_TTM = rename(NetProfit_TTM / InvestCapital_All, factor_name="roic_ttm")
+    # Factors.append(ROIC_TTM)# DEBUG
 
     CFROE_TTM = rename(2 * OCF_TTM / (Equity + Equity_L1), factor_name="cfroe_ttm")
     Factors.append(CFROE_TTM)
@@ -439,7 +441,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_quality",
-        MaxLookBack=365, 
+        MaxLookBack=max(365, StockConsensusDef.MaxLookBack),
         IDType="A股",
         Author="麦冬"
     )

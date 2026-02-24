@@ -72,7 +72,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_momentum",
-        MaxLookBack=365 * 6, 
+        MaxLookBack=max(365 * 6, StockAdjDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
         Author="麦冬"
     )

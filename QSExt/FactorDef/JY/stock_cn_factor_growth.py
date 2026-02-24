@@ -174,26 +174,34 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(OperNetProfit_TTM / OperNetProfit_L1 - 1, factor_name="oper_profit_ttm_yoy"))
     Factors.append(rename(Sales_TTM / Sales_L1 - 1, factor_name="net_profit_ttm_yoy"))
 
-    Factors.append(rename(NetProfit_TTM_Deducted / NetProfit_TTM_Deducted_L1 - 1, factor_name="net_profit_deducted_ttm_yoy"))#--扣非净利润TTM同比变动 新添加
+    # Factors.append(rename(NetProfit_TTM_Deducted / NetProfit_TTM_Deducted_L1 - 1, factor_name="net_profit_deducted_ttm_yoy"))#--扣非净利润TTM同比变动 DEBUG
     Factors.append(rename(OCF_TTM / OCF_TTM_L1 - 1, factor_name="ocf_ttm_yoy"))
     Factors.append(rename(Asset / Asset_L1 - 1, factor_name="asset_lr_yoy"))
     Factors.append(rename(Equity / Equity_L1 - 1, factor_name="equity_lr_yoy"))
 
     # #### 季度增速: 同比 #########################################################################
     Revenue_SQ_YoY = rename((Sales_SQ0P - Sales_SQ4P) / abs(Sales_SQ4P), factor_name="revenue_sq_yoy")
+    Factors.append(Revenue_SQ_YoY)
     NetProfit_SQ_YoY = rename((NetProfit_SQ0P - NetProfit_SQ4P) / abs(NetProfit_SQ4P), factor_name="net_profit_sq_yoy")
+    Factors.append(NetProfit_SQ_YoY)
     OperProfit_SQ_YoY = rename((OperNetProfit_SQ0P - OperNetProfit_SQ4P) / abs(OperNetProfit_SQ4P), factor_name="oper_profit_sq_yoy")
-    NetProfitDeducted_SQ_YoY = rename((NetProfit_Deducted_SQ0P - NetProfit_Deducted_SQ4P) / abs(NetProfit_Deducted_SQ4P), factor_name="net_profit_deducted_sq_yoy")
+    Factors.append(OperProfit_SQ_YoY)
+    # NetProfitDeducted_SQ_YoY = rename((NetProfit_Deducted_SQ0P - NetProfit_Deducted_SQ4P) / abs(NetProfit_Deducted_SQ4P), factor_name="net_profit_deducted_sq_yoy")# DEBUG
+    # Factors.append(NetProfitDeducted_SQ_YoY)
     OCF_SQ_YoY = rename((OCF_SQ0P - OCF_SQ4P) / abs(OCF_SQ4P), factor_name="ocf_sq_yoy")
-    Factors.extend([Revenue_SQ_YoY, NetProfit_SQ_YoY, OperProfit_SQ_YoY, NetProfitDeducted_SQ_YoY, OCF_SQ_YoY])
+    Factors.append(OCF_SQ_YoY)
     
     # #### 季度增速: 环比 #########################################################################
     Revenue_SQ_QoQ = rename(Sales_SQ0P / Sales_SQ1P - 1, factor_name="revenue_sq_qoq")
+    Factors.append(Revenue_SQ_QoQ)
     OperProfit_SQ_QoQ= rename(OperNetProfit_SQ0P / OperNetProfit_SQ1P - 1, factor_name="oper_profit_sq_qoq")
+    Factors.append(OperProfit_SQ_QoQ)
     NetProfit_SQ_QoQ = rename(NetProfit_SQ0P / NetProfit_SQ1P - 1, factor_name="net_profit_sq_qoq")
-    NetProfitDeducted_SQ_QoQ= rename(NetProfit_Deducted_SQ0P / NetProfit_Deducted_SQ1P - 1, factor_name="net_profit_deducted_sq_qoq")
+    Factors.append(NetProfit_SQ_QoQ)
+    # NetProfitDeducted_SQ_QoQ= rename(NetProfit_Deducted_SQ0P / NetProfit_Deducted_SQ1P - 1, factor_name="net_profit_deducted_sq_qoq")# DEBUG
+    # Factors.append(NetProfitDeducted_SQ_QoQ)
     OCF_SQ_QoQ= rename(OCF_SQ0P / OCF_SQ1P - 1, factor_name="ocf_sql_qoq")
-    Factors.extend([OCF_SQ_QoQ, NetProfitDeducted_SQ_QoQ, OperProfit_SQ_QoQ, Revenue_SQ_QoQ, NetProfit_SQ_QoQ])
+    Factors.append(OCF_SQ_QoQ)
 
     # #### 季度增速的增量 #######################################################################
     Factors.append(rename(Revenue_SQ_YoY - ((Sales_SQ1P - Sales_SQ5P) / abs(Sales_SQ5P)), factor_name="revenue_sq_acc"))
@@ -214,7 +222,7 @@ def defFactor(fdi: FactorDefInput):
     return FactorDef(
         FactorList=Factors,
         TargetTable="stock_cn_factor_growth",
-        MaxLookBack=365, 
+        MaxLookBack=max(365, StockConsensusDef.MaxLookBack),
         IDType="A股",
         Author="麦冬"
     )
