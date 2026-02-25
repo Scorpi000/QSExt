@@ -9,7 +9,7 @@ from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext, FactorInitData
 from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorCache import HDF5Cache, FeatherCache
+from QuantStudio.Core.FactorCache import FeatherFactorCache
 from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator
 import QuantStudio.Core.FactorOperator as fo
 from QuantStudio.Core.FactorStorer import FactorStorer
@@ -29,7 +29,7 @@ from QSExt.FactorDef.JY.stock_cn_factor_quality import defFactor# TODEBUG
 # from QSExt.FactorDef.JY.stock_cn_factor_liquidity import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_sentiment import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_money_flow import defFactor
-# from QSExt.FactorDef.JY.stock_cn_factor_volatility import defFactor# TODEBUG
+# from QSExt.FactorDef.JY.stock_cn_factor_volatility import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_alternative import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_barra_descriptor import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_barra import defFactor
@@ -69,7 +69,7 @@ if __name__=="__main__":
     print("===")
 
 # 单定义
-if __name__=="__main__1":
+if __name__=="__main__":
     SDB = JYDB().connect()
     # SDB = BaoStockDB().connect()
     TDB = HDF5DB().connect()
@@ -90,7 +90,7 @@ if __name__=="__main__1":
     PIDList = ["0"]
     # ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
     # PIDList = [f"0-{i}" for i in range(3)]
-    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
+    Cache = FeatherFactorCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
     Cache.start()
     Context = FactorContext(
         PID="0",

@@ -1,6 +1,7 @@
 # coding=utf-8
 """波动性因子"""
 import datetime as dt
+from itertools import product
 from functools import partial
 
 import numpy as np
@@ -14,6 +15,7 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor as defStockFactorValue
+from QuantStudio.Tools.AuxiliaryFun import partitionList, getClassMask
 
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 1, "DataType": "double", "DTMode": "多时点", "IDMode": "多ID", "LookBack": [60 - 1]})
@@ -28,7 +30,65 @@ def calcRollingKurt(f, idt, iid, x, args):
     args = args.copy()
     return Data.rolling(**args).apply(lambda x : x.kurt()).values[f.Operator.Args["LookBack"][0]:]
 
-# 因子收益率(TODO)
+
+# 计算分位数组合收益率
+# factor_data: 因子数据, DataFrame(index=[日期],columns=[ID]) or Series(index=[ID]), 如果为DataFrame则用行数据
+# return_data: 收益率数据, DataFrame(index=[日期],columns=[ID]) or Series(index=[ID]), 如果为DataFrame则用行数据
+# mask: 过滤条件, None or DataFrame(index=[日期],columns=[ID]) or Series(index=[ID]), 如果为DataFrame则用行数据
+# cat_data: 分类数据, [DataFrame(index=[日期],columns=[ID]) or Series(index=[ID])], 如果为DataFrame则用行数据, 如果非空, 类别内分别分组
+# weight_data: 形成投资组合的权重数据, None or DataFrame(index=[日期],columns=[ID]) or Series(index=[ID]), 如果为DataFrame则用行数据
+# factor_data, return_data, mask, cat_data[i], weight_data的行列维度和索引必须一致
+# ascending: 是否升序排列, 可选: True or False
+# n_group: 分组数, int, >0;
+# 返回: 如果factor_data等为DataFrame, 返回(DataFrame(收益率,index=[日期],columns=[i]), [[分位数组合]]), 分位数组合: Series(index=[ID])
+# 返回: 如果factor_data等为Series, 返回([收益率], [分位数组合]), 分位数组合: Series(index=[ID])
+def calcQuantilePortfolio(factor_data, return_data, mask=None, *cat_data, weight_data=None, ascending=False, n_group=10):
+    if isinstance(factor_data,pd.Series):
+        if mask is not None:
+            factor_data = factor_data[mask]
+        factor_data = factor_data[pd.notnull(factor_data)]
+        factor_data = factor_data.sort_values(ascending=ascending,inplace=False)
+        if cat_data:
+            cat_data = pd.DataFrame(list(cat_data), columns=cat_data[0].index).T
+            cat_data = cat_data.loc[factor_data.index]
+            cat_data = cat_data.where(pd.notnull(cat_data),np.nan)
+            AllCats = list(product(*list(list(iCatData[iCat].unique()) for iCat in cat_data)))
+        else:
+            AllCats = [None]
+            cat_data = factor_data
+        PortfolioIDList = [[] for i in range(n_group)]
+        for iCat in AllCats:
+            iMask = getClassMask(iCat,cat_data)
+            iPortfolioIDList = partitionList(list(factor_data[iMask].index),n_group)
+            for j,jIDs in enumerate(iPortfolioIDList):
+                PortfolioIDList[j] += jIDs
+        weight_data = (weight_data[factor_data.index] if weight_data is not None else pd.Series(1.0, index=factor_data.index))
+        return_data = return_data[factor_data.index]
+        Portfolio = []
+        PortfolioReturn = []
+        for jIDs in PortfolioIDList:
+            jWeight = weight_data.loc[jIDs]
+            jPortfolio = jWeight[pd.notnull(jWeight)] / jWeight.sum()
+            Portfolio.append(jPortfolio)
+            PortfolioReturn.append((jPortfolio * return_data[jPortfolio.index]).sum())
+        return (PortfolioReturn,Portfolio)
+    PortfolioReturn = pd.DataFrame(0.0, index=factor_data.index, columns=[i for i in range(n_group)])
+    Portfolio = []
+    for i in range(factor_data.shape[0]):
+        iFactorData = factor_data.iloc[i]
+        if i<factor_data.shape[0]-1:
+            iReturnData = return_data.iloc[i+1]
+        else:
+            iReturnData = pd.Series(np.nan,index=factor_data.columns)
+        iMask = (mask.iloc[i] if mask is not None else None)
+        iCatData = [jCatData.iloc[i] for jCatData in cat_data]
+        iWeightData = (weight_data.iloc[i] if weight_data is not None else None)
+        iPortfolioReturn, iPortfolio = calcQuantilePortfolio(iFactorData, iReturnData, iMask, *iCatData, weight_data=iWeightData, ascending=ascending, n_group=n_group)
+        PortfolioReturn.iloc[(i+1) % factor_data.shape[0]] = iPortfolioReturn
+        Portfolio.append(iPortfolio)
+    return (PortfolioReturn, Portfolio)
+
+# 因子收益率
 @FactorOperatorized(operator_type="Panel", args={"Arity": 5, "ModelArgs": {"ascending": False}, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [1, 0, 1, 1, 1]})
 def calcFactorReturn(f, idt, iid, x, args):
     FactorData = pd.Series(x[0][0,:])
