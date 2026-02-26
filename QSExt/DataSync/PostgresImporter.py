@@ -319,7 +319,7 @@ class PostgresImporter:
         db_table_name = table_name.split("-")[0]
         insert_sql = f'INSERT INTO {del_table_name} (TABLENAME, RECID, XGRQ, ID, JSID) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (JSID, TABLENAME) DO UPDATE SET RECID=EXCLUDED.RECID, XGRQ=EXCLUDED.XGRQ, ID=EXCLUDED.ID'
         with open(del_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, escapechar="\\")
             batch = list(reader)
             if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
         imported_cursor = (cursor is not None)
@@ -402,7 +402,7 @@ class PostgresImporter:
         if not os.path.exists(header_file):
             raise FileNotFoundError(f"表头文件不存在: {header_file}")
         with open(header_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, escapechar="\\")
             headers = next(reader)# 读取表头
             data_type = next(reader)# 数据类型
             nullable = next(reader)# 是否可空
@@ -416,7 +416,7 @@ class PostgresImporter:
         index_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-INDEX.csv"
         if os.path.isfile(index_file):
             with open(index_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
+                reader = csv.reader(f, escapechar="\\")
                 index_info = list(reader)
                 if index_info and (index_info[-1][0]=="salt"): index_info = index_info[:-1]# 去掉最后一行的 salt
             index_info = pd.DataFrame(index_info[1:], columns=index_info[0])
@@ -440,10 +440,10 @@ class PostgresImporter:
         # if table_exists and file_list:
         #     id_col_idx = [i for i, col in enumerate(columns_info) if col["name"].lower()==id_field.lower()][0]
         #     with open(os.path.join(self.import_dir, table_name, file_list[0]), 'r', encoding='utf-8') as f:
-        #         first_row = next(csv.reader(f))
+        #         first_row = next(csv.reader(f, escapechar="\\"))
         #     first_idx = first_row[id_col_idx]
         #     with open(os.path.join(self.import_dir, table_name, file_list[-1]), 'r', encoding='utf-8') as f:
-        #         last_row = next(iter(deque(csv.reader(f), maxlen=1)))
+        #         last_row = next(iter(deque(csv.reader(f, escapechar="\\"), maxlen=1)))
         #     last_idx = last_row[id_col_idx]
         #     self.clear_redundant_data(db_table_name=db_table_name, first_idx=first_idx, last_idx=last_idx, id_field=id_field)
 
@@ -451,7 +451,7 @@ class PostgresImporter:
         del_file = self.import_dir + os.sep + table_name + os.sep + f"{token}-DEL.csv"
         if os.path.isfile(del_file):
             with open(del_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
+                reader = csv.reader(f, escapechar="\\")
                 del_data = list(reader)
                 if del_data and (del_data[-1][0]=="salt"): del_data = del_data[:-1]# 去掉最后一行的 salt
             del_data = pd.DataFrame(del_data, columns=["TABLENAME", "RECID", "XGRQ", "ID", "JSID"])
@@ -480,7 +480,7 @@ class PostgresImporter:
         for ifile in file_list:
             try:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
+                    reader = csv.reader(f, escapechar="\\")
                     batch = list(reader)
                     if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
 
@@ -516,7 +516,7 @@ class PostgresImporter:
                 if unique_err_rows:
                     unique_err_file = ".".join(ifile.split(".")[:-1])+"-UNIQUE_ERROR.csv"
                     with open(self.import_dir + os.sep + table_name + os.sep + unique_err_file, 'w', newline='', encoding='utf-8') as f:
-                        writer = csv.writer(f)
+                        writer = csv.writer(f, escapechar="\\")
                         writer.writerows(unique_err_rows)
                     unique_err_update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() not in unique_fields)
                     unique_err_insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({",".join(unique_fields)}) DO UPDATE SET {unique_err_update_str}'

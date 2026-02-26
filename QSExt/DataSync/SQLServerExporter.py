@@ -277,7 +277,7 @@ class SQLServerExporter:
         # 写入CSV文件
         export_file = os.path.join(os.path.join(self.export_dir, table_name), f"{token}-DEL.csv")
         with open(export_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, escapechar="\\")
             writer.writerows(rows)
         return max_id
     
@@ -311,7 +311,7 @@ class SQLServerExporter:
         write_header = not os.path.exists(header_file) or (exported_rows == 0)
         if write_header:
             with open(header_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
+                writer = csv.writer(f, escapechar="\\")
                 writer.writerow(column_names)
                 writer.writerow([col['type'] for col in table_info['columns']])
                 writer.writerow([col['nullable'] for col in table_info['columns']])
@@ -321,7 +321,7 @@ class SQLServerExporter:
         index_info = self.get_index_info(table_name=table_name)
         index_file = os.path.join(export_dir, f"{token}-INDEX.csv")
         with open(index_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, escapechar="\\")
             writer.writerows(index_info)
         
         conn = self.get_connection()
@@ -363,7 +363,7 @@ class SQLServerExporter:
                 # 写入CSV文件
                 export_file = os.path.join(export_dir, f"{token}-{str(idx).zfill(6)}.csv")
                 with open(export_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
+                    writer = csv.writer(f, escapechar="\\")
                     writer.writerows(rows)
                 
                 total_exported += len(rows)

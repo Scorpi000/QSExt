@@ -22,7 +22,7 @@ def calcDvd(f, idt, iid, x, args):
     Fun = np.vectorize(lambda x1, x2: np.nansum(np.array(x1) * np.array(x2)) if (x1 is not None) and (x2 is not None) else 0)
     return Fun(x[0], x[1])
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面", "DataType": "object"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面", "DataType": "double"})
 def calcSectorMedian(f, idt, iid, x, args):
     VR, Sector, IsListed = pd.Series(x[0]), pd.Series(x[1]), pd.Series(x[2])
     Data = pd.Series(index=VR.index, dtype=float)
@@ -49,14 +49,13 @@ def regressValueBias(f, idt, iid, x, args):
      
 @FactorOperatorized(operator_type="Point", args={"Arity": 3, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcValueBias(f, idt, iid, x, args):
+    VR, SVR = x[1].copy(), x[2]
     DataType = np.dtype([("0", float), ("1", float), ("2", float)])
     x = x[0].astype(DataType)
     a, l, b = x["0"], x["1"], x["2"]
     l[l==0] = np.nan
     c = -1 * b / l
-    VR = x[1]
     VR[VR==0] = np.nan
-    SVR = x[2]
     return 1 - c * SVR / VR
     
     
@@ -98,13 +97,13 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"TTM"})
     EBIT_TTM = FT.getFactor("息税前利润")
     EBITDA_TTM = FT.getFactor("息税折旧摊销前利润")
-    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FCF_TTM = FT.getFactor("企业自由现金流量FCFF")
     # 在TTM因缺失值不能计算时，采用最近年报数据填充
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"最新", "ReportDate":"年报"})
     EBIT  = where(EBIT_TTM, notnull(EBIT_TTM), FT.getFactor("息税前利润"))
     EBITDA  = where(EBITDA_TTM, notnull(EBITDA_TTM), FT.getFactor("息税折旧摊销前利润"))
-    NetProfit_LYR_Deducted = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_LYR_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FCF_LYR = FT.getFactor("企业自由现金流量FCFF")
     
     # ### 一致预期因子 #############################################################################
@@ -121,7 +120,7 @@ def defFactor(fdi: FactorDefInput):
 
     # ### 行情因子 #############################################################################
     StockDayBarDef = defStockDayBar(fdi=fdi)
-    MarketCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...")# 单位: 万元
+    MarketCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...") * 10000# 单位: 元
     
     # #### 股息类 #############################################################################
     FT = JYDB.getTable("公司分红")
@@ -130,43 +129,44 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(fo.RollingApply(func=np.nansum, window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
 
     # ### 盈利类 ########################################################################
-    Factors.append(rename(NetProfit_TTM_Deducted / (MarketCap * 10000), factor_name="ep_ttm_deducted"))
+    # Factors.append(rename(NetProfit_TTM_Deducted / MarketCap, factor_name="ep_ttm_deducted"))# DEBUG
     
-    EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / (MarketCap * 10000), factor_name="ep_lyr_deducted")
-    Factors.append(EP_LYR_Deducted)
+    # EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / MarketCap, factor_name="ep_lyr_deducted")
+    # Factors.append(EP_LYR_Deducted)# DEBUG
     
-    EP_TTM = rename(NetProfit_TTM / (MarketCap * 10000), factor_name="ep_ttm")
+    EP_TTM = rename(NetProfit_TTM / MarketCap, factor_name="ep_ttm")
     Factors.append(EP_TTM)
-    Factors.append(rename(NetProfit_LYR / (MarketCap * 10000), factor_name="ep_lyr"))
-    Factors.append(rename(NetProfitAvg_FY0 / (MarketCap * 10000), factor_name="ep_fy0"))
-    Factors.append(rename(NetProfitAvg_FY1 / (MarketCap * 10000), factor_name="ep_fy1"))
-    Factors.append(rename(NetProfitAvg_Fwd12M / (MarketCap * 10000), factor_name="ep_fwd12m"))
+    Factors.append(rename(NetProfit_LYR / MarketCap, factor_name="ep_lyr"))
+    Factors.append(rename(NetProfitAvg_FY0 / MarketCap, factor_name="ep_fy0"))
+    Factors.append(rename(NetProfitAvg_FY1 / MarketCap, factor_name="ep_fy1"))
+    Factors.append(rename(NetProfitAvg_Fwd12M / MarketCap, factor_name="ep_fwd12m"))
 
     # ### 现金流类 ######################################################################
-    Factors.append(rename(OCF_TTM / (MarketCap * 10000), factor_name="ocfp_ttm"))
-    OCFP_LYR=rename(OCF_LYR / (MarketCap * 10000), factor_name="ocfp_lyr")
+    Factors.append(rename(OCF_TTM / MarketCap, factor_name="ocfp_ttm"))
+    OCFP_LYR = rename(OCF_LYR / MarketCap, factor_name="ocfp_lyr")
     Factors.append(OCFP_LYR)
     
-    Factors.append(rename(FCF_TTM / (MarketCap * 10000), factor_name="fcfp_ttm"))
-    FCFP_LYR=rename(FCF_LYR / (MarketCap * 10000), factor_name="fcfp_lyr")
-    Factors.append(FCFP_LYR)
+    # Factors.append(rename(FCF_TTM / MarketCap, factor_name="fcfp_ttm"))# DEBUG
+    # FCFP_LYR = rename(FCF_LYR / MarketCap, factor_name="fcfp_lyr")# DEBUG
+    # Factors.append(FCFP_LYR)
 
     # ### 营业收入类 ########################################################################
-    SP_TTM = rename(Sales_TTM / (MarketCap * 10000), factor_name="sp_ttm")
+    SP_TTM = rename(Sales_TTM / MarketCap, factor_name="sp_ttm")
     Factors.append(SP_TTM)
-    SP_LYR=rename(Sales_LYR / (MarketCap * 10000), factor_name="sp_lyr")
+    SP_LYR=rename(Sales_LYR / MarketCap, factor_name="sp_lyr")
     Factors.append(SP_LYR)
 
     # ### 账面净资产类 ######################################################################
-    BP_LR = rename((TotalAsset - TotalLiability) / (MarketCap * 10000), factor_name="bp_lr")
+    BP_LR = rename((TotalAsset - TotalLiability) / MarketCap, factor_name="bp_lr")
     Factors.append(BP_LR)
-    Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / (MarketCap * 10000), factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
+    Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / MarketCap, factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
 
     # ### 企业价值类 ########################################################################
-    EV = MarketCap * 10000 + InterestBearingObligation - MonetaryFund
-    Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
-    Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
-    Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
+    # DEBUG
+    # EV = MarketCap + InterestBearingObligation - MonetaryFund
+    # Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
+    # Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
+    # Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
     
     # ### 价值偏离度 ########################################################################
     EP_SectorMedian = calcSectorMedian(EP_TTM, Sector, IsListed, factor_args={"Name": "EP_SectorMedian"})

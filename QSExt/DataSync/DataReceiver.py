@@ -287,7 +287,7 @@ if __name__ == "__main__":
     target_dir = r'D:\Data\JYDBSync'
     interval_seconds = 3
     config = {
-        'host': 'localhost',
+        'host': '172.25.109.134',
         'port': '5433',
         'database': 'JYDB',
         'username': 'shzq',
