@@ -381,7 +381,20 @@ if __name__ == "__main__":
     # exporter.export_table(token="aha", table_name="secumain", where_clause="innercode IN (3, 11, 310976, 1679, 300284, 398635)", order_by="jsid", resume=True)
 
     table_list = sorted(exporter.get_table_list(), reverse=True)
-    excluded_tables = ["qt_tradingdaynew", "c_ex_datastock", "lc_indexcomponent", "lc_indexcomponentsweight", "qt_indexquote", "qt_csiindexquote"]
+    excluded_tables = [
+        "test_ct_keywords",
+        "c_ex_datastock", 
+        "fut_dailyquote", 
+        "fut_tradingquote", 
+        "lc_indexcomponent", 
+        "lc_indexcomponentsweight", 
+        "qt_indexquote", 
+        "qt_csiindexquote",
+        "hk_secumain",
+        "lc_areacode",
+        "lc_arearelatinginfo",
+        "ni_newsconst"
+    ]
     for table_name in table_list:
         if table_name in excluded_tables: continue
         print(table_name)
