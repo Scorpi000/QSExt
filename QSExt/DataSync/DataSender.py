@@ -1,4 +1,5 @@
 import os
+import sys
 import csv
 import json
 import uuid
@@ -6,6 +7,7 @@ import time
 import shutil
 import traceback
 import datetime as dt
+from contextlib import redirect_stdout, redirect_stderr
 from multiprocessing import Pool
 from threading import Lock
 from typing import List, Dict, Any, Optional
@@ -50,20 +52,30 @@ def execute_task(task):
     else:
         table_name, split_num, idx = table_name[0], 1, 0
     if idx > 0: return task["table_name"], True, "当前不是表导出的第一个分片，无需执行!"
-    task_dir = task["export_dir"] + os.sep + table_name
-    if not os.path.isdir(task_dir): os.mkdir(task_dir)
-    exporter = task["exporter"]
-    checkpoint = exporter.get_checkpoint(task["token"], table_name)
-    if checkpoint.get("token", None) != task["token"]:
-        exporter.save_checkpoint(table_name, {'token': task["token"], "max_id": task["max_id"], "last_del_id": task["del_max_id"]})
-    for i in range(task["retry_num"]):
-        try:
-            ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"], del_table_name=task["del_table"], id_field=task["id_field"])
-        except:
-            ifok, msg = False, traceback.format_exc()
-        if ifok: break
-    #task["queue"].put((task["table_name"], ifok, msg))
-    return task["table_name"], ifok, msg
+    log_dir = task.get("log_dir", None)
+    if log_dir:
+        log_dir = os.path.join(log_dir, task["token"])
+        if not os.path.isdir(log_dir): os.mkdir(log_dir)
+        log_file = os.path.join(log_dir, table_name+".log")
+    else:
+        log_file = "." + os.sep + table_name + ".log"
+    with open(log_file, mode="w") as f:
+        with redirect_stdout(f):
+            with redirect_stderr(f):
+                task_dir = task["export_dir"] + os.sep + table_name
+                if not os.path.isdir(task_dir): os.mkdir(task_dir)
+                exporter = task["exporter"]
+                checkpoint = exporter.get_checkpoint(task["token"], table_name)
+                if checkpoint.get("token", None) != task["token"]:
+                    exporter.save_checkpoint(table_name, {'token': task["token"], "max_id": task["max_id"], "last_del_id": task["del_max_id"]})
+                for i in range(task["retry_num"]):
+                    try:
+                        ifok, msg, checkpoint = exporter.export_table(task["token"], table_name, order_by=task["id_field"], del_table_name=task["del_table"], id_field=task["id_field"])
+                    except:
+                        ifok, msg = False, traceback.format_exc()
+                    if ifok: break
+                #task["queue"].put((task["table_name"], ifok, msg))
+                return task["table_name"], ifok, msg
 
 def transfer_data(sdir, tdir, task):
     table_name = task["table_name"]
@@ -111,6 +123,7 @@ class DataSender(FileSystemEventHandler):
     def __init__(self,
         main_dir: str,
         source_dir: str,
+        log_dir: str,
         exporter,
         cmd_file: str = "export_cmd.json",
         import_status_file: str = "import_status.json",
@@ -118,10 +131,11 @@ class DataSender(FileSystemEventHandler):
         interval_seconds: int = 3,
         retry_num: int = 3,
         concurrent_num: int = 1,
-        max_size: float = 4.5# 单次最大传送的数据量，单位 G
+        max_size: float = 4.5# 单词最大传送的数据量，单位 G
     ):
         self.main_dir = main_dir
         self.source_dir = source_dir
+        self.log_dir = log_dir
         self.exporter = exporter
         self.cmd_file = cmd_file
         self.import_status_file = import_status_file
@@ -287,7 +301,7 @@ class DataSender(FileSystemEventHandler):
             with Pool(processes=self.concurrent_num) as pool:
                 for task in self.cmd["task_list"][self.task_start_idx:]:
                     print(f"任务 {token} 的表 {task['table_name']} 开始导出...")
-                    self.task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": self.source_dir, "exporter": self.exporter, "token": token, "retry_num": self.retry_num}, ))
+                    self.task_rslt[task["table_name"]] = pool.apply_async(execute_task, args=(task | {"export_dir": self.source_dir, "exporter": self.exporter, "token": token, "retry_num": self.retry_num, "log_dir": self.log_dir}, ))
                 for table_name, proc in self.task_rslt.items():
                     try:
                         _, ifok, msg = proc.get()
@@ -351,6 +365,7 @@ if __name__ == "__main__":
     from SQLServerExporter import SQLServerExporter
     main_dir = r'C:\NXG Cloud\My Cloud\sqlserver_exports'
     source_dir = r'C:\Users\04122\Desktop\ExportedData'
+    log_dir = r"C:\Users\04122\Desktop\Log"
     interval_seconds = 3
     config = {
         'server': '10.102.3.21',
@@ -359,13 +374,14 @@ if __name__ == "__main__":
         'username': 'cwyspzb_04122',
         'password': 'Shzq@04122',
         'export_dir': source_dir,
-        'batch_size': 2000000
+        'batch_size': 50000
     }
     exporter = SQLServerExporter(**config)
 
     event_handler = DataSender(
         main_dir=main_dir,
         source_dir=source_dir,
+        log_dir=log_dir,
         exporter=exporter,
         interval_seconds=interval_seconds,
         max_size=4.5,

@@ -107,7 +107,7 @@ class SQLServerExporter:
             #port=str(self.port), 
             #user=self.username,
             #password=self.password,
-            #charset='cp936'
+            #charset='GB18030'
         #)
         return pymssql.connect(
             server=self.server,
@@ -115,7 +115,7 @@ class SQLServerExporter:
             port=str(self.port), 
             user=self.username,
             password=self.password,
-            charset='GB18030'
+            charset='UTF-8'
         )
     
     def get_checkpoint(self, token, table_name: str) -> Dict[str, Any]:
@@ -256,7 +256,6 @@ class SQLServerExporter:
             cursor.close()
             conn.close()
 
-    
     def export_del_table(self, token: str, table_name: str, last_del_id: Optional[int]=None, del_table_name="JYDB_DeleteRec", id_field:str="JSID", cursor=None):
         imported_cursor = (cursor is not None)
         if not imported_cursor:
@@ -324,6 +323,17 @@ class SQLServerExporter:
             writer = csv.writer(f, escapechar="\\")
             writer.writerows(index_info)
         
+        # 类型映射
+        def _gen_data_type_mapping(d):
+            d = d.lower()
+            if d=="varchar(-1)":
+                return "ntext"
+            elif d.startswith("varchar") or d.startswith("text") or d.startswith("char"):
+                return "n"+d
+            else:
+                return None
+        data_type_mapping = {col["name"]: m for col in table_info["columns"] if (m:=_gen_data_type_mapping(col["type"])) is not None}
+        print(f"表 {table_name} 执行数据类型映射: {data_type_mapping}")
         conn = self.get_connection()
         cursor = conn.cursor()
         offset = 0# exported_rows
@@ -331,7 +341,7 @@ class SQLServerExporter:
         try:
             while True:
                 # 构建查询语句
-                base_query = f"SELECT {', '.join([f'[{col}]' for col in column_names])} FROM [{table_name}]"
+                base_query = f"SELECT {', '.join([(f'[{col}]' if col not in data_type_mapping else f'CONVERT({data_type_mapping[col]}, [{col}]) AS {col}') for col in column_names])} FROM [{table_name}]"
                 if where_clause:
                     base_query += f" WHERE {where_clause}"
                 
@@ -353,7 +363,7 @@ class SQLServerExporter:
                             FROM [{table_name}]
                         ) t WHERE rn > {offset} AND rn <= {offset + self.batch_size}
                     """
-                
+                print(table_name, query)# DEBUG
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 

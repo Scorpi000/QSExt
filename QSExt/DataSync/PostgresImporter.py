@@ -14,6 +14,8 @@ import pandas as pd
 import psycopg2
 
 
+csv.field_size_limit(2048 * 2048)
+
 class PostgresImporter:
     def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports", default_id_field: str = "JSID", conn_retry_num: int=3, conn_interval_seconds=30):
         self.host = host
