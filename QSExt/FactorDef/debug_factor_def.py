@@ -3,16 +3,16 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from QuantStudio.Core.JYDB import JYDB
-from QuantStudio.Core.BaoStockDB import BaoStockDB
-from QuantStudio.Core.HDF5DB import HDF5DB
 from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
-from QuantStudio.Core.Factor import DataFactor, FactorContext, FactorLocalContext, FactorInitData
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorCache import FeatherFactorCache
-from QuantStudio.Core.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.FactorStorer import FactorStorer
+from QuantStudio.Factor.JYDB import JYDB
+from QuantStudio.Factor.BaoStockDB import BaoStockDB
+from QuantStudio.Factor.HDF5DB import HDF5DB
+from QuantStudio.Factor.Factor import DataFactor, FactorContext, FactorLocalContext, FactorInitData
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorCache import FeatherFactorCache
+from QuantStudio.Factor.FactorOperation import SectionOperation, PanelOperation, makeFactorOperator
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
 # from QSExt.FactorDef.JY.stock_cn_info import defFactor
