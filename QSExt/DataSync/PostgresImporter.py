@@ -461,6 +461,9 @@ class PostgresImporter:
         else:
             del_ids = None
         
+        # 导入删除表数据并执行删除
+        self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, del_table_name=del_table_name)
+        
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
@@ -555,9 +558,6 @@ class PostgresImporter:
 
         cursor.close()
         conn.close()
-
-        # 导入删除表数据并执行删除
-        self.import_del_table(token=token, table_name=table_name, exec_del=table_exists, del_table_name=del_table_name)
         return total_imported
 
 
