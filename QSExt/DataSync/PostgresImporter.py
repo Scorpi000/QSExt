@@ -467,12 +467,13 @@ class PostgresImporter:
         update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() != "id")
         insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
         
-        id_col_idx, datetime_col_idx, float_col_idx, int_col_idx = None, [], [], []
+        id_col_idx, datetime_col_idx, float_col_idx, int_col_idx, text_col_idx = None, [], [], [], []
         for i, col in enumerate(columns_info):
             if col["name"].lower()=="id": id_col_idx = i
             if col["type"].lower().startswith("date"): datetime_col_idx.append(i)
             elif col["type"].lower().startswith("float"): float_col_idx.append(i)
             elif "int" in col["type"].lower(): int_col_idx.append(i)
+            elif col["type"].lower().startswith("text") or col["type"].lower()=="varchar(-1)": text_col_idx.append(i)
         if id_col_idx is None: raise Exception(f"没有找到 ID 字段: {columns_info}")
         
         total_imported = imported_rows
@@ -499,10 +500,14 @@ class PostgresImporter:
                     for i in int_col_idx:
                         mask = pd.isnull(batch[:, i])
                         batch[:, i] = np.where(mask, batch[:, i], np.where(mask, 0, batch[:, i]).astype(int))
+                if text_col_idx:
+                    modify_func = lambda x: x.replace("\x00", "") if pd.notnull(x) else None
+                    for i in text_col_idx:
+                        batch[:, i] = [modify_func(x) for x in batch[:, i]]
                 # 处理被删除的行
                 if del_ids is not None:
                     batch = batch[~np.isin(batch[:, id_col_idx], del_ids)]
-
+                
                 cursor.executemany(insert_sql, batch.tolist())
                 conn.commit()
             except psycopg2.errors.UniqueViolation as e:# 处理唯一性错误
@@ -558,12 +563,12 @@ class PostgresImporter:
 
 if __name__=="__main__":
     config = {
-        'host': 'localhost',
-        'port': '5432',
+        'host': '172.25.109.134',
+        'port': '5433',
         'database': 'JYDB',
-        'username': 'postgres',
-        'password': 'shuntai11',
-        'import_dir': r'C:\Users\hst\Project\Data\PosgresSync'
+        'username': 'shzq',
+        'password': 'shzq#321',
+        'import_dir': r'D:\Data\JYDBSync'
     }
     importer = PostgresImporter(**config)
 
@@ -571,12 +576,12 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    #imported_rows = importer.import_table(token="ee2eaf22b1ec444db68bd3adf2ab1fa4", table_name="LC_BalanceSheetAll", del_table_name="JYDB_DeleteRec", resume=False)
-    #print(imported_rows)
+    imported_rows = importer.import_table(token="0c4122d87e48407288c06836c0188c09", table_name="LC_OperatingStatus", del_table_name="JYDB_DeleteRec", resume=False)
+    print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
-    for itable in os.listdir(importer.import_dir):
-        imported_rows = importer.import_table(token="aha", table_name=itable, del_table_name="JYDB_DeleteRec", resume=False)
-        print(f"{itable} 导入 {imported_rows} 行")
+    # for itable in os.listdir(importer.import_dir):
+    #     imported_rows = importer.import_table(token="aha", table_name=itable, del_table_name="JYDB_DeleteRec", resume=False)
+    #     print(f"{itable} 导入 {imported_rows} 行")
     
     print("===")
