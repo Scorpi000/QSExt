@@ -7,9 +7,9 @@ import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar

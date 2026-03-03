@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
-import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 

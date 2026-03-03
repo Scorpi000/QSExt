@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
@@ -276,9 +276,9 @@ def defFactor(fdi: FactorDefInput):
     ROA_TTM = rename(2 * NetProfit_TTM / (Asset + Asset_L1), factor_name='roa_ttm')
     Factors.append(ROA_TTM)
 
-    # InvestCapital_All = Equity + Debt - CurDebt_NonInterset - NonCurDebt_NonInterset
-    # ROIC_TTM = rename(NetProfit_TTM / InvestCapital_All, factor_name="roic_ttm")
-    # Factors.append(ROIC_TTM)# DEBUG
+    InvestCapital_All = Equity + Debt - CurDebt_NonInterset - NonCurDebt_NonInterset
+    ROIC_TTM = rename(NetProfit_TTM / InvestCapital_All, factor_name="roic_ttm")
+    Factors.append(ROIC_TTM)
 
     CFROE_TTM = rename(2 * OCF_TTM / (Equity + Equity_L1), factor_name="cfroe_ttm")
     Factors.append(CFROE_TTM)

@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
@@ -107,15 +107,15 @@ def defFactor(fdi: FactorDefInput):
     NetProfit_SQ7P = FT.getFactor("归属于母公司所有者的净利润")
     
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有"})
-    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
-    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
-    NetProfit_Deducted_SQ0P = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_Deducted_SQ0P = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
-    NetProfit_Deducted_SQ1P = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_Deducted_SQ1P = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
-    NetProfit_Deducted_SQ4P = FT.getFactor("扣除非经常性损益后的净利润")
+    NetProfit_Deducted_SQ4P = FT.getFactor("扣除非经常性损益后的归母净利润")
     
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 0})
@@ -174,7 +174,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(OperNetProfit_TTM / OperNetProfit_L1 - 1, factor_name="oper_profit_ttm_yoy"))
     Factors.append(rename(Sales_TTM / Sales_L1 - 1, factor_name="net_profit_ttm_yoy"))
 
-    # Factors.append(rename(NetProfit_TTM_Deducted / NetProfit_TTM_Deducted_L1 - 1, factor_name="net_profit_deducted_ttm_yoy"))#--扣非净利润TTM同比变动 DEBUG
+    Factors.append(rename(NetProfit_TTM_Deducted / NetProfit_TTM_Deducted_L1 - 1, factor_name="net_profit_deducted_ttm_yoy"))#--扣非净利润TTM同比变动
     Factors.append(rename(OCF_TTM / OCF_TTM_L1 - 1, factor_name="ocf_ttm_yoy"))
     Factors.append(rename(Asset / Asset_L1 - 1, factor_name="asset_lr_yoy"))
     Factors.append(rename(Equity / Equity_L1 - 1, factor_name="equity_lr_yoy"))
@@ -186,8 +186,8 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(NetProfit_SQ_YoY)
     OperProfit_SQ_YoY = rename((OperNetProfit_SQ0P - OperNetProfit_SQ4P) / abs(OperNetProfit_SQ4P), factor_name="oper_profit_sq_yoy")
     Factors.append(OperProfit_SQ_YoY)
-    # NetProfitDeducted_SQ_YoY = rename((NetProfit_Deducted_SQ0P - NetProfit_Deducted_SQ4P) / abs(NetProfit_Deducted_SQ4P), factor_name="net_profit_deducted_sq_yoy")# DEBUG
-    # Factors.append(NetProfitDeducted_SQ_YoY)
+    NetProfitDeducted_SQ_YoY = rename((NetProfit_Deducted_SQ0P - NetProfit_Deducted_SQ4P) / abs(NetProfit_Deducted_SQ4P), factor_name="net_profit_deducted_sq_yoy")
+    Factors.append(NetProfitDeducted_SQ_YoY)
     OCF_SQ_YoY = rename((OCF_SQ0P - OCF_SQ4P) / abs(OCF_SQ4P), factor_name="ocf_sq_yoy")
     Factors.append(OCF_SQ_YoY)
     
@@ -198,8 +198,8 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(OperProfit_SQ_QoQ)
     NetProfit_SQ_QoQ = rename(NetProfit_SQ0P / NetProfit_SQ1P - 1, factor_name="net_profit_sq_qoq")
     Factors.append(NetProfit_SQ_QoQ)
-    # NetProfitDeducted_SQ_QoQ= rename(NetProfit_Deducted_SQ0P / NetProfit_Deducted_SQ1P - 1, factor_name="net_profit_deducted_sq_qoq")# DEBUG
-    # Factors.append(NetProfitDeducted_SQ_QoQ)
+    NetProfitDeducted_SQ_QoQ= rename(NetProfit_Deducted_SQ0P / NetProfit_Deducted_SQ1P - 1, factor_name="net_profit_deducted_sq_qoq")
+    Factors.append(NetProfitDeducted_SQ_QoQ)
     OCF_SQ_QoQ= rename(OCF_SQ0P / OCF_SQ1P - 1, factor_name="ocf_sql_qoq")
     Factors.append(OCF_SQ_QoQ)
 

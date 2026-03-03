@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 from QSExt.FactorDef.JY.stock_cn_industry import defFactor as defStockIndustry
@@ -18,8 +18,7 @@ from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defSt
 
 @FactorOperatorized(operator_type="Point", args={"Arity": 2, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcDvd(f, idt, iid, x, args):
-    #Fun = np.vectorize(lambda x1, x2: np.nansum(np.array(x1) * np.array(x2)))
-    Fun = np.vectorize(lambda x1, x2: np.nansum(np.array(x1) * np.array(x2)) if (x1 is not None) and (x2 is not None) else 0)
+    Fun = np.vectorize(lambda x1, x2: np.nansum(np.array(x1).astype(float) * np.array(x2).astype(float)) / 10 if (x1 is not None) and (x2 is not None) else 0)
     return Fun(x[0], x[1])
 
 @FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面", "DataType": "double"})
@@ -126,13 +125,14 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("公司分红")
     CashDvdPerShare, BaseShare = FT.getFactor("派现(含税-人民币元)"), FT.getFactor("分红股本基数(股)")
     Dividend = calcDvd(CashDvdPerShare, BaseShare, factor_args={"Name": "税前现金总红利"})
-    Factors.append(rename(fo.RollingApply(func=np.nansum, window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm"))
+    DP_LTM = rename(fo.RollingApply(func=np.nansum, window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm")
+    Factors.append(DP_LTM)
 
     # ### 盈利类 ########################################################################
-    # Factors.append(rename(NetProfit_TTM_Deducted / MarketCap, factor_name="ep_ttm_deducted"))# DEBUG
+    Factors.append(rename(NetProfit_TTM_Deducted / MarketCap, factor_name="ep_ttm_deducted"))
     
-    # EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / MarketCap, factor_name="ep_lyr_deducted")
-    # Factors.append(EP_LYR_Deducted)# DEBUG
+    EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / MarketCap, factor_name="ep_lyr_deducted")
+    Factors.append(EP_LYR_Deducted)
     
     EP_TTM = rename(NetProfit_TTM / MarketCap, factor_name="ep_ttm")
     Factors.append(EP_TTM)
@@ -146,9 +146,9 @@ def defFactor(fdi: FactorDefInput):
     OCFP_LYR = rename(OCF_LYR / MarketCap, factor_name="ocfp_lyr")
     Factors.append(OCFP_LYR)
     
-    # Factors.append(rename(FCF_TTM / MarketCap, factor_name="fcfp_ttm"))# DEBUG
-    # FCFP_LYR = rename(FCF_LYR / MarketCap, factor_name="fcfp_lyr")# DEBUG
-    # Factors.append(FCFP_LYR)
+    Factors.append(rename(FCF_TTM / MarketCap, factor_name="fcfp_ttm"))
+    FCFP_LYR = rename(FCF_LYR / MarketCap, factor_name="fcfp_lyr")
+    Factors.append(FCFP_LYR)
 
     # ### 营业收入类 ########################################################################
     SP_TTM = rename(Sales_TTM / MarketCap, factor_name="sp_ttm")
@@ -162,11 +162,10 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / MarketCap, factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
 
     # ### 企业价值类 ########################################################################
-    # DEBUG
-    # EV = MarketCap + InterestBearingObligation - MonetaryFund
-    # Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
-    # Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
-    # Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
+    EV = MarketCap + InterestBearingObligation - MonetaryFund
+    Factors.append(rename(EBITDA / EV, factor_name="ebitda2ev"))
+    Factors.append(rename(EBIT / EV, factor_name="ebit2ev"))
+    Factors.append(rename(Sales_TTM / EV, factor_name="revenue2ev"))
     
     # ### 价值偏离度 ########################################################################
     EP_SectorMedian = calcSectorMedian(EP_TTM, Sector, IsListed, factor_args={"Name": "EP_SectorMedian"})
@@ -185,7 +184,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(BP_DR)
     
     return FactorDef(
-        FactorList=Factors,
+        FactorList=[EP_SectorMedian],
         TargetTable="stock_cn_factor_value",
         MaxLookBack=max(365 * 4, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockIndustryDef.MaxLookBack, StockStatusDef.MaxLookBack),
         IDType="A股",

@@ -5,8 +5,8 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from QuantStudio.Core.BasicOperator import rename
-import QuantStudio.Core.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+import QuantStudio.Factor.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 

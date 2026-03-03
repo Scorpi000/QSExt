@@ -5,9 +5,9 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 from QSExt.FactorDef.JY.stock_cn_industry import defFactor as defStockIndustry
@@ -349,11 +349,11 @@ def defFactor(fdi: FactorDefInput):
 
     # EGRO
     EGRO = fo.RegressChangeRate()(EPS4, EPS3, EPS2, EPS1, EPS0, factor_args={"Name": "EGRO"})
-    # Factors.append(EGRO)# DEBUG
+    Factors.append(EGRO)
 
     # SGRO
     SGRO = fo.RegressChangeRate()(SPS4, SPS3, SPS2, SPS1, SPS0, factor_args={"Name": "SGRO"})
-    # Factors.append(SGRO)# DEBUG
+    Factors.append(SGRO)
 
     # MLEV
     MLEV = rename((LongDebt / 10000 + TotalCap) / TotalCap, factor_name="MLEV")

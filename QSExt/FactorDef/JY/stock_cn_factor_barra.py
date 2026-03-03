@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-import QuantStudio.Core.FactorOperator as fo
-from QuantStudio.Core.BasicOperator import rename
-from QuantStudio.Core.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_factor_barra_descriptor import defFactor as defBarraDescriptor
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
@@ -90,8 +90,7 @@ def fillna(f, idt, iid, x, args):
 def defFactor(fdi: FactorDefInput):
     # ### 描述子 ###########################################################################
     BarraDescriptorDef = defBarraDescriptor(fdi=fdi)
-    # DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
-    DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'MLEV', 'BLEV', 'DTOA']# DEBUG
+    DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
     Descriptors = {iDescriptorName: BarraDescriptorDef.getFactor(factor_name=iDescriptorName) for iDescriptorName in DescriptorNames}
 
     # ### 辅助因子 ###########################################################################
@@ -119,7 +118,7 @@ def defFactor(fdi: FactorDefInput):
     Factors["BookToPrice"] = Descriptors["BTOP"]
     Factors["Liquidity"] = fo.Mean(weights=[0.35, 0.35, 0.3], ignore_nan_weight=True)(Descriptors["STOM"], Descriptors["STOQ"], Descriptors["STOA"])
     Factors["EarningsYield"] = fo.Mean(weights=[0.68, 0.21, 0.11], ignore_nan_weight=True)(Descriptors['EPFWD'], Descriptors['CETOP'], Descriptors['ETOP'])
-    # Factors["Growth"] = fo.Mean(weights=[0.18, 0.11, 0.24, 0.47], ignore_nan_weight=True)(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'])# DEBUG
+    Factors["Growth"] = fo.Mean(weights=[0.18, 0.11, 0.24, 0.47], ignore_nan_weight=True)(Descriptors['EGRLF'], Descriptors['EGRSF'], Descriptors['EGRO'], Descriptors['SGRO'])
     Factors["Leverage"] = fo.Mean(weights=[0.38, 0.35, 0.27], ignore_nan_weight=True)(Descriptors['MLEV'], Descriptors['DTOA'], Descriptors['BLEV'])
 
     # ### 风格因子第一次标准化 ###########################################################################
