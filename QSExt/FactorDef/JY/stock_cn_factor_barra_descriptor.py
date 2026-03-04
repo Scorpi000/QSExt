@@ -368,6 +368,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(BLEV)
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_barra_descriptor",
         MaxLookBack=max(3650, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockIndustryDef.MaxLookBack, StockStatusDef.MaxLookBack), 

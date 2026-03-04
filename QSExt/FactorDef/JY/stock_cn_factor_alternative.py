@@ -240,6 +240,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(SpreadBias_120D)
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_alternative",
         MaxLookBack=365 * 2,

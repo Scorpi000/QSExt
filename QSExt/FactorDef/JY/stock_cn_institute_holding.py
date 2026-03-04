@@ -48,6 +48,7 @@ def defFactor(fdi: FactorDefInput):
     Factors += [NationalHolding_AUnrestricted, NationalHoldingRatio_AUnrestricted]   
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_institute_holding",
         MaxLookBack=365,

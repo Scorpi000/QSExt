@@ -405,6 +405,7 @@ def defFactor(fdi: FactorDefInput):
     Factors += [OBV]
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_technical",
         MaxLookBack=365 * 2, 

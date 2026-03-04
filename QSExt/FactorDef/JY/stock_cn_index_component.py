@@ -32,6 +32,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "39144"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="zz1000_weight"))
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_index_component",
         MaxLookBack=365,

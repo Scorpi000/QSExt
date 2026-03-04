@@ -70,6 +70,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(RTN_1200D)
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_momentum",
         MaxLookBack=max(365 * 6, StockAdjDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 

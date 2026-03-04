@@ -162,6 +162,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Fetch(pos=1, dtype="double")(IVFFAndIVR, factor_args={"Name": "ivr_20d"}))
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_volatility",
         MaxLookBack=max(365 * 2, StockDayBarDef.MaxLookBack, StockFactorValue.MaxLookBack, StockStatusDef.MaxLookBack),

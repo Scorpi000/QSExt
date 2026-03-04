@@ -127,6 +127,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(BarraIndustry)
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_industry",
         IDType="A股",

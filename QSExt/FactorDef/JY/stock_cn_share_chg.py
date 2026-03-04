@@ -75,6 +75,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Fetch(pos=2)(ShareholderRslt, factor_args={"Name": "shareholder_amount_chg"}))   
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_share_chg",
         MaxLookBack=365,

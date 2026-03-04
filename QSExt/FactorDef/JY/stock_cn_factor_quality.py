@@ -439,6 +439,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Fetch(pos=1, dtype="double")(OCFA_val, factor_args={"Name": "ocfa_para"}))
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_quality",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack),

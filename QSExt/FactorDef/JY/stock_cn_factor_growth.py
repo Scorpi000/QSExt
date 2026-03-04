@@ -220,6 +220,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(NetProft_8Q_Acc)
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_growth",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack),

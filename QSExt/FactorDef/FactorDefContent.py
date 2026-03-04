@@ -39,23 +39,38 @@ class FactorDef(QSArgs):
     def FactorNames(self):
         return [iFactor._QSArgs.Name for iFactor in self.FactorList]
     
-    def getProxyFactor(self, factor_id:str):
+    def getProxyFactor(self, factor_name: Optional[str]=None, factor_id:Optional[str]=None):
         if (self.FDI is None) or (self.FDI.ProxyDB is None): return None
+        if factor_name is None and factor_id is None:
+            self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 的代理表 '{ProxyTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中不存在!")
+            return None
         ProxyTable = self.FDI.ProxyTableMapping.get(self.TargetTable, self.TargetTable)
         if ProxyTable not in self.FDI.ProxyDB.TableNames:
-            self.Logger.warning(f"表 '{self.TargetTable}' 的代理表 '{ProxyTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中不存在!")
+            self.Logger.warning(f"FactorDef.getProxyFactor: 入参 factor_name, factor_id 同时为 None, 无法确定代理因子, 将返回 None")
             return None
         ProxyFT = self.FDI.ProxyDB.getTable(ProxyTable)
-        SourceFactorID = ProxyFT.getFactorMetaData(key="SourceFactorID")
-        SourceFactorName = SourceFactorID[SourceFactorID==factor_id]
-        if SourceFactorName.shape[0]==0:
-            self.Logger.warning(f"表 '{self.TargetTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中的代理表 '{ProxyTable}' 中不存在 SourceFactorID='{factor_id}' 的代理因子")
-            return None
-        SourceFactorName = SourceFactorName.index[0]
-        return ProxyFT.getFactor(SourceFactorName)
+        if factor_id is not None:
+            SourceFactorID = ProxyFT.getFactorMetaData(key="SourceFactorID")
+            SourceFactorName = SourceFactorID[SourceFactorID==factor_id]
+            if SourceFactorName.shape[0]==0:
+                self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中的代理表 '{ProxyTable}' 中不存在 SourceFactorID='{factor_id}' 的代理因子")
+                return None
+            SourceFactorNameList = SourceFactorName.index.tolist()
+        else:
+            SourceFactorNameList = ProxyFT.FactorNames
+        if factor_name is not None:
+            if factor_name in SourceFactorNameList:
+                return ProxyFT.getFactor(factor_name)
+            else:
+                self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中的代理表 '{ProxyTable}' 中不存在 SourceFactorID='{factor_id}', FactorName='{factor_name}' 的代理因子")
+                return None
+        else:
+            if len(SourceFactorNameList)>1:
+                self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中的代理表 '{ProxyTable}' 中存在 SourceFactorID='{factor_id}' 的多个代理因子: {SourceFactorNameList}")
+            return ProxyFT.getFactor(SourceFactorNameList[0])
 
     # 查找因子对象, def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1/...， ...表示只在这层搜索，不查询该层的描述子
-    def getFactor(self, factor_name: Optional[str]=None, def_path: str="...", factor_id: Optional[str]=None, only_one=True):
+    def getFactor(self, factor_name: Optional[str]=None, def_path: str="...", factor_id: Optional[str]=None, only_one=True, use_proxy=True):
         if (factor_id is None) and (factor_name is None):
             raise __QS_Error__(f"入参 factor_id、factor_name 不可同时为 None")
 
@@ -86,7 +101,7 @@ class FactorDef(QSArgs):
                 except:
                     raise __QS_Error__(f"查找不到因子 path='{'/'.join(DefPath[:i+2])}': {traceback.format_exc()}")
             if (LastPos not in ("", "...")) and ((factor_name is None) or (iFactor._QSArgs.Name == factor_name)) and ((factor_id is None) or (iFactor.QSID==factor_id)):
-                if (iProxyFactor := self.getProxyFactor(factor_id=iFactor.QSID)) is not None: iFactor = iProxyFactor
+                if use_proxy and (iProxyFactor := self.getProxyFactor(factor_name=iFactor.Name)) is not None: iFactor = iProxyFactor
                 return (iFactor if only_one else [iFactor])
             elif LastPos in ("", "..."):
                 Factors = _searchFactor(factors=iFactor.Descriptors, factor_id=factor_id, factor_name=factor_name, recursive=(LastPos==""))
@@ -96,11 +111,11 @@ class FactorDef(QSArgs):
             Factors = _searchFactor(factors=self.FactorList, factor_id=factor_id, factor_name=factor_name, recursive=(LastPos==""))
         if only_one:
             if (len(Factors) == 1) or ((len(Factors) > 1) and (factor_id is not None)):
-                if (iProxyFactor := self.getProxyFactor(factor_id=Factors[0].QSID)) is not None: return iProxyFactor
+                if use_proxy and (iProxyFactor := self.getProxyFactor(factor_name=Factors[0].Name)) is not None: return iProxyFactor
                 else: return Factors[0]
             elif len(Factors) == 0:
                 raise __QS_Error__(f"查找不到因子: Name='{factor_name}', QSID='{factor_id}', def_path='{def_path}'")
             else:
                 raise __QS_Error__(f"查找到的因子 (Name='{factor_name}', QSID='{factor_id}', def_path='{def_path}') 不止一个!")
         else:
-            return [(iProxyFactor if (iProxyFactor := self.getProxyFactor(factor_id=iFactor.QSID)) is not None else iFactor) for iFactor in Factors]
+            return [(iProxyFactor if use_proxy and (iProxyFactor := self.getProxyFactor(factor_name=iFactor.Name)) is not None else iFactor) for iFactor in Factors]

@@ -67,6 +67,7 @@ def defFactor(fdi: FactorDefInput):
     # Factors.append(rename(TargetPrice / Close - 1, factor_name="target_return"))
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_sentiment",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack),

@@ -86,6 +86,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(NetProfitAvg_Fwd12M / TotalCap, factor_name="ep_fwd12m"))
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_consensus_expectation",
         MaxLookBack=365,

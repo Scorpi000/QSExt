@@ -50,6 +50,7 @@ def defFactor(fdi: FactorDefInput):
     # Factors.append(log(FreeFloatCap, factor_args={"Name": "ln_free_float_cap"}))
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_size",
         MaxLookBack=max(365, StockDayBarDef.MaxLookBack),

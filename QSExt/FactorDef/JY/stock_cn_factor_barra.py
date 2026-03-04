@@ -138,6 +138,7 @@ def defFactor(fdi: FactorDefInput):
     Factors = [Factors[iFactor] for iFactor in sorted(Factors.keys())]
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_barra",
         MaxLookBack=max(365, BarraDescriptorDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 

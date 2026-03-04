@@ -24,6 +24,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Strftime(dt_format="%Y-%m-%d")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_info",
         IDType="A股",

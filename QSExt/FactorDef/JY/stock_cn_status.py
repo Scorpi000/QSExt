@@ -129,6 +129,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(IfTrading)
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_status",
         IDType="A股",

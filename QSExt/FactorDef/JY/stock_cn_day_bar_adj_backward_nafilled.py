@@ -53,6 +53,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(Close / PreClose - 1, "chg_rate"))
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_day_bar_adj_backward_nafilled",
         MaxLookBack=max(365, StockStatusDef.MaxLookBack),

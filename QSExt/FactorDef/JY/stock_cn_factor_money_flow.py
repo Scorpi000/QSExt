@@ -39,6 +39,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename((SmallActiveBuyVolume - SmallActiveSellVolume) / Volume, factor_name="small_trade_flow_1d"))
 
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_money_flow",
         MaxLookBack=max(365, StockDayBarDef.MaxLookBack),

@@ -42,6 +42,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(FinanceSecurityDiff / MarketCap, factor_name="finance_security_diff_cap_ratio"))   
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_margin_trading",
         MaxLookBack=max(365, StockDayBarDef.MaxLookBack),

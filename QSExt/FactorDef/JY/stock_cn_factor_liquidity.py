@@ -51,6 +51,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(VolStd_20D / VolAvg_20D, factor_name="vol_20d_cv"))
     
     return FactorDef(
+        FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_liquidity",
         MaxLookBack=max(365 * 2, StockDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
