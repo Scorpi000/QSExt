@@ -33,6 +33,7 @@ class FactorDef(QSArgs):
     Freq: str = Field(default="1d", title="时点频率")
     Author: str = Field(default="Anonymous", title="作者")
     Description: str = Field(default="", title="描述信息")
+    DefScriptPath: Optional[str] = Field(default=None, title="定义脚本路径")
     FDI: Optional[FactorDefInput] = Field(default=None, title="因子定义入参")
 
     @property

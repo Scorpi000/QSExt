@@ -10,7 +10,7 @@ import QuantStudio.Factor.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]
@@ -28,5 +28,7 @@ def defFactor(fdi: FactorDefInput):
         FactorList=Factors,
         TargetTable="stock_cn_info",
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        Description="A股证券基本信息，包括名称、板块、上市时间等",
+        DefScriptPath=__file__
     )
