@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 
 from QuantStudio import __QS_Error__
-from QuantStudio.FactorDataBase.FactorDB import Factor
-from QuantStudio.FactorDataBase.FactorOperation import PointOperation, TimeOperation, SectionOperation, PanelOperation
-from QuantStudio.FactorDataBase.FactorTools import _genMultivariateOperatorInfo, _genOperatorData
+from QuantStudio.Factor.FactorDB import Factor
+from QuantStudio.Factor.FactorOperation import PointOperation, TimeOperation, SectionOperation, PanelOperation
+from QuantStudio.Factor.FactorTools import _genMultivariateOperatorInfo, _genOperatorData
 from QuantStudio.Tools.AuxiliaryFun import distributeEqual
 
 # 生成二分类的标签因子

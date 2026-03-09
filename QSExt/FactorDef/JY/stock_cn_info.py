@@ -21,7 +21,7 @@ def defFactor(fdi: FactorDefInput) -> FactorDef:
     Factors.append(rename(FT.getFactor("证券简称"), factor_name="abbr"))
     Factors.append(rename(FT.getFactor("拼音证券简称"), factor_name="pinyin_abbr"))
     Factors.append(rename(FT.getFactor("上市板块_R"), factor_name="listed_sector"))
-    Factors.append(fo.Strftime(dt_format="%Y-%m-%d")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
+    Factors.append(fo.Applymap(func=lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else None, dtype="string")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
     return FactorDef(
         FDI=fdi,

@@ -5,17 +5,10 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from QuantStudio.Factor.JYDB import JYDB
 from QuantStudio.Factor.HDF5DB import HDF5DB
-from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
-from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
-from QuantStudio.Factor.FactorCache import FeatherFactorCache
-from QuantStudio.Factor.FactorStorer import FactorStorer
-from QSExt.FactorDef.FactorDefContent import FactorDefInput
-from QSExt.FactorDef.JY.stock_cn_info import defFactor
 
 
-def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, verbose: bool = True) -> dict:
+def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, verbose: bool = True, if_float: bool=False, float_err=1e-6) -> dict:
     """
     全面比较两个 DataFrame 是否完全一致
     
@@ -239,7 +232,10 @@ def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, verbose: bool = Tru
                 results['is_identical'] = False
                 
                 # 详细比较：找出具体哪些值不同
-                comparison = df1_overlap == df2_overlap
+                if if_float:
+                    comparison = ((df1_overlap - df2_overlap).abs() < float_err)
+                else:
+                    comparison = df1_overlap == df2_overlap
                 both_nan = df1_overlap.isnull() & df2_overlap.isnull()
                 match_mask = comparison | both_nan
                 
@@ -313,12 +309,12 @@ def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, verbose: bool = Tru
     return results
 
 
-BmkFDB = HDF5DB().connect()
+BmkFDB = HDF5DB(args={"MainDir": r"D:\Data\HDF5DB"}).connect()
 BmkFT = BmkFDB.getTable("stock_cn_factor_value")
 BmkFactorList = BmkFT.FactorNames
 
-TgtFDB = HDF5DB().connect()
-TgtFT = TgtFDB.getTable("stock_cn_factor_value_vsm")
+TgtFDB = HDF5DB(args={"MainDir": r"D:\Data\TestHDF5DB"}).connect()
+TgtFT = TgtFDB.getTable("stock_cn_factor_value")
 TgtFactorList = TgtFT.FactorNames
 
 if BmkFactorList!=TgtFactorList:
