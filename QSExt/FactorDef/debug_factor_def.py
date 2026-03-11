@@ -22,8 +22,8 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput
 # from QSExt.FactorDef.JY.stock_cn_day_bar_adj_backward_nafilled import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_value import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_momentum import defFactor
-# from QSExt.FactorDef.JY.stock_cn_factor_growth import defFactor# TODEBUG
-from QSExt.FactorDef.JY.stock_cn_factor_quality import defFactor# TODEBUG
+# from QSExt.FactorDef.JY.stock_cn_factor_growth import defFactor
+# from QSExt.FactorDef.JY.stock_cn_factor_quality import defFactor
 # from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_size import defFactor
 # from QSExt.FactorDef.JY.stock_cn_factor_liquidity import defFactor
@@ -35,6 +35,8 @@ from QSExt.FactorDef.JY.stock_cn_factor_quality import defFactor# TODEBUG
 # from QSExt.FactorDef.JY.stock_cn_factor_barra import defFactor
 # from QSExt.FactorDef.JY.stock_cn_margin_trading import defFactor
 # from QSExt.FactorDef.JY.stock_cn_index_component import defFactor
+# from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor
+from QSExt.FactorDef.Local.stock_cn_multi_factor_simple import defFactor
 
 # from QSExt.FactorDef.JY import stock_cn_status
 # from QSExt.FactorDef.JY import stock_cn_day_bar_adj_backward_nafilled
@@ -53,13 +55,13 @@ if __name__=="__main__1":
     print(iFactor)
     print("===")
 
-if __name__=="__main__":
+if __name__=="__main__1":
     SDB = JYDB().connect()
     TDB = HDF5DB().connect()
     print(TDB.TableNames)
 
     FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB}, DTs=[], IDs=[], SectionIDs=[], DTRuler=[]))
-    FT = TDB.getTable(FactorDef.TargetTable)
+    FT = TDB.getTable(FactorDef.TargetTable+"_t")
     DTs = FT.getDateTime()
     Data = FT.readData(FT.FactorNames, ids=None, dts=DTs[-1:])
     print(Data.iloc[:, 0].T)
@@ -83,14 +85,16 @@ if __name__=="__main__":
     # IDs = SectionIDs
     SectionIDs = IDs = ["000001.SZ", "000003.SZ", "301111.SZ", "600519.SH", "688981.SH", "920726.BJ"]# DEBUG
     
-    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler))
+    with pd.ExcelFile("/mnt/d/HST/Task/config/股票因子定义.xlsx", engine="openpyxl") as xlsFile:
+        FactorInfo = pd.read_excel(xlsFile, sheet_name="多因子模型", index_col=0, header=0)
+    FactorDef = defFactor(fdi=FactorDefInput(FDB={"JYDB": SDB, "LDB": TDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ModelArgs={"factor_info": FactorInfo}))
     if FactorDef.MaxLookBack > 365: DTRuler = SDB.getTradeDay(start_date=StartDT - dt.timedelta(FactorDef.MaxLookBack), end_date=EndDT)
     
     ExecEngine = Engine()
     PIDList = ["0"]
-    # ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
-    # PIDList = [f"0-{i}" for i in range(3)]
-    Cache = FeatherFactorCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
+    # ExecEngine = ParallelEngine(args={"IOConcurrentNum": 6})
+    # PIDList = [f"0-{i}" for i in range(8)]
+    Cache = FeatherFactorCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList, "CacheDir": "/mnt/d/Data/Cache/DevCache"})
     Cache.start()
     Context = FactorContext(
         PID="0",
@@ -101,7 +105,7 @@ if __name__=="__main__":
         FactorDataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
-    Storer = FactorStorer(deps=FactorDef.FactorList, args={"TargetFDB": TDB, "TargetTable": FactorDef.TargetTable, "IfExists": "update"})
+    Storer = FactorStorer(deps=FactorDef.FactorList, args={"TargetFDB": TDB, "TargetTable": FactorDef.TargetTable+"_t", "IfExists": "update"})
     Rslt = ExecEngine.run([Storer], Context, fwd_data_list=[LocalContext], init_data_list=[FactorInitData(DTRange=(DTs[0], DTs[-1]), SectionIDs=SectionIDs)])
     print(Rslt)
     

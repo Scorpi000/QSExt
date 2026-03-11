@@ -133,5 +133,7 @@ def defFactor(fdi: FactorDefInput):
         FactorList=Factors,
         TargetTable="stock_cn_status",
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        Description="A股证券的状态信息, 包括是否上市、是否可以交易、特别处理等",
+        DefScriptPath=__file__
     )

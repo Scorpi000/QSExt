@@ -180,7 +180,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(fo.Log()(Close, factor_args={"Name": "ln_price"}))
 
     #计算MaxReturn_20D
-    Factors.append(fo.RollingApply(func=np.nanmax, window=20, min_periods=int(20*0.8))(DayReturn, factor_args={"Name": "MaxReturn_20D"}))
+    Factors.append(fo.RollingApply(func=np.nanmax, window=20, min_periods=int(20*0.8))(DayReturn, factor_args={"Name": "max_return_20d"}))
 
     #计算Price_52WHigh
     Close2MaxClose_240D = calcPrice52WHigh(AdjClose, IfTrading, factor_args={"Name": "close2max_close_240d"})

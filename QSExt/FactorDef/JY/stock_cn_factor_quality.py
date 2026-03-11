@@ -249,9 +249,9 @@ def defFactor(fdi: FactorDefInput):
     NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的归母净利润")
 
     FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
-    TotalStock = FT.getFactor("期末总股本")
+    TotalStock = FT.getFactor("总股本(股)")
     FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
-    TotalStock_L1 = FT.getFactor("期末总股本")
+    TotalStock_L1 = FT.getFactor("总股本(股)")
     
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有"})
@@ -320,7 +320,7 @@ def defFactor(fdi: FactorDefInput):
     ROE_TTM_CV = rename(ROE_std / abs(ROE_mean), factor_name='roe_ttm_cv')
     Factors.append(ROE_TTM_CV)
 
-    ROE_TTM_YoY = rename(ROE_TTM / ROE_TTM_L1 - 1, factor_name='rot_ttm_yoy')
+    ROE_TTM_YoY = rename(ROE_TTM / ROE_TTM_L1 - 1, factor_name='roe_ttm_yoy')
     Factors.append(ROE_TTM_YoY)
 
     ROA_TTM_L1 = 2 * NetProfit_TTM_L1 / (Asset_L1 + Asset_L2)
@@ -394,13 +394,24 @@ def defFactor(fdi: FactorDefInput):
     Asset_LR_Gr = rename((Asset - Asset_L1) / abs(Asset_L1), factor_name="asset_lr_gr")
     Factors.append(Asset_LR_Gr)
 
+    Factors.append(rename(Capex_TTM / Sales_TTM, factor_name="capex2revenue"))
+
     # ### 其他 ##############################################################################################
-    #Piotroski_F_Score = (NetProfit_TTM_Deducted>0)+(OCF_TTM>0)+(NetProfit_TTM_Deducted>NetProfit_TTM_Deducted_L1)+(OCF_TTM>NetProfit_TTM_Deducted)
-    #Piotroski_F_Score = Piotroski_F_Score + (LTDebt2Equity_LR<=LTDebt2Equity_L1)+(CurrentRatio_LR>CurrentRatio_L1)+(TotalStock<=TotalStock_L1)
-    #Piotroski_F_Score = Piotroski_F_Score + (GrossMargin_TTM>GrossMargin_L1)+(Revenue2Asset>Sale2Asset_L1)
-    #Piotroski_F_Score = rename(Piotroski_F_Score,'Piotroski_F_Score')
-    #Factors.append(Piotroski_F_Score)
-    #Factors.append(rename(Capex_TTM/Sales_TTM,"Capex2Revenue"))#--来自于成长指标
+    Revenue2Asset_L1 = 2 * Sales_L1 / (Asset_L1 + Asset_L2)
+    Piotroski_F_Score = fo.Sum(all_nan=np.nan)(
+        NetProfit_TTM_Deducted > 0,
+        OCF_TTM > 0,
+        NetProfit_TTM_Deducted > NetProfit_TTM_Deducted_L1,
+        OCF_TTM > NetProfit_TTM_Deducted,
+        LTDebt2Equity_LR <= LTDebt2Equity_L1,
+        CurrentRatio_LR > CurrentRatio_L1,
+        TotalStock <= TotalStock_L1,
+        GrossMargin_TTM > GrossMargin_L1,
+        Revenue2Asset > Revenue2Asset_L1,
+        factor_args={"Name": "piotroski_f_score"}
+    )
+    Factors.append(Piotroski_F_Score)
+    
     ## ### 股利支付率 ##############################################################################################
     ##--股利支付率+留存收益率=1
     ##--股利包括现金分红加上股票股利；我们通常所说的股息率等是现金部分，正推不太好算

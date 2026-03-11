@@ -172,7 +172,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename((OCF_Y0 - OCF_Y1) / abs(OCF_Y1), factor_name="ocf_lyr_yoy"))
     Factors.append(rename(NetProfit_TTM / NetProfit_L1 - 1, factor_name="net_profit_ttm_yoy"))
     Factors.append(rename(OperNetProfit_TTM / OperNetProfit_L1 - 1, factor_name="oper_profit_ttm_yoy"))
-    Factors.append(rename(Sales_TTM / Sales_L1 - 1, factor_name="net_profit_ttm_yoy"))
+    Factors.append(rename(Sales_TTM / Sales_L1 - 1, factor_name="revenue_ttm_yoy"))
 
     Factors.append(rename(NetProfit_TTM_Deducted / NetProfit_TTM_Deducted_L1 - 1, factor_name="net_profit_deducted_ttm_yoy"))#--扣非净利润TTM同比变动
     Factors.append(rename(OCF_TTM / OCF_TTM_L1 - 1, factor_name="ocf_ttm_yoy"))
@@ -200,7 +200,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(NetProfit_SQ_QoQ)
     NetProfitDeducted_SQ_QoQ= rename(NetProfit_Deducted_SQ0P / NetProfit_Deducted_SQ1P - 1, factor_name="net_profit_deducted_sq_qoq")
     Factors.append(NetProfitDeducted_SQ_QoQ)
-    OCF_SQ_QoQ= rename(OCF_SQ0P / OCF_SQ1P - 1, factor_name="ocf_sql_qoq")
+    OCF_SQ_QoQ= rename(OCF_SQ0P / OCF_SQ1P - 1, factor_name="ocf_sq_qoq")
     Factors.append(OCF_SQ_QoQ)
 
     # #### 季度增速的增量 #######################################################################
@@ -216,8 +216,8 @@ def defFactor(fdi: FactorDefInput):
     # #### 成长加速度计算 ###############################################################################
     # 20180527-光大证券-多因子系列报告之十二：成长因子重构与优化，稳健加速为王 系列一
     # 过去8个季度的净利润相对于时间（T,以及T^2）的回归
-    NetProft_8Q_Acc = calcACC(NetProfit_SQ0P, NetProfit_SQ1P, NetProfit_SQ2P, NetProfit_SQ3P, NetProfit_SQ4P, NetProfit_SQ5P, NetProfit_SQ6P, NetProfit_SQ7P, factor_args={"Name": "net_profit_8q_acc"})
-    Factors.append(NetProft_8Q_Acc)
+    NetProfit_8Q_Acc = calcACC(NetProfit_SQ0P, NetProfit_SQ1P, NetProfit_SQ2P, NetProfit_SQ3P, NetProfit_SQ4P, NetProfit_SQ5P, NetProfit_SQ6P, NetProfit_SQ7P, factor_args={"Name": "net_profit_8q_acc"})
+    Factors.append(NetProfit_8Q_Acc)
 
     return FactorDef(
         FDI=fdi,

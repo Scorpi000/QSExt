@@ -31,7 +31,8 @@ def defFactor(fdi: FactorDefInput):
     PreClose, Open, High, Low = FT.getFactor("昨收盘(元)"), FT.getFactor("今开盘(元)"), FT.getFactor("最高价(元)"), FT.getFactor("最低价(元)")
     Volume, Amount = rename(FT.getFactor("成交量(股)"), factor_name="volume"), rename(FT.getFactor("成交金额(元)"), factor_name="amount")
     
-    Close = FT.getFactor("收盘价(元)", args={"LookBack": np.inf, "FilterCondition": "{Table}.ClosePrice>0"})
+    FT = JYDB.getTable("日行情表", args={"LookBack": np.inf, "FilterCondition": "{Table}.ClosePrice>0"})
+    Close = FT.getFactor("收盘价(元)")
     StockStatusDef = defStockStatus(fdi=fdi)
     IfListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
     Mask = (IfListed==1)
@@ -48,7 +49,7 @@ def defFactor(fdi: FactorDefInput):
     PreClose = where(PreClose, (PreClose > 0), Close / (1 + Chg))
     PreClose = where(PreClose, (PreClose > 0), np.nan, factor_args={"Name": "pre_close"})
     Factors.append(PreClose)
-    Factors.append(rename(Close / PreClose - 1, "chg_rate"))
+    Factors.append(rename(Close / PreClose - 1, factor_name="chg_rate"))
     
     return FactorDef(
         FDI=fdi,
@@ -56,5 +57,7 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_day_bar_nafilled",
         MaxLookBack=max(365, StockStatusDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        Description="A股的行情数据(不复权), 包括开高低收、交易量等",
+        DefScriptPath=__file__
     )

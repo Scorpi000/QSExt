@@ -33,7 +33,7 @@ def defFactor(fdi: FactorDefInput):
     
     JYDB = fdi.FDB["JYDB"]
     
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t"}})
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalCondition": {"预测年度层级": "t"}})
     ForecastYear_FY0 = FT.getFactor("预测年度")
     NetProfitAvg_FY0 = rename(FT.getFactor("预测净利润平均值(元)"), factor_name="net_profit_fy0")
     EPSAvg_FY0 = rename(FT.getFactor("预测EPS平均值(元-股)"), factor_name="eps_fy0")
@@ -42,7 +42,7 @@ def defFactor(fdi: FactorDefInput):
     EPSStd_FY0 = rename(FT.getFactor("预测EPS标准差"), factor_name="eps_std_fy0")
     BPSAvg_FY0 = rename(FT.getFactor("预测每股净资产平均值(元-股)"), factor_name="bps_fy0")
     
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+1"}})
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalCondition": {"预测年度层级": "t+1"}})
     NetProfitAvg_FY1 = rename(FT.getFactor("预测净利润平均值(元)"), factor_name="net_profit_fy1")
     EPSAvg_FY1 = rename(FT.getFactor("预测EPS平均值(元-股)"), factor_name="eps_fy1")
     EarningsAvg_FY1 = rename(FT.getFactor("预测营业收入平均值(万元)") * 10000, factor_name="earnings_fy1")
@@ -50,7 +50,7 @@ def defFactor(fdi: FactorDefInput):
     EPSStd_FY1 = rename(FT.getFactor("预测EPS标准差"), factor_name="eps_std_fy1")
     BPSAvg_FY1 = rename(FT.getFactor("预测每股净资产平均值(元-股)"), factor_name="bps_fy1")
     
-    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalConditon": {"ForeYearLevel": "t+2"}})
+    FT = JYDB.getTable("股票盈利综合预测表(新)", args={"AdditionalCondition": {"预测年度层级": "t+2"}})
     NetProfitAvg_FY2 = rename(FT.getFactor("预测净利润平均值(元)"), factor_name="net_profit_fy2")
     EPSAvg_FY2 = rename(FT.getFactor("预测EPS平均值(元-股)"), factor_name="eps_fy2")
     EarningsAvg_FY2 = rename(FT.getFactor("预测营业收入平均值(万元)") * 10000, factor_name="earnings_fy2")
@@ -91,5 +91,7 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_consensus_expectation",
         MaxLookBack=365,
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        Description="A股盈利一致预期, 包括对净利润、EPS、营业收入等的预测",
+        DefScriptPath=__file__
     )

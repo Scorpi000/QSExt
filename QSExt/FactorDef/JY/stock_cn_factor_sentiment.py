@@ -60,8 +60,8 @@ def defFactor(fdi: FactorDefInput):
 
     # ### 分析师评级 #########################################################################
     Factors.append(Rating)
-    Factors.append(rolling_change_rate_20d(Rating, factor_args={"Name": "raing_r1m"}))
-    Factors.append(rolling_change_rate_60d(Rating, factor_args={"Name": "raing_r3m"}))
+    Factors.append(rolling_change_rate_20d(Rating, factor_args={"Name": "rating_r1m"}))
+    Factors.append(rolling_change_rate_60d(Rating, factor_args={"Name": "rating_r3m"}))
 
     # ### 分析师预测目标收益率 #########################################################################
     # Factors.append(rename(TargetPrice / Close - 1, factor_name="target_return"))

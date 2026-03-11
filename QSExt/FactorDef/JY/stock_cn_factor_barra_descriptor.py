@@ -233,7 +233,7 @@ def defFactor(fdi: FactorDefInput):
     PredictedEarningsFY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     PredictedEarningsFY2 = StockConsensusDef.getFactor(factor_name="net_profit_fy2")
     
-    CashEarnings_TTM = JYDB.getTable("现金流量表_新会计准则", args={"Calc":"TTM", "ReportDate":"所有"}).getFactor("经营活动产生的现金流量净额")
+    CashEarnings_TTM = JYDB.getTable("现金流量表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("经营活动产生的现金流量净额")
 
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"})
     Earnings_TTM = FT.getFactor("归属于母公司所有者的净利润")
@@ -270,7 +270,7 @@ def defFactor(fdi: FactorDefInput):
     
     RiskFreeRateID = "600020002"# 无风险利率 : 3月期国债利率
     # 无风险利率, 日频
-    FT = JYDB.getTable("宏观基础指标数据", args={"LookBack": 0, "IgnorePublDate": False, "IgnoreTime": True})
+    FT = JYDB.getTable("宏观基础指标数据", args={"LookBack": 0, "PublDTField": "信息发布日期", "IgnoreTime": True})
     PowerNum = FT.getFactor("量纲系数")
     PowerNum = where(PowerNum, notnull(PowerNum), 0)
     RiskFreeRate = FT.getFactor("指标数据")

@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from QuantStudio.Core import __QS_Error__
-from QuantStudio.Factor.FactorDB import Factor
+from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorOperation import PointOperator, TimeOperator, SectionOperator, SectionOperation
 from QuantStudio.Tools import DataPreprocessingFun
 

@@ -131,5 +131,7 @@ def defFactor(fdi: FactorDefInput):
         FactorList=Factors,
         TargetTable="stock_cn_industry",
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        Description="A股所属行业, 包括中信、申万、Barra、证监会等行业分类",
+        DefScriptPath=__file__
     )
