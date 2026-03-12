@@ -243,8 +243,8 @@ class QuantileStandardization(SectionOperator):
     
     def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
         FactorData = x[0]
-        Mask = (x[1].astype(bool) if args["mask"] else [None] * FactorData.shape[0])
-        CatData = (x[-1] if args["cat_data"] else [None] * FactorData.shape[0])
+        Mask = (x[1].astype(bool) if f._QSArgs.ModelArgs["mask"] else [None] * FactorData.shape[0])
+        CatData = (x[-1] if f._QSArgs.ModelArgs["cat_data"] else [None] * FactorData.shape[0])
         Rslt = np.full_like(FactorData, fill_value=np.nan)
         for i in range(FactorData.shape[0]):
             Rslt[i] = DataPreprocessingFun.standardizeQuantile(FactorData[i], mask=Mask[i], cat_data=CatData[i], perturbation=False, **args)
@@ -257,6 +257,58 @@ class QuantileStandardization(SectionOperator):
         factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None)}
         return super().__call__(*Factors, factor_args=factor_args, **kwargs)
 
+class RankStandardization(SectionOperator):
+    """截面排名标准化"""
+
+    def __init__(self, ascending:bool=True, uniformization:bool=True, offset:float=0.5, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        Args = {"Name": "calcRankStandardization"} | args | {"DTMode": "多时点", "OutputMode": "全截面", "DataType": "double"}
+        Args["ModelArgs"] = {"ascending": ascending, "uniformization": uniformization, "offset": offset} | Args.get("ModelArgs", {})
+        return super().__init__(args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
+        FactorData = x[0]
+        Mask = (x[1].astype(bool) if f._QSArgs.ModelArgs["mask"] else [None] * FactorData.shape[0])
+        CatData = (x[-1] if f._QSArgs.ModelArgs["cat_data"] else [None] * FactorData.shape[0])
+        Rslt = np.full_like(FactorData, fill_value=np.nan)
+        for i in range(FactorData.shape[0]):
+            Rslt[i] = DataPreprocessingFun.standardizeRank(FactorData[i], mask=Mask[i], cat_data=CatData[i], perturbation=False, **args)
+        return Rslt
+    
+    def __call__(self, f:Factor, mask:Optional[Factor]=None, cat_data:Optional[Factor]=None, factor_args:dict={}, **kwargs) -> SectionOperation:
+        Factors = [f]
+        if mask is not None: Factors.append(mask)
+        if cat_data is not None: Factors.append(cat_data)
+        factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None)}
+        return super().__call__(*Factors, factor_args=factor_args, **kwargs)
+
+class ZScoreStandardization(SectionOperator):
+    """截面 z-score 标准化"""
+
+    def __init__(self, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        Args = {"Name": "calcZScoreStandardization"} | args | {"DTMode": "多时点", "OutputMode": "全截面", "DataType": "double"}
+        Args["ModelArgs"] = {} | Args.get("ModelArgs", {})
+        return super().__init__(args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
+        FactorData = x[0]
+        Mask = (x[1].astype(bool) if f._QSArgs.ModelArgs["mask"] else [None] * FactorData.shape[0])
+        CatData = (x[2] if f._QSArgs.ModelArgs["cat_data"] else [None] * FactorData.shape[0])
+        AvgWeight = (x[3] if f._QSArgs.ModelArgs["avg_weight"] else [None] * FactorData.shape[0])
+        DispersionWeight = (x[3] if f._QSArgs.ModelArgs["dispersion_weight"] else [None] * FactorData.shape[0])
+        Rslt = np.full_like(FactorData, fill_value=np.nan)
+        for i in range(FactorData.shape[0]):
+            Rslt[i] = DataPreprocessingFun.standardizeZScore(FactorData[i], mask=Mask[i], cat_data=CatData[i], avg_weight=AvgWeight[i], dispersion_weight=DispersionWeight[i], **args)
+        return Rslt
+    
+    def __call__(self, f:Factor, mask:Optional[Factor]=None, cat_data:Optional[Factor]=None, avg_weight:Optional[Factor]=None, dispersion_weight:Optional[Factor]=None, factor_args:dict={}, **kwargs) -> SectionOperation:
+        Factors = [f]
+        if mask is not None: Factors.append(mask)
+        if cat_data is not None: Factors.append(cat_data)
+        if avg_weight is not None: Factors.append(avg_weight)
+        if dispersion_weight is not None: Factors.append(dispersion_weight)
+        factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None), "avg_weight": (avg_weight is not None), "dispersion_weight": (dispersion_weight is not None)}
+        return super().__call__(*Factors, factor_args=factor_args, **kwargs)
+
 class Orthogonalization(SectionOperator):
     """截面正交化"""
 
@@ -267,11 +319,11 @@ class Orthogonalization(SectionOperator):
     
     def calculate(self, f: Factor, idt: dt.datetime, iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
         Y, x = x[0], x[1:]
-        if args["mask"]: 
+        if f._QSArgs.ModelArgs["mask"]: 
             Mask, x = (x[0]==1), x[1:]
         else:
             Mask = None
-        if args["dummy_data"]: 
+        if f._QSArgs.ModelArgs["dummy_data"]: 
             DummyData, x = x[0], x[1:]
         else:
             DummyData = None

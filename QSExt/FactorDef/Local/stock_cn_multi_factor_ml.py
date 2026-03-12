@@ -1,30 +1,39 @@
 # coding=utf8
+"""基于机器学习的多因子模型"""
 import datetime as dt
 from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
 from scipy import stats
+from sklearn import svm
+from xgboost import XGBClassifier
 
-import QuantStudio.api as QS
-Factorize = QS.FactorDB.Factorize
-fd = QS.FactorDB.FactorTools
+from QuantStudio.Core import __QS_Error__
+from QuantStudio.Factor.BasicOperator import rename
+import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
+from QSExt.Factor.FactorOperator import RankStandardization, ZScoreStandardization
+from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
-# 按照市值和行业对样本进行分组
+
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面"})
 def partitionSample(f, idt, iid, x, args):
+    """按照两个分类数据对样本进行分组"""
     IsListed, CatData, SubCatData = x[0], x[1], x[2]
     Mask = (pd.notnull(CatData) & pd.notnull(SubCatData) & (IsListed==1))
     AllCat = np.unique(CatData[Mask])
     Rslt = np.zeros(IsListed.shape)
     for j, jCat in enumerate(AllCat):
         jMask = ((CatData==jCat) & Mask)
-        jSubCatMask = (SubCatData>np.nanmedian(SubCatData[jMask]))
+        jSubCatMask = (SubCatData > np.nanmedian(SubCatData[jMask]))
         Rslt[(jMask & jSubCatMask)] = 2 * j + 1
         Rslt[(jMask & (~jSubCatMask))] = 2 * j + 2
     return Rslt
 
-# 生成类别型因变量, +1, -1, 0 表示非样本
+@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [1, 0], "ModelArgs": {"TopBottomRatio": 0.3}, "DTMode": "单时点", "OutputMode": "全截面"})
 def genYLabel(f, idt, iid, x, args):
+    """生成类别型因变量, +1, -1, 0 表示非样本"""
     TopBottomRatio = args["TopBottomRatio"]
     PartitionFactor, Return = x[0][0, :], x[1][0, :]
     AllCat = np.unique(PartitionFactor[PartitionFactor>0])
@@ -42,8 +51,8 @@ def genYLabel(f, idt, iid, x, args):
             YLabel[jMask & (Return <= np.nanpercentile(jReturn, TopBottomRatio*100))] = -1
     return YLabel
 
-# AdaBoost 模型
 def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
+    """AdaBoost 模型"""
     # 逐层构造 weak classifier
     ret_mask = (ret_mask==1)
     nData = ret_mask.shape[0]
@@ -57,7 +66,7 @@ def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
         for k in FactorIndex:
             kFactorData = factor_data[:, k]
             kMask = np.isnan(kFactorData)
-            if kFactorData.shape[0] - np.sum(kMask)<quantile_num: continue
+            if kFactorData.shape[0] - np.sum(kMask) < quantile_num: continue
             kWeight = Weight.copy()
             kWeight[kMask] = 0
             kWeight = kWeight / np.nansum(kWeight)
@@ -67,10 +76,10 @@ def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
                 RightThreshold = np.nanpercentile(kFactorData, (jQuantile+1) / quantile_num * 100)
                 if jQuantile!=0:
                     LeftThreshold = np.nanpercentile(kFactorData, jQuantile / quantile_num * 100)
-                    kjMask = ((kFactorData>LeftThreshold) & (kFactorData<=RightThreshold))
+                    kjMask = ((kFactorData > LeftThreshold) & (kFactorData <= RightThreshold))
                 else:
-                    kjMask = (kFactorData<=RightThreshold)
-                kjQuantileData = kFactorData[kjMask]
+                    kjMask = (kFactorData <= RightThreshold)
+                # kjQuantileData = kFactorData[kjMask]
                 kjWPos = np.nansum(kWeight[kjMask & ret_mask])
                 kjWNeg = np.nansum(kWeight[kjMask & (~ret_mask)])
                 kZ += np.sqrt(kjWPos * kjWNeg)
@@ -100,24 +109,27 @@ def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
         Weight = Weight / np.nansum(Weight)
     return (h, SelectedIndex)
 
-# 训练 AdaBoost 模型
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点", "OutputMode": "全截面"})
 def trainAdaBoostModel(f, idt, iid, x, args):
+    """训练 AdaBoost 模型"""
     IsListed = x[0][0, :]
     YLabel = x[1]
     Mask = (YLabel!=0)
     YLabel = YLabel[Mask]
     if YLabel.shape[0]==0:
         return np.full(shape=IsListed.shape, fill_value=np.nan)
-    FactorData = np.array([ix[-1, :] for ix in x[2:]]).T
+    FactorData = np.array([ix[:-1, :][Mask] for ix in x[2:]]).T
     h, SelectedIndex = AdaBoost(FactorData, YLabel, level=args["Level"], quantile_num=args["QuantileNum"])
     if h is None:
         return np.full(shape=IsListed.shape, fill_value=np.nan)
     NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
+    Mask = (IsListed==1)
+    NewFactorData = NewFactorData[Mask, :]
     SAData = np.full(shape=(NewFactorData.shape[0],), fill_value=np.nan)
     for j, jIndex in enumerate(SelectedIndex):
         jFactorData = NewFactorData[:, jIndex]
         for kQuantile in range(args["QuantileNum"]):
-            RightThreshold = np.nanpercentile(jFactorData, (kQuantile+1) / args["QuantitleNum"] * 100)
+            RightThreshold = np.nanpercentile(jFactorData, (kQuantile+1) / args["QuantileNum"] * 100)
             if kQuantile!=0:
                 LeftThreshold = np.nanpercentile(jFactorData, kQuantile / args["QuantileNum"] * 100)
                 kMask = ((jFactorData>LeftThreshold) & (jFactorData<=RightThreshold))
@@ -132,8 +144,9 @@ def trainAdaBoostModel(f, idt, iid, x, args):
     Rslt[Mask] = SAData
     return Rslt
 
-# 训练失效信息模型
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点", "OutputMode": "全截面"})
 def trainLossModel(f, idt, iid, x, args):
+    """训练失效信息模型"""
     Return = x[2]
     LossFactor = x[1][:-1, :]
     IC = np.full(shape=(Return.shape[0],), fill_value=np.nan)
@@ -144,7 +157,7 @@ def trainLossModel(f, idt, iid, x, args):
             IC[i] = stats.spearmanr(iReturn, iLossFactor, nan_policy="omit").correlation
         except:
             pass
-    ICMask = (IC<=np.nanmean(IC))
+    ICMask = (IC <= np.nanmean(IC))
     IsListed = x[0][0, :]
     if np.sum(ICMask)<Return.shape[0] * 0.2:
         return np.full(shape=IsListed.shape, fill_value=np.nan)
@@ -175,108 +188,133 @@ def trainLossModel(f, idt, iid, x, args):
     Rslt[Mask] = SAData
     return Rslt
 
+@FactorOperatorized(operator_type="Point", args={"Arity": 2, "ModelArgs": {"Weight": [0.67, 0.33]}, "DTMode": "多时点", "IDMode": "多ID"})
 def mergeModel(f, idt, iid, x, args):
     Rslt = np.zeros(x[0].shape)
     TotalWeight = np.zeros(x[0].shape)
     for i, ix in enumerate(x):
-        iWeight = args["权重"][i]
+        iWeight = args["Weight"][i]
         iMask = np.isnan(ix)
-        ix[iMask] = 0.0
+        ix = np.where(iMask, 0.0, ix)
         Rslt += iWeight * ix
-        TotalWeight += iWeight * (~iMask)
+        TotalWeight += iWeight * (~ iMask)
     TotalWeight[TotalWeight==0] = np.nan
     return Rslt / TotalWeight
 
-def defFactor(args, debug=False):
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"C": 1.0}}, "DTMode": "单时点", "OutputMode": "全截面"})
+def trainSVMModel(f, idt, iid, x, args):
+    """训练 SVM 模型"""
+    IsListed = x[0][0, :]
+    YLabel = x[1]
+    Mask = (YLabel!=0)
+    YLabel = YLabel[Mask]
+    if YLabel.shape[0]==0:
+        return np.full(shape=IsListed.shape, fill_value=np.nan)
+    FactorData = np.array([ix[:-1, :][Mask] for ix in x[2:]]).T
+    Mask = np.all(pd.notnull(FactorData), axis=1)
+    FactorData, YLabel = FactorData[Mask, :], YLabel[Mask]
+    clf = svm.SVC(**args["ModelParams"])
+    clf.fit(FactorData, YLabel)
+    NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
+    Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
+    NewFactorData = NewFactorData[Mask, :]
+    SAData = clf.decision_function(NewFactorData)
+    Rslt = np.full(shape=IsListed.shape, fill_value=np.nan)
+    Rslt[Mask] = SAData
+    return Rslt
+
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"n_estimators": 2, "max_depth": 2, "learning_rate": 1, "objective": "binary:logistic"}}, "DTMode": "单时点", "OutputMode": "全截面"})
+def trainXGBoostModel(f, idt, iid, x, args):
+    """训练 XGBoost 模型"""
+    IsListed = x[0][0, :]
+    YLabel = x[1]
+    Mask = (YLabel!=0)
+    YLabel = YLabel[Mask]
+    if YLabel.shape[0]==0:
+        return np.full(shape=IsListed.shape, fill_value=np.nan)
+    FactorData = np.array([ix[:-1, :][Mask] for ix in x[2:]]).T
+    Mask = np.all(pd.notnull(FactorData), axis=1)
+    FactorData, YLabel = FactorData[Mask, :], YLabel[Mask]
+    bst = XGBClassifier(**args["ModelParams"])
+    bst.fit(FactorData, np.where(YLabel==-1, 0, YLabel))
+    NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
+    Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
+    NewFactorData = NewFactorData[Mask, :]
+    SAData = bst.predict_proba(NewFactorData)
+    SAData = SAData[:, 0]
+    Rslt = np.full(shape=IsListed.shape, fill_value=np.nan)
+    Rslt[Mask] = SAData
+    return Rslt
+
+
+def defFactor(fdi: FactorDefInput):
     Factors = []
     
-    SampleLen = args.get("sample_len", 12)
-    Suffix = args.get("suffix", "1y")
-    LDB = args["LDB"]
+    SampleLen = fdi.ModelArgs.get("sample_len", 12)
+    Suffix = fdi.ModelArgs.get("suffix", "1y")
+    FactorInfo = fdi.ModelArgs["factor_info"]
+    LDB = fdi.FDB["LDB"]
     
-    FT = LDB.getTable("stock_cn_info_history")
-    Industry = FT.getFactor("citic_industry")
+    FT = LDB.getTable("stock_cn_industry")
+    Industry = FT.getFactor("citic2019_level1")
+    FT = LDB.getTable("stock_cn_status")
     IsListed = FT.getFactor("if_listed")
     
-    FT = LDB.getTable("stock_cn_quote_adj_backward_nafilled")
-    FloatCap = FT.getFactor("negotiable_market_cap")
+    FT = LDB.getTable("stock_cn_day_bar_nafilled")
+    FloatCap = FT.getFactor("float_cap")
+
+    FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
     Price = FT.getFactor("close")
-    Return = Price / fd.lag(Price, 1, 1) - 1
+    Return = Price / fo.Lag(lag_period=1, window=1)(Price) - 1
     
     # 导入模型所用的因子
-    FactorInfo = pd.read_csv(args["factor_info_file"], encoding="utf-8", header=0, index_col=None).set_index(["因子表", "因子名称"])
-    if debug: FactorInfo = FactorInfo.iloc[:10, :]
-    TableNames = FactorInfo.index.get_level_values(0).drop_duplicates()
+    TableNames = sorted(FactorInfo["因子表"].unique())
     TrainFactors = OrderedDict()
     for iTable in TableNames:
         iFT = LDB.getTable(iTable)
-        for jFactor in FactorInfo.loc[iTable].index:
+        for jFactor in FactorInfo[FactorInfo["因子表"]==iTable].index:
             TrainFactors[jFactor] = iFT.getFactor(jFactor)
     nTrainFactor = len(TrainFactors)
     
     # 数据预处理形成训练样本
-    PartitionFactor = QS.FactorDB.SectionOperation("分组因子", [IsListed, Industry, FloatCap], {"算子": partitionSample})
+    PartitionFactor = partitionSample(IsListed, Industry, FloatCap, factor_args={"Name": "分组因子"})
+    standardizeRank = RankStandardization(ascending=True, offset=0)
     for iFactor in TrainFactors:
-        TrainFactors[iFactor] = fd.standardizeRank(TrainFactors[iFactor], mask=IsListed, cat_data=PartitionFactor, offset=0.0)
-    YLabel = QS.FactorDB.PanelOperation("YLabel", [PartitionFactor, Return], {"算子": genYLabel, "参数": {"TopBottomRatio": 0.3}, "回溯期数": [1, 0]})
+        TrainFactors[iFactor] = standardizeRank(TrainFactors[iFactor], mask=IsListed, cat_data=PartitionFactor)
+    YLabel = genYLabel(PartitionFactor, Return, factor_args={"Name": "YLabel"})
     
     # AdaBoost 模型
-    ModelArgs = {"Level": 20, "QuantileNum": 5}
-    ISNSAFactor = QS.FactorDB.PanelOperation(f"adaboost_{Suffix}", [IsListed, YLabel]+list(TrainFactors.values()), {"算子": trainAdaBoostModel, "参数": ModelArgs, "回溯期数": [1-1, SampleLen-1]+[SampleLen+1-1]*nTrainFactor})
+    ISNSAFactor = trainAdaBoostModel.new(args={"Arity": 2 + nTrainFactor, "LookBack": [1-1, SampleLen-1] + [SampleLen+1-1]*nTrainFactor})(*([IsListed, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"adaboost_{Suffix}"})
     Factors.append(ISNSAFactor)
     
     # 失效信息模型
-    ISNLSAFactor = QS.FactorDB.PanelOperation(f"adaboost_loss_{Suffix}", [IsListed, ISNSAFactor, Return, YLabel]+list(TrainFactors.values()), {"算子": trainLossModel, "参数": ModelArgs, "回溯期数": [0, 5*SampleLen, 5*SampleLen-1, 5*SampleLen-1]+[5*SampleLen]*nTrainFactor})
+    ISNLSAFactor = trainLossModel.new(args={"Arity": 4 + nTrainFactor, "LookBack": [0, 5*SampleLen, 5*SampleLen-1, 5*SampleLen-1] + [5*SampleLen]*nTrainFactor})(*([IsListed, ISNSAFactor, Return, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"adaboost_loss_{Suffix}"})
     Factors.append(ISNLSAFactor)
     
     # AdaBoost 合并模型
     Mask = (IsListed==1)
-    ISNSAFactor = fd.standardizeZScore(ISNSAFactor, mask=Mask)
-    ISNLSAFactor = fd.standardizeZScore(ISNLSAFactor, mask=Mask)
-    ISNSA_WithL = QS.FactorDB.PointOperation(f"adaboost_with_loss_{Suffix}", [ISNSAFactor, ISNLSAFactor], {"算子": mergeModel, "参数": {"权重": [0.67, 0.33]}, "运算时点": "多时点", "运算ID": "多ID"})
+    standardizeZScore = ZScoreStandardization()
+    ISNSAFactor = standardizeZScore(ISNSAFactor, mask=Mask)
+    ISNLSAFactor = standardizeZScore(ISNLSAFactor, mask=Mask)
+    ISNSA_WithL = mergeModel(ISNSAFactor, ISNLSAFactor, factor_args={"Name": f"adaboost_with_loss_{Suffix}"})
     Factors.append(ISNSA_WithL)
-    
-    UpdateArgs = {
-        "因子表": "stock_cn_multi_factor_ml_m",
-        "默认起始日": dt.datetime(2005, 1, 1),
-        "最长回溯期": 365 * 10,
-        "IDs": "股票",
-        "更新频率": "月"
-    }
-    
-    return (Factors, UpdateArgs)
 
-if __name__=="__main__":
-    import logging
-    Logger = logging.getLogger()
-    
-    #TDB = QS.FactorDB.SQLDB(config_file="SQLDBConfig_WMTest.json", logger=Logger)
-    TDB = QS.FactorDB.HDF5DB(logger=Logger)
-    TDB.connect()
-    
-    JYDB = QS.FactorDB.JYDB(logger=Logger)
-    JYDB.connect()
-    
-    Args = {"LDB": TDB, "factor_info_file": "../conf/stock/stock_cn_multi_factor_classic.csv", "sample_len": 12, "suffix": "1y"}
-    Factors, UpdateArgs = defFactor(args=Args, debug=True)
-    
-    StartDT, EndDT = dt.datetime(2016, 1, 1), dt.datetime(2021, 7, 12)
-    DTs = JYDB.getTradeDay(start_date=StartDT.date(), end_date=EndDT.date(), output_type="datetime")
-    DTRuler = JYDB.getTradeDay(start_date=StartDT.date()-dt.timedelta(365*7), end_date=EndDT.date(), output_type="datetime")
-    DTs = QS.Tools.DateTime.getMonthLastDateTime(DTs)
-    DTRuler = QS.Tools.DateTime.getMonthLastDateTime(DTRuler)
-    
-    IDs = JYDB.getStockID(is_current=False)
-    
-    CFT = QS.FactorDB.CustomFT(UpdateArgs["因子表"])
-    CFT.addFactors(factor_list=Factors)
-    CFT.setDateTime(DTRuler)
-    CFT.setID(IDs)
-    
-    TargetTable = CFT.Name
-    CFT.write2FDB(factor_names=CFT.FactorNames, ids=IDs, dts=DTs, 
-                  factor_db=TDB, table_name=TargetTable, 
-                  if_exists="update", subprocess_num=20)
-    
-    TDB.disconnect()
-    JYDB.disconnect()
+    # SVM 模型
+    ISNSVMFactor = trainSVMModel.new(args={"Arity": 2 + nTrainFactor, "LookBack": [1-1, SampleLen-1] + [SampleLen+1-1]*nTrainFactor})(*([IsListed, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"svm_{Suffix}"})
+    Factors.append(ISNSVMFactor)
+
+    # XGBoost 模型
+    ISNXGBoostFactor = trainXGBoostModel.new(args={"Arity": 2 + nTrainFactor, "LookBack": [1-1, SampleLen-1] + [SampleLen+1-1]*nTrainFactor})(*([IsListed, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"xgboost_{Suffix}"})
+    Factors.append(ISNXGBoostFactor)
+
+    return FactorDef(
+        FDI=fdi,
+        FactorList=[ISNXGBoostFactor],
+        TargetTable="stock_cn_multi_factor_ml",
+        IDType="A股",
+        MaxLookBack=365 * 10,
+        Freq="1m",
+        Author="麦冬",
+        Description="基于机器学习的股票多因子模型",
+        DefScriptPath=__file__
+    )

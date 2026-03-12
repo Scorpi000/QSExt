@@ -150,6 +150,7 @@ def defFactor(fdi: FactorDefInput):
         FactorList=Factors,
         TargetTable="stock_cn_multi_factor_simple",
         IDType="A股",
+        MaxLookBack=365 * 2,
         Author="麦冬",
         Description="基于固定权重或者 IC 加权的股票简单多因子模型",
         DefScriptPath=__file__
