@@ -309,7 +309,7 @@ def defFactor(fdi: FactorDefInput):
 
     return FactorDef(
         FDI=fdi,
-        FactorList=[ISNXGBoostFactor],
+        FactorList=Factors,
         TargetTable="stock_cn_multi_factor_ml",
         IDType="A股",
         MaxLookBack=365 * 10,
