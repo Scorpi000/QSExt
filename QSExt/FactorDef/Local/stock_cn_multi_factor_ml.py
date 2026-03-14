@@ -265,11 +265,12 @@ def trainXGBoostModel(f, idt, iid, x, args):
         verbose_eval=False
     )
     NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
-    Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
+    Mask = (IsListed == 1)
+    # Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
     NewFactorData = NewFactorData[Mask, :]
+    NewFactorData = np.where(pd.notnull(NewFactorData), NewFactorData, np.nanmedian(NewFactorData, axis=0))# 缺失值填充
     # SAData = bst.predict_proba(NewFactorData)
     SAData = bst.predict(xgb.DMatrix(NewFactorData))
-    SAData = SAData[:, 0]
     Rslt = np.full(shape=IsListed.shape, fill_value=np.nan)
     Rslt[Mask] = SAData
     return Rslt
