@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn import svm
-from xgboost import XGBClassifier
+import xgboost as xgb
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.BasicOperator import rename
@@ -223,7 +223,7 @@ def trainSVMModel(f, idt, iid, x, args):
     Rslt[Mask] = SAData
     return Rslt
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"n_estimators": 2, "max_depth": 2, "learning_rate": 1, "objective": "binary:logistic"}}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"max_depth": 5, "eta": 0.05}}, "DTMode": "单时点", "OutputMode": "全截面"})
 def trainXGBoostModel(f, idt, iid, x, args):
     """训练 XGBoost 模型"""
     IsListed = x[0][0, :]
@@ -233,14 +233,42 @@ def trainXGBoostModel(f, idt, iid, x, args):
     if YLabel.shape[0]==0:
         return np.full(shape=IsListed.shape, fill_value=np.nan)
     FactorData = np.array([ix[:-1, :][Mask] for ix in x[2:]]).T
+    FactorData = np.where(pd.notnull(FactorData), FactorData, np.nanmedian(FactorData, axis=0))# 缺失值填充
+    YLabel = np.where(YLabel==-1, 0, YLabel)
     Mask = np.all(pd.notnull(FactorData), axis=1)
     FactorData, YLabel = FactorData[Mask, :], YLabel[Mask]
-    bst = XGBClassifier(**args["ModelParams"])
-    bst.fit(FactorData, np.where(YLabel==-1, 0, YLabel))
+    # bst = xgb.XGBClassifier(**args["ModelParams"])
+    # bst.fit(FactorData, np.where(YLabel==-1, 0, YLabel))
+    DTrain = xgb.DMatrix(FactorData, label=YLabel)
+    Params = {
+        'objective': 'binary:logistic',  # 二分类问题
+        'eval_metric': ['auc', 'logloss'],
+        'max_depth': 5,                   # 树深度,防止过拟合
+        'eta': 0.05,                      # 学习率
+        'subsample': 0.8,                 # 样本采样比例
+        'colsample_bytree': 0.8,          # 特征采样比例
+        'min_child_weight': 50,           # 叶子节点最小样本数 (防止过拟合)
+        'gamma': 0.1,                     # 节点分裂最小损失减少
+        'reg_alpha': 0.1,                 # L1正则化
+        'reg_lambda': 1.0,                # L2正则化
+        'scale_pos_weight': 1,            # 正负样本权重平衡
+        'seed': 42,
+        'tree_method': 'hist',            # 快速直方图算法
+    } | args.get("ModelParams", {})
+    bst = xgb.train(
+        Params,
+        DTrain,
+        num_boost_round=1000,
+        evals=[(DTrain, 'train')],
+        early_stopping_rounds=50,
+        # verbose_eval=100
+        verbose_eval=False
+    )
     NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
     Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
     NewFactorData = NewFactorData[Mask, :]
-    SAData = bst.predict_proba(NewFactorData)
+    # SAData = bst.predict_proba(NewFactorData)
+    SAData = bst.predict(xgb.DMatrix(NewFactorData))
     SAData = SAData[:, 0]
     Rslt = np.full(shape=IsListed.shape, fill_value=np.nan)
     Rslt[Mask] = SAData
