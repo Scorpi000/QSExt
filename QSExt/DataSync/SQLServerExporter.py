@@ -256,7 +256,7 @@ class SQLServerExporter:
             cursor.close()
             conn.close()
 
-    def export_del_table(self, token: str, table_name: str, last_del_id: Optional[int]=None, del_table_name="JYDB_DeleteRec", id_field:str="JSID", cursor=None):
+    def export_del_table(self, token: str, table_name: str, last_del_id: Optional[int]=None, del_table_name:str="JYDB_DeleteRec", id_field:str="JSID", cursor=None):
         imported_cursor = (cursor is not None)
         if not imported_cursor:
             conn = self.get_connection()
@@ -280,7 +280,7 @@ class SQLServerExporter:
             writer.writerows(rows)
         return max_id
     
-    def export_table(self, token: str, table_name: str, order_by: str = None, where_clause: str = None, del_table_name="JYDB_DeleteRec", id_field:str="JSID", resume: bool = True) -> str:
+    def export_table(self, token: str, table_name: str, order_by: Optional[str] = None, where_clause: Optional[str] = None, del_table_name:str="JYDB_DeleteRec", id_field:str="JSID", resume: bool = True) -> str:
         """导出单个表"""
         print(f"开始导出表 {table_name}...")
         export_dir = os.path.join(self.export_dir, table_name)

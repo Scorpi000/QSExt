@@ -6,7 +6,6 @@ import shutil
 import traceback
 import datetime as dt
 from threading import Lock
-from typing import List, Dict, Any, Optional
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
