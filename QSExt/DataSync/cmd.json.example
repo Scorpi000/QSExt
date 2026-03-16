@@ -1,0 +1,10 @@
+{
+    "token": null,
+    "specific_task_list": [
+        {"table_name": "C_ED_IndicatorMain", "id_field": "JSID", "max_id": null, "del_table": "CALDB_DeleteRec", "del_max_id": null, "sql_where": "IndicatorCode IN (600020002)"},
+        {"table_name": "C_ED_MacroIndicatorData", "id_field": "JSID", "max_id": null, "del_table": "CALDB_DeleteRec", "del_max_id": null, "sql_where": "IndicatorCode IN (600020002)"},
+    ],
+    "table_list": ["C_ED_IDXSystemConst", "C_IN_SystemConst"],
+    "table_list_file": ".\\table_list_file_example.txt",
+    "task_group_idx": -1
+}

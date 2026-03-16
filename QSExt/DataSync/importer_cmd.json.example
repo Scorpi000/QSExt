@@ -1,0 +1,11 @@
+{
+    "token": "e5b1c8499467451caaccaf31af3a4d0d",
+    "table_list": [
+        "C_ED_IDXSystemConst", 
+        "C_IN_SystemConst"
+    ],
+    "del_table_list": [
+        "CALDB_DeleteRec", 
+        "CALDB_DeleteRec"
+    ]
+}
