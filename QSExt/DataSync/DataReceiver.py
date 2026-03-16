@@ -161,6 +161,13 @@ class DataReceiver(FileSystemEventHandler):
         if not self.token: self.token = uuid.uuid4().hex
         
         task_list = self.cmd.get("specific_task_list", [])
+        for task in task_list:
+            id_field = task.setdefault("id_field", "JSID")
+            if "max_id" not in task:
+                task["max_id"] = self.importer.get_max_id(table_name=task["table_name"], id_field=id_field)
+            del_table = task.setdefault("del_table", "JYDB_DeleteRec")
+            if "del_max_id" not in task:
+                task["del_max_id"] = self.importer.get_del_max_id(table_name=task["table_name"], del_table_name=del_table)
         table_list = self.cmd.get("table_list", [])
         table_list_file = self.cmd.get("table_list_file", None)
         if table_list_file and os.path.isfile(table_list_file):
