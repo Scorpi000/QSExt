@@ -16,6 +16,22 @@ import psycopg2
 
 csv.field_size_limit(2048 * 2048)
 
+# 产生一个有效的名字
+def genAvailableName(header, all_names, check_header=True, ignore_case=False):
+    if ignore_case:
+        all_names = [iName.lower() for iName in all_names]
+        LowerHeader = header.lower()
+    else: LowerHeader = header
+    if check_header and (LowerHeader not in all_names):
+        return header
+    i = 1
+    CurName = header + str(i)
+    while CurName in all_names:
+        i += 1
+        CurName = header + str(i)
+    return CurName
+
+
 class PostgresImporter:
     def __init__(self, host: str, port: str, database: str, username: str, password: str, import_dir: str = "exports", default_id_field: str = "JSID", conn_retry_num: int=3, conn_interval_seconds=30):
         self.host = host
@@ -133,6 +149,9 @@ class PostgresImporter:
             if index_name.lower() in db_index_list:
                 print(f"表 {table_name} 的索引 {index_name} 已存在，跳过创建")
                 continue
+            if index_name.lower() == table_name.lower():
+                index_name = genAvailableName(index_name, all_names=[table_name]+index_info["index_name"].tolist(), check_header=False, ignore_case=True)
+                print(f"表名 {table_name} 和索引名相同，修改索引名为: {index_name}")
             try:
                 iinfo = index_info[index_info["index_name"]==index_name]
                 constraint_type = iinfo["constraint_type"].unique()

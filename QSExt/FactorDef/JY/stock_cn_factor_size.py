@@ -35,6 +35,8 @@ def defFactor(fdi: FactorDefInput):
 
     Factors.append(TotalCap)
     Factors.append(FloatCap)
+    FC2TC = rename(FloatCap / TotalCap, factor_name="fc2tc")
+    Factors.append(FC2TC)
     Factors.append(rename(Asset, factor_name="asset_lr"))
     Factors.append(rename(Sales_TTM, factor_name="revenue_ttm"))
     # Factors.append(rename(EmpNum, factor_name="emp_num"))

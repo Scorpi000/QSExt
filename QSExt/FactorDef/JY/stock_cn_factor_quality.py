@@ -245,6 +245,7 @@ def defFactor(fdi: FactorDefInput):
     NonCurDebt_NonInterset = FT.getFactor("无息非流动负债")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有"})
     NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
+    RetainedEarnings_TTM = FT.getFactor("留存收益")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
     NetProfit_TTM_Deducted_L1 = FT.getFactor("扣除非经常性损益后的归母净利润")
 
@@ -412,16 +413,18 @@ def defFactor(fdi: FactorDefInput):
     )
     Factors.append(Piotroski_F_Score)
     
-    ## ### 股利支付率 ##############################################################################################
-    ##--股利支付率+留存收益率=1
-    ##--股利包括现金分红加上股票股利；我们通常所说的股息率等是现金部分，正推不太好算
-    ##--留存收益率实际上是所有者权益/净利润，所以我们可以反推
-    ##Dividend_Pay_Ratio=Factors.append(rename(1-Equity_Cur/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
+    # ### 股利支付率 ##############################################################################################
+    #--股利支付率 + 留存收益率 = 1
+    #--股利包括现金分红加上股票股利；我们通常所说的股息率等是现金部分，正推不太好算
+    #--留存收益率实际上是留存收益/净利润，所以我们可以反推
+    Dividend_Pay_Ratio = rename(1 - RetainedEarnings_TTM / NetProfit_TTM, factor_name="dpr_ttm")#--股利支付率
+    Factors.append(Dividend_Pay_Ratio)
 
     # # #### 股利支付率#############################################################################
     # FT = JYDB.getTable("中国A股分红")
     # CashDvdPerShare, BaseShare = FT.getFactor("每股派息(税前)"), FT.getFactor("基准股本")
-    # Dividend_Pay_Ratio=Factors.append(rename(1-(CashDvdPerShare*BaseShare)/NetProfit_LYR,"Dividend_Pay_Ratio"))#--股利支付率
+    # Dividend_Pay_Ratio = rename(1 - (CashDvdPerShare * BaseShare) / NetProfit_LYR, factor_name="Dividend_Pay_Ratio")#--股利支付率
+    # Factors.append(Dividend_Pay_Ratio)
 
     # 20180806_光大证券_金融工程深度：创新基本面因子：财务数据间线性关系初窥——多因子系列报告之十四_ws 系列二
     # 营业收入营业成本的线性关系推算

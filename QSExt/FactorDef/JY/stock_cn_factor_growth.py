@@ -150,6 +150,13 @@ def defFactor(fdi: FactorDefInput):
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
     Asset_L1 = FT.getFactor("资产总计")
     Equity_L1 = FT.getFactor("归属母公司股东权益合计")
+
+    FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
+    BPS_LR = FT.getFactor("每股净资产(元)")
+    EPS_LR = FT.getFactor("每股收益(摊薄)(元)")
+    FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    BPS_LR_L1 = FT.getFactor("每股净资产(元)")
+    EPS_LR_L1 = FT.getFactor("每股收益(摊薄)(元)")
     
     # ### 一致预期因子 #############################################################################
     StockConsensusDef = defStockConsensus(fdi=fdi)
@@ -178,6 +185,11 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(OCF_TTM / OCF_TTM_L1 - 1, factor_name="ocf_ttm_yoy"))
     Factors.append(rename(Asset / Asset_L1 - 1, factor_name="asset_lr_yoy"))
     Factors.append(rename(Equity / Equity_L1 - 1, factor_name="equity_lr_yoy"))
+
+    BPS_YoY = rename(BPS_LR / BPS_LR_L1 - 1, factor_name="bps_yoy")
+    Factors.append(BPS_YoY)
+    EPS_YoY = rename(EPS_LR / EPS_LR_L1 - 1, factor_name="eps_yoy")
+    Factors.append(EPS_YoY)
 
     # #### 季度增速: 同比 #########################################################################
     Revenue_SQ_YoY = rename((Sales_SQ0P - Sales_SQ4P) / abs(Sales_SQ4P), factor_name="revenue_sq_yoy")

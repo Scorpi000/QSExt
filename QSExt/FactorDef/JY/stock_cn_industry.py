@@ -84,14 +84,15 @@ def defFactor(fdi: FactorDefInput):
     # Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="csi2016_level4"))
     # Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="csi2016_code_level4"))
     
-    # # GICS 行业, 不更新, 最后更新时点: 2020-11-25
-    # FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "6"}})
+    # GICS 行业, 不更新, 最后更新时点: 2020-11-25
+    FT = JYDB.getTable("公司行业划分表", args={"OnlyStartFilled": False, "MultiMapping": False, "AdditionalCondition": {"行业划分标准": "6"}})
     # Factors.append(rename(FT.getFactor("一级行业名称"), factor_name="gics_level1"))
     # Factors.append(rename(FT.getFactor("一级行业代码"), factor_name="gics_code_level1"))
     # Factors.append(rename(FT.getFactor("二级行业名称"), factor_name="gics_level2"))
     # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="gics_code_level2"))
     # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="gics_level3"))
-    # Factors.append(rename(FT.getFactor("三级行业代码"), factor_name="gics_code_level3"))
+    GICSLevel3Code = rename(FT.getFactor("三级行业代码"), factor_name="gics_code_level3")
+    Factors.append(GICSLevel3Code)
     # Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="gics_level4"))
     # Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="gics_code_level4"))
     
@@ -120,15 +121,16 @@ def defFactor(fdi: FactorDefInput):
     JYIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_jy.csv"), header=0, index_col=5).iloc[:, 0].astype("O")
     JYIndustryMap.index = JYIndustryMap.index.astype(str)
     BarraIndustry = mapValue(JY2016Level3Code, factor_args={"Name": "barra_industry", "ModelArgs": {"mapping": JYIndustryMap}})
-    # GICSIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_gics.csv"), header=0, index_col=5).iloc[:, 0].astype("O")
-    # GICSIndustryMap.index = GICSIndustryMap.index.astype(str)
-    # GICSBarraIndustry = mapValue(JY2016Level3Code, factor_args={"ModelArgs": {"mapping": GICSIndustryMap}})
-    # BarraIndustry = fo.Where(dtype="string")(BarraIndustry, fo.NotNull()(BarraIndustry), GICSBarraIndustry, factor_args={"Name": "barra_industry"})
+    GICSIndustryMap = pd.read_csv(Path(os.path.abspath(__file__)).parent.parent / Path("./conf/barra_industry_gics.csv"), header=0, index_col=5).iloc[:, 0].astype("O")
+    GICSIndustryMap.index = GICSIndustryMap.index.astype(str)
+    GICSBarraIndustry = mapValue(GICSLevel3Code, factor_args={"ModelArgs": {"mapping": GICSIndustryMap}})
+    BarraIndustry = fo.Where(dtype="string")(BarraIndustry, fo.NotNull()(BarraIndustry), GICSBarraIndustry, factor_args={"Name": "barra_industry"})
     Factors.append(BarraIndustry)
     
     return FactorDef(
         FDI=fdi,
-        FactorList=Factors,
+        # FactorList=Factors,
+        FactorList=[BarraIndustry],
         TargetTable="stock_cn_industry",
         IDType="A股",
         Author="麦冬",

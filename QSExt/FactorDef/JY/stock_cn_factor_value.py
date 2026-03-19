@@ -75,6 +75,7 @@ def defFactor(fdi: FactorDefInput):
     Goodwill = where(Goodwill, notnull(Goodwill), 0)
     TotalLiability = FT.getFactor("负债合计")
     MonetaryFund = FT.getFactor("货币资金")
+    SEWithoutMI = FT.getFactor("归属母公司股东权益合计")
     
     # ### 利润表因子 #############################################################################
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM"})
@@ -87,6 +88,7 @@ def defFactor(fdi: FactorDefInput):
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM"})
     OCF_TTM = FT.getFactor("经营活动产生的现金流量净额")
+    NCF_TTM = fo.Sum(all_nan=np.nan)(OCF_TTM, FT.getFactor("投资活动产生的现金流量净额"), FT.getFactor("筹资活动产生的现金流量净额"))
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报"})
     OCF_LYR = FT.getFactor("经营活动产生的现金流量净额")
     
@@ -109,6 +111,7 @@ def defFactor(fdi: FactorDefInput):
     StockConsensusDef = defStockConsensus(fdi=fdi)
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_FY1 = StockConsensusDef.getFactor(factor_name="net_profit_fy1")
+    NetProfitAvg_FY2 = StockConsensusDef.getFactor(factor_name="net_profit_fy2")
     NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     
     # ### 特征因子 #############################################################################
@@ -141,8 +144,14 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(rename(NetProfitAvg_FY1 / MarketCap, factor_name="ep_fy1"))
     Factors.append(rename(NetProfitAvg_Fwd12M / MarketCap, factor_name="ep_fwd12m"))
 
+    G = ((NetProfitAvg_FY2 - NetProfit_LYR) / abs(NetProfit_LYR) + 1) ** (1 / 3) - 1
+    PEG = rename(MarketCap / NetProfit_LYR / (G * 100), factor_name="peg")
+    Factors.append(PEG)
+
     # ### 现金流类 ######################################################################
     Factors.append(rename(OCF_TTM / MarketCap, factor_name="ocfp_ttm"))
+    NCFP_TTM = rename(NCF_TTM / MarketCap, factor_name="ncfp_ttm")
+    Factors.append(NCFP_TTM)
     OCFP_LYR = rename(OCF_LYR / MarketCap, factor_name="ocfp_lyr")
     Factors.append(OCFP_LYR)
     
@@ -160,6 +169,8 @@ def defFactor(fdi: FactorDefInput):
     BP_LR = rename((TotalAsset - TotalLiability) / MarketCap, factor_name="bp_lr")
     Factors.append(BP_LR)
     Factors.append(rename((TotalAsset - TotalLiability - IntangibleAsset - Goodwill) / MarketCap, factor_name="bp_lr_tangible"))# 在无形资产或商誉缺失的情况下, TangibleBP_LR 退化为 BP_LR
+    BPWithoutMI_LR = rename(SEWithoutMI / MarketCap, factor_name="bp_lr_without_mi")
+    Factors.append(BPWithoutMI_LR)
 
     # ### 企业价值类 ########################################################################
     EV = MarketCap + InterestBearingObligation - MonetaryFund
