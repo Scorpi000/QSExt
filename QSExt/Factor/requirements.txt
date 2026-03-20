@@ -3,7 +3,7 @@ zarr
 # MongoDB
 pymongo
 # ElasticsearchDB
-elasticsearch
+elasticsearch<8.0.0
 # ClickHouseDB
 clickhouse-driver
 # Neo4jDB
@@ -12,5 +12,9 @@ neo4j
 arctic
 # AKShareDB
 akshare
+# TuShareDB
+tushare
 # MongoDB
 pymongo>=3.4.0
+# SPARQL
+sparqlwrapper

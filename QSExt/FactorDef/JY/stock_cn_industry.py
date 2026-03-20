@@ -92,7 +92,6 @@ def defFactor(fdi: FactorDefInput):
     # Factors.append(rename(FT.getFactor("二级行业代码"), factor_name="gics_code_level2"))
     # Factors.append(rename(FT.getFactor("三级行业名称"), factor_name="gics_level3"))
     GICSLevel3Code = rename(FT.getFactor("三级行业代码"), factor_name="gics_code_level3")
-    Factors.append(GICSLevel3Code)
     # Factors.append(rename(FT.getFactor("四级行业名称"), factor_name="gics_level4"))
     # Factors.append(rename(FT.getFactor("四级行业代码"), factor_name="gics_code_level4"))
     
@@ -129,8 +128,7 @@ def defFactor(fdi: FactorDefInput):
     
     return FactorDef(
         FDI=fdi,
-        # FactorList=Factors,
-        FactorList=[BarraIndustry],
+        FactorList=Factors,
         TargetTable="stock_cn_industry",
         IDType="A股",
         Author="麦冬",

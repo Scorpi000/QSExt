@@ -5,12 +5,12 @@ from typing import Literal, List, Dict, Optional
 
 from pydantic import Field
 
-from QuantStudio.Core import QSArgs, __QS_Error__
+from QuantStudio.Core import __QS_Args__, __QS_Error__
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
 
 
-class FactorDefInput(QSArgs):
+class FactorDefInput(__QS_Args__):
     Debug: bool = Field(default=False, title="调试环境", frozen=True)
     FDB: Dict[str, FactorDB] = Field(default={}, title="可用因子库")
     ModelArgs: Dict = Field(default={}, title="模型参数")
@@ -23,7 +23,7 @@ class FactorDefInput(QSArgs):
     ProxyTableMapping: Dict[str, str] = Field(default={}, title="代理表映射")
 
 # 因子定义对象
-class FactorDef(QSArgs):
+class FactorDef(__QS_Args__):
     FactorList: List[Factor] = Field(title="因子列表")
     TargetTable: str = Field(title="因子表")
     IDType: str = Field(title="ID类型")
