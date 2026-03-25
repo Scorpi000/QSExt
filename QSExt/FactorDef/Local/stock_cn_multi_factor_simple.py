@@ -101,7 +101,7 @@ def defFactor(fdi: FactorDefInput):
     TotalCap = QuantileStandardization(ascending=True)(TotalCap, mask=Mask, cat_data=None)
     StyleFactors_O = {}
     for iStyle in StyleFactors:
-        if iStyle!="Size":
+        if iStyle.lower() != "size":
             StyleFactors_O[iStyle] = orthogonalize(StyleFactors[iStyle], TotalCap, mask=Mask, dummy_data=Industry)
         else:
             StyleFactors_O[iStyle] = orthogonalize(StyleFactors[iStyle], None, mask=Mask, dummy_data=Industry)

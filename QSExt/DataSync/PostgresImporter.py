@@ -4,6 +4,7 @@ import csv
 import json
 import time
 import traceback
+from io import StringIO
 import datetime as dt
 from collections import deque
 from typing import List, Dict, Any
@@ -150,8 +151,10 @@ class PostgresImporter:
                 print(f"表 {table_name} 的索引 {index_name} 已存在，跳过创建")
                 continue
             if index_name.lower() == table_name.lower():
-                index_name = genAvailableName(index_name, all_names=[table_name]+index_info["index_name"].tolist(), check_header=False, ignore_case=True)
-                print(f"表名 {table_name} 和索引名相同，修改索引名为: {index_name}")
+                new_index_name = genAvailableName(index_name, all_names=[table_name]+index_info["index_name"].tolist(), check_header=False, ignore_case=True)
+                print(f"表名 {table_name} 和索引名相同，修改索引名为: {new_index_name}")
+            else:
+                new_index_name = index_name
             try:
                 iinfo = index_info[index_info["index_name"]==index_name]
                 constraint_type = iinfo["constraint_type"].unique()
@@ -163,12 +166,12 @@ class PostgresImporter:
                 else:
                     unique = " "
                 col_def = ", ".join(iinfo['column_name'].iloc[i] + " " + iinfo['sort_direction'].iloc[i] for i in range(iinfo.shape[0]))
-                sql = f"""CREATE{unique}INDEX {index_name} ON {table_name}({col_def})"""
+                sql = f"""CREATE{unique}INDEX {new_index_name} ON {table_name}({col_def})"""
                 cursor.execute(sql)
                 conn.commit()
-                print(f"表 {table_name} 的索引 {index_name} 创建完成")
+                print(f"表 {table_name} 的索引 {new_index_name} 创建完成")
             except:
-                print(f"表 {table_name} 的索引 {index_name} 创建失败: {traceback.format_exc()}")
+                print(f"表 {table_name} 的索引 {new_index_name} 创建失败: {traceback.format_exc()}")
         cursor.close()
         conn.close()
 
@@ -505,9 +508,20 @@ class PostgresImporter:
         for ifile in file_list:
             try:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
+                    row_num = sum(1 for _ in f)
+                with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f, escapechar="\\")
                     batch = list(reader)
-                    if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
+                if row_num != len(batch):# 发生了换行识别错误
+                    def parse_csv_line(line):
+                        if line.endswith("\\\n"):
+                            reader = csv.reader(StringIO(line[:-2]), escapechar="\\")
+                        else:
+                            reader = csv.reader(StringIO(line), escapechar="\\")
+                        return next(reader)
+                    with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
+                        batch = [parse_csv_line(line) for line in f]
+                if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
 
                 batch = np.array(batch, dtype="O")
                 batch = np.where(batch!="", batch, None)
@@ -595,7 +609,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="0c4122d87e48407288c06836c0188c09", table_name="LC_OperatingStatus", del_table_name="JYDB_DeleteRec", resume=False)
+    imported_rows = importer.import_table(token="5b99eda88f68414e804b29797c90810c", table_name="CT_SystemConst", del_table_name="JYDB_DeleteRec", resume=False)
     print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
