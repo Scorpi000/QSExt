@@ -19,7 +19,7 @@ from QuantStudio.Factor.FactorCache import FeatherFactorCache
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.BackTest.BackTestModel import BTReport
 from QuantStudio.BackTest.Strategy.Strategy import MakeAccount, AccountReport, MakeStrategy
-from QuantStudio.BackTest.SectionFactor.Portfolio import CalcPortfolioNV
+from QuantStudio.BackTest.SectionFactor.Portfolio import CalcPortfolioNV, CalcMaskPortfolio
 from QuantStudio.Tools.DateTimeFun import getMonthLastDateTime
 from QuantStudio.Factor.HDF5DB import HDF5DB
 from QuantStudio.Risk.HDF5RDB import HDF5FRDB
@@ -76,7 +76,7 @@ if __name__=="__main__":
     # 再平衡时点序列
     BalanceDTs = getMonthLastDateTime(DTRuler)# 月末
 
-    FT = HDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
+    FT = HDB.getTable("stock_cn_day_bar_adj_backward_nafilled", args={"LookBack": np.inf})
     Price = FT.getFactor("close")
 
     # 可交易的证券
@@ -114,8 +114,23 @@ if __name__=="__main__":
     )
     Strategy = makeFilterPortfolioStrategy(
         ExpectedReturn, Mask, InvestableMask, BmkWeight, Industry,
-        last_price=Price, buy_limit=(~Mask), sell_limit=(~Mask), 
+        last_price=Price, #buy_limit=(~Mask), sell_limit=(~Mask), 
         factor_args={"Name": "FilterStrategy"}
+    )
+
+
+    ExpectedRank = fo.SectionRank(ascending=True, uniformization=True)(ExpectedReturn, mask=InvestableMask, cat_data=Industry)
+    Portfolio = CalcMaskPortfolio(descriptor_ids=SectionIDs)(
+        mask=(ExpectedRank >= 0.7),
+        weight=None,
+        cat_data=Industry,
+        cat_weight=BmkWeight,
+        factor_args={"CalcDTRuler": BalanceDTs, "Name": "Strategy"}
+    )
+    Account = MakeAccount(signal_type="目标权重", init_cash=1e6, short_allowed=False, start_dt=TestDTs[0])(
+        last_price=Price, signal=Portfolio, 
+        # buy_limit=(~Mask), sell_limit=(~Mask),
+        factor_args={"Name": "FilterStrategy1"}
     )
 
     # 基准因子
@@ -124,8 +139,9 @@ if __name__=="__main__":
 
     # 策略报告
     StrategyReport = AccountReport(account=Strategy, bmk_nv=BmkNV, args={"GenReport": True})
+    StrategyReport1 = AccountReport(account=Account, bmk_nv=BmkNV, args={"GenReport": True})
 
-    NodeList = [StrategyReport]
+    NodeList = [StrategyReport, StrategyReport1]
     Report = BTReport(bt_node_list=NodeList)
 
     with FeatherFactorCache(args={"DTRuler": DTRuler, "CacheDir": CacheDir, "StartMode": "new"}) as Cache:
