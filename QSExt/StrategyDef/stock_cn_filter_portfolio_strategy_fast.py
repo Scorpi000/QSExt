@@ -116,7 +116,7 @@ if __name__=="__main__":
 
     PIDList = ["0"]
     with FeatherFactorCache(args={"DTRuler": DTRuler, "CacheDir": CacheDir, "StartMode": "new", "PIDs": PIDList}) as Cache:
-        with FactorContext(PID="0", PIDList=PIDList, DTRuler=DTRuler, DefaultSectionIDs=SectionIDs, FactorDataCache=Cache) as Context:
+        with FactorContext(PID="0", PIDList=PIDList, DTRuler=DTRuler, SectionIDs=SectionIDs, DataCache=Cache) as Context:
             with Engine() as ExecEngine:
             # with ParallelEngine(args={"IOConcurrentNum": 4}) as ExecEngine:
                 Rslt = ExecEngine.run([Report], Context, fwd_data_list=[DTLocalContext(DTs=TestDTs)], init_data_list=[DTInitData(DTRange=(TestDTs[0], TestDTs[-1]))])
@@ -126,7 +126,7 @@ if __name__=="__main__":
 
     # NodeList = [Price, Portfolio]
     # with FeatherFactorCache(args={"DTRuler": DTRuler, "CacheDir": CacheDir, "StartMode": "new"}) as Cache:
-    #     with FactorContext(DTRuler=DTRuler, DefaultSectionIDs=SectionIDs, FactorDataCache=Cache) as Context:
+    #     with FactorContext(DTRuler=DTRuler, SectionIDs=SectionIDs, DataCache=Cache) as Context:
     #         with Engine() as ExecEngine:
     #             Rslt = ExecEngine.run(
     #                 NodeList, Context, 

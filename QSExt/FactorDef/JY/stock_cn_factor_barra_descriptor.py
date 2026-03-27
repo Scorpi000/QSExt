@@ -24,7 +24,7 @@ def calcMonthReturn(f, idt, iid, x, args):
     Rslt[~Mask] = np.nan
     return Rslt
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": 3, "OutputMode": "全截面", "DTMode": "单时点", "LookBack":[0, 1, 1]})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 3, "DTMode": "单时点", "LookBack":[0, 1, 1]})
 def calcMarketReturn(f, idt, iid, x, args):
     Return = x[0][0,:]
     Weight = x[2][0,:]
@@ -34,7 +34,7 @@ def calcMarketReturn(f, idt, iid, x, args):
     MarketReturn = np.nansum(Return*Weight)/np.nansum(Weight)
     return np.zeros((x[0].shape[1],))+MarketReturn
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点"})
 def standardize(f, idt, iid, x, args):
     Mask = ((x[2]==1) & pd.notnull(x[0]) & pd.notnull(x[1]))
     Weight = x[1][Mask]
@@ -43,7 +43,7 @@ def standardize(f, idt, iid, x, args):
     Std = np.nanstd(Data)
     return (x[0]-Avg)/Std
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点"})
 def calcNLSIZE(f, idt, iid, x, args):
     LNCAP = x[0].astype('float')
     LNCAP_Cube = LNCAP**3

@@ -17,7 +17,7 @@ from QSExt.Factor.FactorOperator import RankStandardization, ZScoreStandardizati
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点"})
 def partitionSample(f, idt, iid, x, args):
     """按照两个分类数据对样本进行分组"""
     IsListed, CatData, SubCatData = x[0], x[1], x[2]
@@ -31,7 +31,7 @@ def partitionSample(f, idt, iid, x, args):
         Rslt[(jMask & (~jSubCatMask))] = 2 * j + 2
     return Rslt
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [1, 0], "ModelArgs": {"TopBottomRatio": 0.3}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [1, 0], "ModelArgs": {"TopBottomRatio": 0.3}, "DTMode": "单时点"})
 def genYLabel(f, idt, iid, x, args):
     """生成类别型因变量, +1, -1, 0 表示非样本"""
     TopBottomRatio = args["TopBottomRatio"]
@@ -109,7 +109,7 @@ def AdaBoost(factor_data, ret_mask, level, quantile_num=5):
         Weight = Weight / np.nansum(Weight)
     return (h, SelectedIndex)
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点"})
 def trainAdaBoostModel(f, idt, iid, x, args):
     """训练 AdaBoost 模型"""
     IsListed = x[0][0, :]
@@ -144,7 +144,7 @@ def trainAdaBoostModel(f, idt, iid, x, args):
     Rslt[Mask] = SAData
     return Rslt
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"Level": 20, "QuantileNum": 5}, "DTMode": "单时点"})
 def trainLossModel(f, idt, iid, x, args):
     """训练失效信息模型"""
     Return = x[2]
@@ -201,7 +201,7 @@ def mergeModel(f, idt, iid, x, args):
     TotalWeight[TotalWeight==0] = np.nan
     return Rslt / TotalWeight
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"C": 1.0}}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": {"C": 1.0}}, "DTMode": "单时点"})
 def trainSVMModel(f, idt, iid, x, args):
     """训练 SVM 模型"""
     IsListed = x[0][0, :]
@@ -240,7 +240,7 @@ XGBParams = {
     'tree_method': 'hist',            # 快速直方图算法
 }
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": XGBParams}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": XGBParams}, "DTMode": "单时点"})
 def trainXGBModel(f, idt, iid, x, args):
     """训练 XGBoost 模型"""
     IsListed = x[0][0, :]
@@ -276,7 +276,7 @@ def trainXGBModel(f, idt, iid, x, args):
     Rslt[Mask] = SAData
     return Rslt
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": XGBParams}, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": XGBParams}, "DTMode": "单时点"})
 def trainXGBLossModel(f, idt, iid, x, args):
     """训练失效信息模型"""
     Return = x[2]

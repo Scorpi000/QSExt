@@ -237,7 +237,7 @@ class QuantileStandardization(SectionOperator):
     """截面分位数标准化"""
 
     def __init__(self, ascending:bool=True, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Args = {"Name": "calcQuantileStandardization"} | args | {"DTMode": "多时点", "OutputMode": "全截面", "DataType": "double"}
+        Args = {"Name": "calcQuantileStandardization"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {"ascending": ascending} | Args.get("ModelArgs", {})
         return super().__init__(args=Args, config_file=config_file, **kwargs)
     
@@ -261,7 +261,7 @@ class RankStandardization(SectionOperator):
     """截面排名标准化"""
 
     def __init__(self, ascending:bool=True, uniformization:bool=True, offset:float=0.5, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Args = {"Name": "calcRankStandardization"} | args | {"DTMode": "多时点", "OutputMode": "全截面", "DataType": "double"}
+        Args = {"Name": "calcRankStandardization"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {"ascending": ascending, "uniformization": uniformization, "offset": offset} | Args.get("ModelArgs", {})
         return super().__init__(args=Args, config_file=config_file, **kwargs)
     
@@ -285,7 +285,7 @@ class ZScoreStandardization(SectionOperator):
     """截面 z-score 标准化"""
 
     def __init__(self, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Args = {"Name": "calcZScoreStandardization"} | args | {"DTMode": "多时点", "OutputMode": "全截面", "DataType": "double"}
+        Args = {"Name": "calcZScoreStandardization"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {} | Args.get("ModelArgs", {})
         return super().__init__(args=Args, config_file=config_file, **kwargs)
     
@@ -313,7 +313,7 @@ class Orthogonalization(SectionOperator):
     """截面正交化"""
 
     def __init__(self, constant:bool=False, drop_dummy_na:bool=False, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Args = {"Name": "orthogonalize"} | args | {"DTMode": "单时点", "OutputMode": "全截面", "DataType": "double"}
+        Args = {"Name": "orthogonalize"} | args | {"DTMode": "单时点", "DataType": "double"}
         Args["ModelArgs"] = {"constant": constant, "drop_dummy_na": drop_dummy_na} | Args.get("ModelArgs", {})
         return super().__init__(args=Args, config_file=config_file, **kwargs)
     

@@ -15,7 +15,7 @@ from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDa
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点"})
 def standardize(f, idt, iid, x, args):
     Mask = ((x[2]==1) & pd.notnull(x[0]) & pd.notnull(x[1]))
     Weight = x[1][Mask]
@@ -24,7 +24,7 @@ def standardize(f, idt, iid, x, args):
     Std = np.nanstd(Data)
     return (x[0]-Avg)/Std
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 1, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 1, "DTMode": "单时点"})
 def winsorize(f, idt, iid, x, args):
     Data = x[0]
     Max = np.nanmax(Data)
@@ -40,7 +40,7 @@ def winsorize(f, idt, iid, x, args):
     Rslt[Mask] = Data[Mask]
     return Rslt
 
-@FactorOperatorized(operator_type="Section", args={"Arity": None, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": None, "DTMode": "单时点"})
 def orthogonalize(f, idt, iid, x, args):
     StdData = np.zeros(x[0].shape)+np.nan
     Y = x[0].astype('float')
@@ -54,7 +54,7 @@ def orthogonalize(f, idt, iid, x, args):
     StdData[Mask] = Result.resid
     return StdData
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 4, "OutputMode": "全截面", "DTMode": "单时点"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 4, "DTMode": "单时点"})
 def fillna(f, idt, iid, x, args):
     Mask = (x[3]==1)
     xAllData = np.log(x[1][Mask])

@@ -113,7 +113,7 @@ def calcHL(f, idt, iid, x, args):
     return Val
 
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 2, "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 2, "DTMode": "单时点"})
 def calcVWAPP(f, idt, iid, x, args):
     X, Y = x[0], x[1]
     Rslt = np.full(shape=(X.shape[0],), fill_value=np.nan)
@@ -130,7 +130,7 @@ def calcVWAPP(f, idt, iid, x, args):
     return Rslt
 
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [240-1, 1-1], "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 2, "LookBack": [240-1, 1-1], "DTMode": "单时点"})
 def calcPriceSpread(f, idt, iid, x, args):
     ret = pd.DataFrame(x[0])
     ret20D = pd.Series(x[1][0, :])

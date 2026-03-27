@@ -21,7 +21,7 @@ def calcDvd(f, idt, iid, x, args):
     Fun = np.vectorize(lambda x1, x2: np.nansum(np.array(x1).astype(float) * np.array(x2).astype(float)) / 10 if (x1 is not None) and (x2 is not None) else 0)
     return Fun(x[0], x[1])
 
-@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "OutputMode": "全截面", "DataType": "double"})
+@FactorOperatorized(operator_type="Section", args={"Arity": 3, "DTMode": "单时点", "DataType": "double"})
 def calcSectorMedian(f, idt, iid, x, args):
     VR, Sector, IsListed = pd.Series(x[0]), pd.Series(x[1]), pd.Series(x[2])
     Data = pd.Series(index=VR.index, dtype=float)

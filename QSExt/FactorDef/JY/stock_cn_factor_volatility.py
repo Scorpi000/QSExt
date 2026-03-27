@@ -89,7 +89,7 @@ def calcQuantilePortfolio(factor_data, return_data, mask=None, *cat_data, weight
     return (PortfolioReturn, Portfolio)
 
 # 因子收益率
-@FactorOperatorized(operator_type="Panel", args={"Arity": 5, "ModelArgs": {"ascending": False}, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [1, 0, 1, 1, 1]})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 5, "ModelArgs": {"ascending": False}, "DTMode": "单时点", "LookBack": [1, 0, 1, 1, 1]})
 def calcFactorReturn(f, idt, iid, x, args):
     FactorData = pd.Series(x[0][0,:])
     ReturnData = pd.Series(x[1][0,:])
@@ -101,7 +101,7 @@ def calcFactorReturn(f, idt, iid, x, args):
     return np.zeros((FactorData.shape[0],))+PortfolioReturn[0]-PortfolioReturn[-1]
 
 # 市场收益率
-@FactorOperatorized(operator_type="Panel", args={"Arity": 4, "OutputMode": "全截面", "DTMode": "单时点", "LookBack": [0, 1, 1, 1]})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 4, "DTMode": "单时点", "LookBack": [0, 1, 1, 1]})
 def calcMarketReturn(f, idt, iid, x, args):
     ReturnData = x[0][0,:]
     ST = x[1][0,:]

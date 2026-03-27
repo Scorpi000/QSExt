@@ -20,7 +20,7 @@ from QuantStudio.Tools.DateTimeFun import getMonthLastDateTime
 # import QSExt.FactorDef.JY as SourcePkg
 
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": 3, "LookBack":[30, 30, 30], "DTMode": "单时点", "OutputMode": "全截面"})
+@FactorOperatorized(operator_type="Panel", args={"Arity": 3, "LookBack":[30, 30, 30], "DTMode": "单时点"})
 def calcMonthIC(f, idt, iid, x, args):
     MonthDTs = getMonthLastDateTime(idt)
     if MonthDTs[-1]==idt[-1]: PrePos = idt.index(MonthDTs[-2])

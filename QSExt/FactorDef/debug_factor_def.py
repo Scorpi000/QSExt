@@ -97,12 +97,10 @@ if __name__=="__main__":
     Cache = FeatherFactorCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList, "CacheDir": "/mnt/d/Data/Cache/DevCache"})
     Cache.start()
     Context = FactorContext(
-        PID="0",
         PIDList=PIDList,
         DTRuler=DTRuler,
-        DefaultSectionIDs=SectionIDs,
-        SplitType="连续切分",
-        FactorDataCache=Cache
+        SectionIDs=SectionIDs,
+        DataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
     Storer = FactorStorer(deps=FactorDef.FactorList, args={"TargetFDB": TDB, "TargetTable": FactorDef.TargetTable+"_t", "IfExists": "update"})
@@ -144,15 +142,15 @@ if __name__=="__main__1":
     PIDList = ["0"]
     # ExecEngine = ParallelEngine(args={"IOConcurrentNum": 3})
     # PIDList = [f"0-{i}" for i in range(3)]
-    Cache = FeatherCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
+    Cache = FeatherFactorCache(args={"DTRuler": DTRuler, "MinDTUnit": dt.timedelta(1), "PIDs": PIDList})
     Cache.start()
     Context = FactorContext(
         PID="0",
         PIDList=PIDList,
         DTRuler=DTRuler,
-        DefaultSectionIDs=SectionIDs,
+        SectionIDs=SectionIDs,
         SplitType="连续切分",
-        FactorDataCache=Cache
+        DataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
     Rslt = ExecEngine.run(StorerList, Context, fwd_data_list=[LocalContext] * len(StorerList), init_data_list=[{"dt_range": (DTs[0], DTs[-1]), "section_ids": SectionIDs}] * len(StorerList))

@@ -304,9 +304,8 @@ def updateFactorData(
         PID="0",
         PIDList=PIDList,
         DTRuler=DTRuler,
-        DefaultSectionIDs=SectionIDs,
-        SplitType="连续切分",
-        FactorDataCache=Cache
+        SectionIDs=SectionIDs,
+        DataCache=Cache
     )
     LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
     ExecEngine.run([Storer], Context, fwd_data_list=[LocalContext], init_data_list=[FactorInitData(DTRange=(DTs[0], DTs[-1]), SectionIDs=SectionIDs)])
