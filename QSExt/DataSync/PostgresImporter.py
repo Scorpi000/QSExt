@@ -155,6 +155,9 @@ class PostgresImporter:
                 print(f"表名 {table_name} 和索引名相同，修改索引名为: {new_index_name}")
             else:
                 new_index_name = index_name
+            if new_index_name.lower() in db_index_list:
+                print(f"表 {table_name} 的索引 {new_index_name} 已存在，跳过创建")
+                continue
             try:
                 iinfo = index_info[index_info["index_name"]==index_name]
                 constraint_type = iinfo["constraint_type"].unique()
@@ -609,7 +612,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="5b99eda88f68414e804b29797c90810c", table_name="CT_SystemConst", del_table_name="JYDB_DeleteRec", resume=False)
+    imported_rows = importer.import_table(token="0102b240ebc446dd884ff31f5d0ca53f", table_name="LC_STIBStockArchives", del_table_name="JYDB_DeleteRec", resume=False)
     print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
