@@ -511,19 +511,19 @@ class PostgresImporter:
         for ifile in file_list:
             try:
                 with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
-                    row_num = sum(1 for _ in f)
-                with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
                     reader = csv.reader(f, escapechar="\\")
                     batch = list(reader)
-                if row_num != len(batch):# 发生了换行识别错误
-                    def parse_csv_line(line):
-                        if line.endswith("\\\n"):
-                            reader = csv.reader(StringIO(line[:-2]), escapechar="\\")
-                        else:
-                            reader = csv.reader(StringIO(line), escapechar="\\")
-                        return next(reader)
-                    with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
-                        batch = [parse_csv_line(line) for line in f]
+                # with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
+                #     row_num = sum(1 for _ in f)
+                # if row_num != len(batch):# 发生了换行识别错误
+                #     def parse_csv_line(line):
+                #         if line.endswith("\\\n"):
+                #             reader = csv.reader(StringIO(line[:-2]), escapechar="\\")
+                #         else:
+                #             reader = csv.reader(StringIO(line), escapechar="\\")
+                #         return next(reader)
+                #     with open(self.import_dir + os.sep + table_name + os.sep + ifile, 'r', encoding='utf-8') as f:
+                #         batch = [parse_csv_line(line) for line in f]
                 if batch and (batch[-1][0]=="salt"): batch = batch[:-1]# 去掉最后一行的 salt
 
                 batch = np.array(batch, dtype="O")
@@ -612,7 +612,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="0102b240ebc446dd884ff31f5d0ca53f", table_name="LC_STIBStockArchives", del_table_name="JYDB_DeleteRec", resume=False)
+    imported_rows = importer.import_table(token="184914c48a3a4dc6a04363d3f1564b3a", table_name="LC_PerformanceForecast", del_table_name="JYDB_DeleteRec", resume=False)
     print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
