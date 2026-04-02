@@ -6,7 +6,6 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 import qlib
-from qlib.utils import parse_field
 
 from QSExt.Factor.QLibDB import QLibDB
 
@@ -20,7 +19,7 @@ from QSExt.Factor.QLibDB import QLibDB
 # print(time.perf_counter() - StartT)
 
 if __name__=="__main__":
-    FDB = QLibDB(args={"MainDir": r"D:\Data\QLib"}).connect()
+    FDB = QLibDB().connect()
     print(FDB.Args)
     print(FDB.TableNames)
 
