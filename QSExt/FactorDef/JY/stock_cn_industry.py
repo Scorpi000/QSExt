@@ -16,7 +16,7 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 @FactorOperatorized(operator_type="Point", args={"Arity": 1, "DTMode": "多时点", "IDMode": "多ID", "DataType": "string"})
 def mapValue(f, idt, iid, x, args):
     Data = x[0]
-    Mapping = pd.Series(args["mapping"])
+    Mapping = pd.Series(f.Args.ModelArgs["mapping"])
     TargetShape = Data.shape
     Data = Data.flatten(order="C")
     Rslt = np.full(shape=Data.shape, fill_value=None, dtype=Mapping.dtype)

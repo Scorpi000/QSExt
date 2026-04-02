@@ -8,6 +8,7 @@ import pandas as pd
 from scipy import stats
 from sklearn import svm
 import xgboost as xgb
+import lightgbm as lgb
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.BasicOperator import rename
@@ -322,6 +323,56 @@ def trainXGBLossModel(f, idt, iid, x, args):
     return Rslt
 
 
+LGBParams = {
+    'objective': "multiclass",
+    'num_class': 2,
+    'metric': 'multi_logloss',
+    'boosting_type': 'gbdt',
+    'num_leaves': 31,
+    'max_depth': 6,
+    'learning_rate': 0.05,
+    'feature_fraction': 0.8,      # 列采样
+    'bagging_fraction': 0.8,       # 行采样
+    'bagging_freq': 5,
+    'min_child_samples': 20,
+    'reg_alpha': 0.1,              # L1正则
+    'reg_lambda': 0.1,             # L2正则
+    'verbose': -1,
+    'random_state': 42
+}
+
+@FactorOperatorized(operator_type="Panel", args={"Arity": None, "ModelArgs": {"ModelParams": LGBParams}, "DTMode": "单时点"})
+def trainLGBModel(f, idt, iid, x, args):
+    """训练 LightGBM 模型"""
+    IsListed = x[0][0, :]
+    YLabel = x[1]
+    Mask = (YLabel!=0)
+    YLabel = YLabel[Mask]
+    if YLabel.shape[0]==0:
+        return np.full(shape=IsListed.shape, fill_value=np.nan)
+    FactorData = np.array([ix[:-1, :][Mask] for ix in x[2:]]).T
+    FactorData = np.where(pd.notnull(FactorData), FactorData, np.nanmedian(FactorData, axis=0))# 缺失值填充
+    YLabel = np.where(YLabel==-1, 0, YLabel)
+    Mask = np.all(pd.notnull(FactorData), axis=1)
+    FactorData, YLabel = FactorData[Mask, :], YLabel[Mask]
+    DTrain = lgb.Dataset(FactorData, label=YLabel)
+    Params = args.get("ModelParams", {})
+    Model = lgb.train(
+        Params,
+        DTrain,
+        num_boost_round=500
+    )
+    NewFactorData = np.array([ix[-1, :] for ix in x[2:]]).T
+    Mask = (IsListed == 1)
+    # Mask = (IsListed==1) & np.all(pd.notnull(NewFactorData), axis=1)
+    NewFactorData = NewFactorData[Mask, :]
+    NewFactorData = np.where(pd.notnull(NewFactorData), NewFactorData, np.nanmedian(NewFactorData, axis=0))# 缺失值填充
+    SAData = Model.predict(lgb.Dataset(NewFactorData))
+    Rslt = np.full(shape=IsListed.shape, fill_value=np.nan)
+    Rslt[Mask] = SAData
+    return Rslt
+
+
 def defFactor(fdi: FactorDefInput):
     Factors = []
     
@@ -381,7 +432,6 @@ def defFactor(fdi: FactorDefInput):
     # XGBoost 模型
     ISNXGBFactor = trainXGBModel.new(args={"Arity": 2 + nTrainFactor, "LookBack": [1-1, SampleLen-1] + [SampleLen+1-1]*nTrainFactor})(*([IsListed, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"xgboost_{Suffix}"})
     Factors.append(ISNXGBFactor)
-    ISNXGBFactor = LDB.getTable("stock_cn_multi_factor_ml").getFactor(f"xgboost_{Suffix}")# DEBUG
 
     # XGBoost 失效信息模型
     ISNLXGBFactor = trainXGBLossModel.new(args={"Arity": 4 + nTrainFactor, "LookBack": [0, 5*SampleLen, 5*SampleLen-1, 5*SampleLen-1] + [5*SampleLen]*nTrainFactor})(*([IsListed, ISNXGBFactor, Return, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"xgboost_loss_{Suffix}"})
@@ -391,10 +441,14 @@ def defFactor(fdi: FactorDefInput):
     ISNXGB_WithL = mergeModel(standardizeZScore(ISNXGBFactor, mask=Mask), standardizeZScore(ISNLXGBFactor, mask=Mask), factor_args={"Name": f"xgboost_with_loss_{Suffix}"})
     Factors.append(ISNXGB_WithL)
 
+    # LightGBM 模型
+    ISNLGBFactor = trainLGBModel.new(args={"Arity": 2 + nTrainFactor, "LookBack": [1-1, SampleLen-1] + [SampleLen+1-1]*nTrainFactor})(*([IsListed, YLabel]+list(TrainFactors.values())), factor_args={"Name": f"lgboost_{Suffix}"})
+    Factors.append(ISNLGBFactor)
+
     return FactorDef(
         FDI=fdi,
-        # FactorList=Factors,
-        FactorList=[ISNLXGBFactor, ISNXGB_WithL],
+        FactorList=Factors,
+        # FactorList=[ISNLXGBFactor, ISNXGB_WithL],
         TargetTable="stock_cn_multi_factor_ml",
         IDType="A股",
         MaxLookBack=365 * 10,
