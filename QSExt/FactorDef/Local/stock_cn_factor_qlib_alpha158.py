@@ -2,9 +2,11 @@
 """QLib Alpha 158"""
 import os
 import datetime as dt
+from functools import partial
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.BasicOperator import rename
@@ -12,34 +14,12 @@ import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.Factor.FactorOperator import QuantileStandardization, Orthogonalization
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QuantStudio.Tools.DateTimeFun import getMonthLastDateTime
 
 
-@FactorOperatorized(operator_type="Panel", args={"Arity": 3, "LookBack":[30, 30, 30], "DTMode": "单时点"})
-def calcMonthIC(f, idt, iid, x, args):
-    MonthDTs = getMonthLastDateTime(idt)
-    if MonthDTs[-1]==idt[-1]: PrePos = idt.index(MonthDTs[-2])
-    else: PrePos = idt.index(MonthDTs[-1])
-    Ret = x[1][-1] / x[1][PrePos] - 1
-    Mask = (x[0][PrePos]==1)
-    Data = x[2][PrePos]
-    return pd.Series(Data[Mask]).corr(pd.Series(Ret[Mask]), method="spearman")
-
-@FactorOperatorized(operator_type="Time", args={"Arity": 1, "LookBack": [365], "DTMode": "单时点", "IDMode": "多ID"})
-def calcMonthICAvg(f, idt, iid, x, args):
-    MonthDTs = getMonthLastDateTime(idt)
-    Index = pd.Series(np.arange(0, len(idt)), index=idt)
-    return np.nanmean(x[0][Index[MonthDTs].tolist()], axis=0)
-
-@FactorOperatorized(operator_type="Time", args={"Arity": 1, "LookBack": [365], "DTMode": "单时点", "IDMode": "多ID"})
-def calcMonthIR(f, idt, iid, x, args):
-    MonthDTs = getMonthLastDateTime(idt)
-    Index = pd.Series(np.arange(0, len(idt)), index=idt)
-    MonthIndex = Index[MonthDTs].tolist()
-    ICAvg = np.nanmean(x[0][MonthIndex], axis=0)
-    ICStd = np.nanstd(x[0][MonthIndex], axis=0)
-    return ICAvg / ICStd
-
+@FactorOperatorized(operator_type="Time", args={"Arity": 2, 'LookBack': [5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
+def rollingCorr(f, idt, iid, x, args):
+    F1, F2 = x
+    return stats.pearsonr(F1, F2, axis=0, nan_policy='omit').correlation
 
 def defFactor(fdi: FactorDefInput):
     Factors = []
@@ -47,136 +27,144 @@ def defFactor(fdi: FactorDefInput):
     LDB = fdi.FDB["LDB"]
 
     # 基本算子
+    log = fo.Log(base=np.e)
     max = fo.Max(all_nan=np.nan)
     min = fo.Min(all_nan=np.nan)
-    where = fo.Where()
+    lag1 = fo.Lag(1)
 
     FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    PreClose = FT.getFactor("pre_close")
-    Close = FT.getFactor("close")
-    High = FT.getFactor("high")
-    Low = FT.getFactor("low")
-    Open = FT.getFactor("open")
-    AvgPrice = FT.getFactor("avg")
-    DailyReturn = FT.getFactor("chg_rate")
     Volume = FT.getFactor("volume")
 
     FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
     AdjClose = FT.getFactor("close")
+    AdjHigh = FT.getFactor("high")
+    AdjLow = FT.getFactor("low")
+    AdjOpen = FT.getFactor("open")
+    AdjVWAP = FT.getFactor("avg")
 
-    # 价格形态
-    # KMID: 中轨价格 = (收盘价 - 开盘价) / 开盘价
-    Factors.append(rename((Close - Open) / Open, factor_name="KMID"))
+    # K 线类
+    # KMID
+    Factors.append(rename((AdjClose - AdjOpen) / AdjOpen, factor_name="KMID"))
     # KLEN: K线长度 = (最高价 - 最低价) / 开盘价
-    Factors.append(rename((High - Low) / Open, factor_name="KLEN"))
-    # KMID2: 
-    Factors.append(rename((Close - Open) / (High - Low + 1e-12), factor_name="KMID2"))
+    Factors.append(rename((AdjHigh - AdjLow) / AdjOpen, factor_name="KLEN"))
+    # KMID2
+    Factors.append(rename((AdjClose - AdjOpen) / (AdjHigh - AdjLow + 1e-12), factor_name="KMID2"))
     # KUP: 上影线 = (最高价 - MAX(收盘价, 开盘价)) / 开盘价
-    Factors.append(rename((High - max(Close, Open)) / Open, factor_name="KUP"))
-    # KUP2: 
-    Factors.append(rename((High - max(Close, Open)) / (High - Low + 1e-12), factor_name="KUP2"))
+    Factors.append(rename((AdjHigh - max(AdjClose, AdjOpen)) / AdjOpen, factor_name="KUP"))
+    # KUP2
+    Factors.append(rename((AdjHigh - max(AdjClose, AdjOpen)) / (AdjHigh - AdjLow + 1e-12), factor_name="KUP2"))
     # KLOW: 下影线 = (MIN(收盘价, 开盘价) - 最低价) / 开盘价
-    Factors.append(rename((min(Close, Open) - Low) / Open, factor_name="KLOW"))
-    # KLOW2: 
-    Factors.append(rename((min(Close, Open) - Low) / (High - Low + 1e-12), factor_name="KLOW2"))
-    # KSFT: 价格偏移
-    Factors.append(rename((2 * Close - High - Low) / Open, factor_name="KSFT"))
-    # KSFT2: 
-    Factors.append(rename((2 * Close - High - Low) / (High - Low + 1e-12), factor_name="KSFT2"))
+    Factors.append(rename((min(AdjClose, AdjOpen) - AdjLow) / AdjOpen, factor_name="KLOW"))
+    # KLOW2
+    Factors.append(rename((min(AdjClose, AdjOpen) - AdjLow) / (AdjHigh - AdjLow + 1e-12), factor_name="KLOW2"))
+    # KSFT
+    Factors.append(rename((2 * AdjClose - AdjHigh - AdjLow) / AdjOpen, factor_name="KSFT"))
+    # KSFT2
+    Factors.append(rename((2 * AdjClose - AdjHigh - AdjLow) / (AdjHigh - AdjLow + 1e-12), factor_name="KSFT2"))
 
 
-    # 价格类
-    for i in range(5):
-        # OPENN
-        Factors.append(rename(fo.Lag(lag_period=i, window=i)(Open) / Close, factor_name=f"OPEN{i}"))
-        # HIGHN
-        Factors.append(rename(fo.Lag(lag_period=i, window=i)(High) / Close, factor_name=f"HIGH{i}"))
-        # LOWN
-        Factors.append(rename(fo.Lag(lag_period=i, window=i)(Low) / Close, factor_name=f"LOW{i}"))
-        # VWAPN
-        Factors.append(rename(fo.Lag(lag_period=i, window=i)(AvgPrice) / Close, factor_name=f"VWAP{i}"))
-
-    # 动量类
-    for i in [5, 10, 20, 30, 60]:
-        # ROCN: N日收益率 = (收盘价 - N日前收盘价) / N日前收盘价
-        Factors.append(rename(AdjClose / fo.Lag(lag_period=i, window=i)(AdjClose) - 1, factor_name=f"ROC{i}"))
-        # MAN: N日简单移动平均
-        Factors.append(fo.RollingMean(window=i, min_periods=i)(AdjClose, factor_args={"Name": f"MA{i}"}))
-        # STDN: N日收益率标准差
-        Factors.append(fo.RollingApply(func=np.std, window=i, min_periods=i)(DailyReturn, factor_args={"Name": f"STD{i}"}))
-
-    # 回归类因子
-    # BETA5/10/20/30/60: N日市场beta(与基准的协方差/基准方差)
-
-    # RSQR5/10/20/30/60: N日回归R平方
-
-    # RESI5/10/20/30/60: N日回归残差
-
-    # 极值统计因子
-    for i in [5, 10, 20, 30, 60]:
-        # MAX5/10/20/30/60: N日内最高价
-        Factors.append(fo.RollingApply(func=np.max, window=i, min_periods=i)(High, factor_args={"Name": f"MAX{i}"}))
-        # MIN5/10/20/30/60: N日内最低价
-        # IMAX5/10/20/30/60: N日内最高价出现的位置(0-1)
-        # IMIN5/10/20/30/60: N日内最低价出现的位置(0-1)
-        # IMXD5/10/20/30/60: 最高价与最低价位置差
-
-    # 分位数因子
-    # QTLU5/10/20/30/60: N日上分位数(如80%分位)
-
-    # QTLD5/10/20/30/60: N日下分位数(如20%分位)
-
-    # RANK5/10/20/30/60: 当前价格在N日内的排名百分位
-
-    # RSV5/10/20/30/60: N日随机指标 = (收盘价-N日最低)/(N日最高-N日最低)
-
-    # 相关性因子
-    # CORR5/10/20/30/60: N日与基准收益率相关性
-
-    # CORD5/10/20/30/60: N日与基准收益率距离
-
-    # 计数统计因子
-    for i in [5, 10, 20, 30, 60]:
-        # CNTP5/10/20/30/60: N日内上涨天数
-        iCNTP = fo.RollingApply(func=np.sum, window=i, min_periods=i)(DailyReturn > 0, factor_args={"Name": f"CNTP{i}"})
-        Factors.append(iCNTP)
-        # CNTN5/10/20/30/60: N日内下跌天数
-        iCNTN = fo.RollingApply(func=np.sum, window=i, min_periods=i)(DailyReturn < 0, factor_args={"Name": f"CNTN{i}"})
-        Factors.append(iCNTN)
-        # CNTD5/10/20/30/60: N日净上涨天数(上涨 - 下跌)
-        Factors.append(rename(iCNTP - iCNTN, factor_name=f"CNTD{i}"))
-        # SUMP5/10/20/30/60: N日上涨幅度总和
-        iSUMP = fo.RollingApply(func=np.sum, window=i, min_periods=i)(where(DailyReturn, DailyReturn > 0, 0), factor_args={"Name": f"SUMP{i}"})
-        Factors.append(iSUMP)
-        # SUMN5/10/20/30/60: N日下跌幅度总和
-        iSUMN = fo.RollingApply(func=np.sum, window=i, min_periods=i)(where(-DailyReturn, DailyReturn < 0, 0), factor_args={"Name": f"SUMN{i}"})
-        Factors.append(iSUMN)
-        # SUMD5/10/20/30/60: N日净上涨幅度(上涨总和-下跌总和)
-        Factors.append(rename(iSUMP - iSUMN, factor_name=f"SUMD{i}"))
-    
-    # 成交量因子
-    for i in [5, 10, 20, 30, 60]:
-        # VMA5/10/20/30/60: N日成交量平均
-        Factors.append(fo.RollingMean(window=i, min_periods=i)(Volume, factor_args={"Name": f"VMA{i}"}))
-        # VSTD5/10/20/30/60: N日成交量标准差
-        Factors.append(fo.RollingApply(func=np.std, window=i, min_periods=i)(Volume, factor_args={"Name": f"VSTD{i}"}))
-        # WVMA5/10/20/30/60: N日加权成交量平均
-
-        # VSUMP5/10/20/30/60: N日放量上涨天数成交量总和
-
-        # VSUMN5/10/20/30/60: N日放量下跌天数成交量总和
-
-        # VSUMD5/10/20/30/60: N日净放量成交量(上涨 - 下跌)
-    
+    # 价量回溯类
+    for N in [0]:# range(5):
+        lagN = fo.Lag(N)
+        # OPEN
+        Factors.append(rename(lagN(AdjOpen) / AdjClose, factor_name=f"OPEN{N}"))
+        # HIGH
+        Factors.append(rename(lagN(AdjHigh) / AdjClose, factor_name=f"HIGH{N}"))
+        # LOW
+        Factors.append(rename(lagN(AdjLow) / AdjClose, factor_name=f"LOW{N}"))
+        # VWAP
+        Factors.append(rename(lagN(AdjVWAP) / AdjClose, factor_name=f"VWAP{N}"))
+        # # CLOSE
+        # Factors.append(rename(lagN(AdjClose) / AdjClose, factor_name=f"CLOSE{N}"))
+        # # VOLUME
+        # Factors.append(rename(lagN(Volume) / Volume, factor_name=f"VOLUME{N}"))
 
 
+    # 滚动指标类
+    for N in [5, 10, 20, 30, 60]:
+        lagN = fo.Lag(N)
+        rollingMeanN = fo.RollingMean(window=N, min_periods=N)
+        rollingStdN = fo.RollingApply(func=np.nanstd, window=N, min_periods=N)
+        rollingSumN = fo.RollingApply(func=np.nansum, window=N, min_periods=N)
+        # ROC
+        Factors.append(rename(lagN(AdjClose) / AdjClose, factor_name=f"ROC{N}"))
+        # MA
+        Factors.append(rename(rollingMeanN(AdjClose) / AdjClose, factor_name=f"MA{N}"))
+        # STD
+        Factors.append(rename(rollingStdN(AdjClose) / AdjClose, factor_name=f"STD{N}"))
+        # BETA, RSQR, RESI
+        RegN = fo.RollingRegress(window=N, min_periods=N, intercept=True)(AdjClose)
+        AlphaN, BetaN = fo.Fetch(pos="alpha")(RegN), fo.Fetch(pos="beta0")(RegN)
+        ResiN = AdjClose - AlphaN - BetaN * (N - 1)
+        Factors.append(rename(BetaN / AdjClose, factor_name=f"BETA{N}"))
+        Factors.append(rename(fo.Fetch(pos="r2")(RegN), factor_name=f"RSQR{N}"))
+        Factors.append(rename(ResiN / AdjClose, factor_name=f"RESI{N}"))
+        # MAX
+        HighN = fo.RollingApply(func=np.nanmax, window=N, min_periods=N)(AdjHigh)
+        Factors.append(rename(HighN / AdjClose, factor_name=f"MAX{N}"))
+        # MIN
+        LowN = fo.RollingApply(func=np.nanmin, window=N, min_periods=N)(AdjLow)
+        Factors.append(rename(LowN / AdjClose, factor_name=f"MIN{N}"))
+        # QTLU
+        Factors.append(rename(fo.RollingApply(func=partial(np.nanquantile, q=0.8), window=N, min_periods=N)(AdjClose) / AdjClose, factor_name=f"QTLU{N}"))
+        # QTLD
+        Factors.append(rename(fo.RollingApply(func=partial(np.nanquantile, q=0.2), window=N, min_periods=N)(AdjClose) / AdjClose, factor_name=f"QTLD{N}"))
+        # RANK
+        Factors.append(rename(fo.RollingRank(window=N, min_periods=N)(AdjClose), factor_name=f"RANK{N}"))
+        # RSV
+        Factors.append(rename((AdjClose - LowN) / (HighN - LowN + 1e-12), factor_name=f"RSV{N}"))
+        # IMAX
+        IMaxN = fo.RollingApply(func=np.nanargmax, window=N, min_periods=N)(AdjHigh)
+        Factors.append(rename(IMaxN / N, factor_name=f"IMAX{N}"))
+        # IMIN
+        IMinN = fo.RollingApply(func=np.nanargmin, window=N, min_periods=N)(AdjLow)
+        Factors.append(rename(IMinN / N, factor_name=f"IMIN{N}"))
+        # IMXD
+        Factors.append(rename((IMaxN - IMinN) / N, factor_name=f"IMXD{N}"))
+        # CORR
+        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
+        # CORD
+        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
+        # CNTP
+        CntPN = rollingMeanN(AdjClose > lag1(AdjClose))
+        Factors.append(rename(CntPN, factor_name=f"CNTP{N}"))
+        # CNTN
+        CntNN = rollingMeanN(AdjClose < lag1(AdjClose))
+        Factors.append(rename(CntNN, factor_name=f"CNTN{N}"))
+        # CNTD
+        Factors.append(rename(CntPN - CntNN, factor_name=f"CNTD{N}"))
+        # SUMP
+        SumPN = rollingSumN(max(AdjClose - lag1(AdjClose), 0))
+        SumN = rollingSumN(abs(AdjClose - lag1(AdjClose)))
+        Factors.append(rename(SumPN / (SumN + 1e-12), factor_name=f"SUMP{N}"))
+        # SUMN
+        SumNN = rollingSumN(max(lag1(AdjClose) - AdjClose, 0))
+        Factors.append(rename(SumNN / (SumN + 1e-12), factor_name=f"SUMN{N}"))
+        # SUMD
+        Factors.append(rename((SumPN - SumNN) / (SumN + 1e-12), factor_name=f"SUMD{N}"))
+        # VMA
+        Factors.append(rename(rollingMeanN(Volume) / (Volume + 1e-12), factor_name=f"VMA{N}"))
+        # VSTD
+        Factors.append(rename(rollingStdN(Volume) / (Volume + 1e-12), factor_name=f"VSTD{N}"))
+        # WVMA
+        RV = abs(AdjClose / lag1(AdjClose) - 1) * Volume
+        Factors.append(rename(rollingStdN(RV) / (rollingMeanN(RV) + 1e-12), factor_name=f"WVMA{N}"))
+        # VSUMP: Sum(Greater($volume-Ref($volume, 1), 0), %d)/(Sum(Abs($volume-Ref($volume, 1)), %d)+1e-12)
+        VSumPN = rollingSumN(max(Volume - lag1(Volume), 0))
+        VSumN = rollingSumN(abs(Volume - lag1(Volume)))
+        Factors.append(rename(VSumPN / (VSumN + 1e-12), factor_name=f"VSUMP{N}"))
+        # VSUMN
+        VSumNN = rollingSumN(max(lag1(Volume) - Volume, 0))
+        Factors.append(rename(VSumNN / (VSumN + 1e-12), factor_name=f"VSUMN{N}"))
+        # VSUMD
+        Factors.append(rename((VSumPN - VSumNN) / (VSumN + 1e-12), factor_name=f"VSUMD{N}"))
 
     return FactorDef(
         FDI=fdi,
         FactorList=Factors,
         TargetTable="stock_cn_factor_qlib_alpha158",
         IDType="A股",
-        MaxLookBack=365 * 2,
+        MaxLookBack=365,
         Author="麦冬",
         Description="QLib Alpha 158 因子集, 主要为量价类因子",
         DefScriptPath=__file__

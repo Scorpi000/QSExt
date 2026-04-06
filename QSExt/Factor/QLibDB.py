@@ -7,6 +7,7 @@ import shutil
 import datetime as dt
 from pathlib import Path
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Self, Any, Dict, Literal, List, Union, Set
 
 import numpy as np
@@ -430,7 +431,20 @@ class QLibDB(WritableFactorDB):
             if self._QSArgs.WriteConcurrentNum == 0:
                 Info = {"AddedStartLen": AddedStartLen, "AddedEndLen": AddedEndLen, "InstrumentsData": InstrumentsData, "CalendarsData": CalendarsData}
                 InstrumentsData = self._writeData(info=Info, data=data, table_name=table_name, if_exists=if_exists, data_type=data_type, **kwargs)
-            InstrumentsData = pd.concat([InstrumentsData, ExtraInstrumentsData], ignore_index=False).sort_index()
+                InstrumentsData = pd.concat([InstrumentsData, ExtraInstrumentsData], ignore_index=False).sort_index()
+            else:
+                Info = {"AddedStartLen": AddedStartLen, "AddedEndLen": AddedEndLen, "CalendarsData": CalendarsData}
+                with ThreadPoolExecutor(max_workers=self._QSArgs.WriteConcurrentNum) as TaskExecutor:
+                    nWorker = min(self._QSArgs.WriteConcurrentNum, data.shape[2])
+                    BatchSize = data.shape[2] // nWorker + int(data.shape[2] % nWorker > 0)
+                    Futures = []
+                    for i in range(nWorker):
+                        iIDStartIdx, iIDEndIdx = i * BatchSize, (i + 1) * BatchSize
+                        iInstrumentsData = InstrumentsData.iloc[iIDStartIdx:iIDEndIdx]
+                        if iInstrumentsData.empty: break
+                        Futures.append(TaskExecutor.submit(self._writeData, Info | {"InstrumentsData": iInstrumentsData}, data.iloc[:, :, iIDStartIdx:iIDEndIdx], table_name,  if_exists, data_type, **kwargs))
+                    InstrumentsData = [iFuture.result() for iFuture in Futures]
+                InstrumentsData = pd.concat(InstrumentsData + [ExtraInstrumentsData], ignore_index=False).sort_index()
             InstrumentsData.index = InstrumentsData.index.str.upper()
             self._saveInstruments(table_name=table_name, instruments_data=InstrumentsData)
             self._saveCalendars(table_name=table_name, calendars_data=CalendarsData)

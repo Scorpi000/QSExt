@@ -80,13 +80,10 @@ def calcClsTrunCorrel(f, idt, iid, x, args):
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 4, 'ModelArgs': {"非空率": 0.8}, 'LookBack': [5-1, 5-1, 5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
 def calcHLVolCorrel(f, idt, iid, x, args):
-    Low = x[0]
-    High = x[1]
-    Vol = x[2]
-    IfTrading=x[3]
+    Low, High, Vol, IfTrading = x
     Len = IfTrading.shape[0]
-    Mask = (np.sum(IfTrading==1, axis=0)/Len<args['非空率'])
-    Ratio=High/Low
+    Mask = (np.sum(IfTrading==1, axis=0) / Len < args['非空率'])
+    Ratio = High / Low
     spearman_cor = np.zeros(Vol.shape[1])+np.nan
     for i in range(Vol.shape[1]):
         iRatio = Ratio[:,i]
@@ -109,7 +106,7 @@ def calcHL(f, idt, iid, x, args):
     Len = IfTrading.shape[0]
     Mask = (np.sum(IfTrading==1, axis=0)/Len<args['非空率'])
     Low_Min[(Low_Min==0) | Mask] = np.nan
-    Val=High_Max/Low_Min
+    Val = High_Max / Low_Min
     return Val
 
 
