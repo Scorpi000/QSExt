@@ -44,7 +44,8 @@ def regressValueBias(f, idt, iid, x, args):
         Rslt = sm.OLS(DVR, X, missing="drop").fit()
     except:
         return (np.nan, np.nan, np.nan)
-    return (Rslt.params[0], Rslt.params[1], Rslt.params[2])
+    Params = np.array(Rslt.params)
+    return (Params[0], Params[1], Params[2])
      
 @FactorOperatorized(operator_type="Point", args={"Arity": 3, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcValueBias(f, idt, iid, x, args):
