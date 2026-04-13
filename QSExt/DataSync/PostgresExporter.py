@@ -80,11 +80,17 @@ class PostgresExporter:
 
     def get_table_info(self, table_name: str, max_id:Optional[int]=None, id_field:str="JSID", where_clause: str = None) -> Dict[str, Any]:
         """获取表信息，包括列信息和总行数"""
-        def merge_sqlserver_type(col, max_length, precision, scale):
-            if col.lower() in ("varchar", "nvarchar", "char", "nchar", "binary", "varbinary"):
-                return f"{col}({max_length})"
+        def merge_postgres_type(col, max_length, precision, scale):
+            if col.lower() in ("character varying", ):
+                return f"varchar({max_length})"
             elif col.lower() in ("decimal", "numeric"):
                 return f"{col}({precision},{scale})"
+            elif col.lower() in ("timestamp without time zone",):
+                return "datetime"
+            elif col.lower() in ("double precision",):
+                return "float"
+            elif col.lower() in ("integer",):
+                return "int"
             else:
                 return col
         
@@ -148,7 +154,7 @@ class PostgresExporter:
             return {
                 'columns': [{
                     'name': col[0], 
-                    'type': merge_sqlserver_type(col[1], col[2], col[3], col[4]), 
+                    'type': merge_postgres_type(col[1], col[2], col[3], col[4]), 
                     'nullable': col[5], 
                     "is_pk": col[6]
                 } for col in columns],
@@ -367,7 +373,7 @@ class PostgresExporter:
 if __name__ == "__main__":
     import pandas as pd
 
-    main_dir = r'D:\Data\PosgresSync'
+    main_dir = r'D:\Data\PostgresSync'
     config = {
         'server': 'localhost',
         'port': '5433',
@@ -380,7 +386,8 @@ if __name__ == "__main__":
     exporter = PostgresExporter(**config)
     # exporter.export_table(token="aha", table_name="secumain", where_clause="innercode IN (3, 11, 310976, 1679, 300284, 398635)", order_by="jsid", resume=True)
 
-    table_list = sorted(exporter.get_table_list(), reverse=True)
+    # table_list = sorted(exporter.get_table_list(), reverse=True)
+    table_list = ["secumain", "qt_performance", "lc_balancesheetall"]
     excluded_tables = [
         "test_ct_keywords",
         "c_ex_datastock", 

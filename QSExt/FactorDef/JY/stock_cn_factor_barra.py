@@ -99,6 +99,7 @@ def defFactor(fdi: FactorDefInput):
     
     StockDayBarDef = defStockDayBar(fdi=fdi)
     Cap = StockDayBarDef.getFactor("total_cap")# 万元
+    DailyReturn = StockDayBarDef.getFactor("chg_rate")
     
     StockStatusDef = defStockStatus(fdi=fdi)
     IsListed = StockStatusDef.getFactor("if_listed")
@@ -136,6 +137,7 @@ def defFactor(fdi: FactorDefInput):
         Factors[iFactorName] = standardize(iFactor, Cap, ESTU, factor_args={"Name": iFactorName})# 风格因子第二次标准化
     
     Factors = [Factors[iFactor] for iFactor in sorted(Factors.keys())]
+    Factors += [ESTU, rename(Industry, factor_name="Industry"), rename(Cap, factor_name="TotalCap"), rename(DailyReturn, factor_name="DailyReturn")]
 
     return FactorDef(
         FDI=fdi,
