@@ -65,7 +65,8 @@ class DataImporter(FileSystemEventHandler):
         cmd_file: str = "cmd.json", 
         interval_seconds: int = 3,
         retry_num: int=3,
-        concurrent_num: int=0
+        concurrent_num: int=0,
+        max_check_alive_num: int=3
     ):
         self.target_dir = target_dir
         self.importer = importer
@@ -73,8 +74,10 @@ class DataImporter(FileSystemEventHandler):
         self.interval_seconds = interval_seconds
         self.retry_num = retry_num
         self.concurrent_num = concurrent_num
+        self.max_check_alive_num = max_check_alive_num
 
         self.proc_list = {}# {(token, table_name): Process}
+        self.proc_check_alive_cnt = {}# {(token, table_name): 检查 alive 次数}
         self.queue = Queue()
         self.observation_list = {
             self.cmd_file: dt.datetime.fromtimestamp(os.path.getmtime(os.path.join(self.target_dir, self.cmd_file)))
@@ -105,17 +108,21 @@ class DataImporter(FileSystemEventHandler):
     def check_proc(self):
         has_proc = bool(self.proc_list)
         if self.concurrent_num > 0:
-            while not self.queue.empty():
-                token, table_name, ifok, msg = self.queue.get()
-                if ifok:
-                    print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
-                else:
-                    print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
-                self.proc_list.pop((token, table_name), None)
-            for token, table_name in list(self.proc_list.keys()):
-                if (not self.proc_list[(token, table_name)].is_alive()) and self.queue.empty():
-                    print(f"任务 {token} 的表 {table_name} 导入失败: 工作进程错误")
+            if has_proc:
+                while not self.queue.empty():
+                    token, table_name, ifok, msg = self.queue.get()
+                    if ifok:
+                        print(f"任务 {token} 的表 {table_name} 导入完成: {msg}")
+                    else:
+                        print(f"任务 {token} 的表 {table_name} 导入失败: {msg}")
                     self.proc_list.pop((token, table_name), None)
+                for token, table_name in list(self.proc_list.keys()):
+                    if (not self.proc_list[(token, table_name)].is_alive()) and self.queue.empty():
+                        self.proc_check_alive_cnt[(token, table_name)] = self.proc_check_alive_cnt.get((token, table_name), 0) + 1
+                        if self.proc_check_alive_cnt[(token, table_name)] >= self.max_check_alive_num:
+                            print(f"任务 {token} 的表 {table_name} 导入失败: 工作进程错误")
+                            self.proc_list.pop((token, table_name), None)
+                            self.proc_check_alive_cnt.pop((token, table_name), None)
         else:
             for token, table_name in list(self.proc_list.keys()):
                 if self.proc_list[(token, table_name)] is not None:
@@ -164,6 +171,7 @@ class DataImporter(FileSystemEventHandler):
             else:
                 self.proc_list[(token, itable)] = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "queue": self.queue, "resume": resume},))
                 self.proc_list[(token, itable)].start()
+                self.proc_check_alive_cnt[(token, itable)] = 0
 
     def on_any_event(self, event):
         if event.is_directory: 
