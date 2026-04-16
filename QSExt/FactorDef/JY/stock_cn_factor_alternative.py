@@ -1,6 +1,7 @@
 # coding=utf-8
 """另类因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -150,11 +151,11 @@ def calcSpreadBias(f, idt, iid, x, args):
     return Rslt
     
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     # ## 行情因子 ############################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     PreClose = StockDayBarDef.getFactor(factor_name="pre_close")
     DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
     Turnover = StockDayBarDef.getFactor(factor_name="turnover")
@@ -164,13 +165,13 @@ def defFactor(fdi: FactorDefInput):
     High = StockDayBarDef.getFactor(factor_name="high")
     Low = StockDayBarDef.getFactor(factor_name="low")
     
-    StockStatusDef = defStockStatus(fdi=fdi)
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
     IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
     
-    StockAdjDayBarDef = defStockAdjDayBar(fdi=fdi)
+    StockAdjDayBarDef = dep_fd.get("stock_cn_day_bar_adj_backward_nafilled", defStockAdjDayBar(fdi=fdi, dep_fd=dep_fd))
     AdjClose = StockAdjDayBarDef.getFactor(factor_name="close")
     
-    StockFactorMomentumDef = defStockFactorMomentum(fdi=fdi)
+    StockFactorMomentumDef = dep_fd.get("stock_cn_factor_momentum", defStockFactorMomentum(fdi=fdi, dep_fd=dep_fd))
     Ret20D = StockFactorMomentumDef.getFactor("rtn_20d")
 
     #--收盘价的自然对数
@@ -242,5 +243,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_alternative",
         MaxLookBack=365 * 2,
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """情绪因子""" 
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -13,17 +14,17 @@ from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDa
 from QSExt.FactorDef.JY.stock_cn_consensus_expectation import defFactor as defStockConsensus
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
 
     # ### 行情因子 #############################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     Close = StockDayBarDef.getFactor("close")
 
     # ### 一致预期因子 #########################################################################
-    StockConsensusDef = defStockConsensus(fdi=fdi)
+    StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     EPSAvg_FY0 = StockConsensusDef.getFactor(factor_name="eps_fy0")
@@ -72,5 +73,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_sentiment",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

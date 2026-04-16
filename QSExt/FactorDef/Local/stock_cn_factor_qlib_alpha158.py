@@ -1,30 +1,25 @@
 # coding=utf-8
 """QLib Alpha 158"""
-import os
-import datetime as dt
 from functools import partial
+from typing import Dict
 
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
-from QSExt.Factor.FactorOperator import QuantileStandardization, Orthogonalization
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, 'LookBack': [5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
 def rollingCorr(f, idt, iid, x, args):
     F1, F2 = x
-    return stats.pearsonr(F1, F2, axis=0, nan_policy='omit').correlation
+    return stats.pearsonr(F1, F2, axis=0).correlation
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
-
-    LDB = fdi.FDB["LDB"]
 
     # 基本算子
     log = fo.Log(base=np.e)
@@ -32,15 +27,27 @@ def defFactor(fdi: FactorDefInput):
     min = fo.Min(all_nan=np.nan)
     lag1 = fo.Lag(1)
 
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
-    Volume = FT.getFactor("volume")
+    # LDB = fdi.FDB["LDB"]
+    # FT = LDB.getTable("stock_cn_day_bar_nafilled")
+    # Volume = FT.getFactor("volume")
 
-    FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
-    AdjClose = FT.getFactor("close")
-    AdjHigh = FT.getFactor("high")
-    AdjLow = FT.getFactor("low")
-    AdjOpen = FT.getFactor("open")
-    AdjVWAP = FT.getFactor("avg")
+    # FT = LDB.getTable("stock_cn_day_bar_adj_backward_nafilled")
+    # AdjClose = FT.getFactor("close")
+    # AdjHigh = FT.getFactor("high")
+    # AdjLow = FT.getFactor("low")
+    # AdjOpen = FT.getFactor("open")
+    # AdjVWAP = FT.getFactor("avg")
+
+    # 基本因子
+    StockDayBarDef = dep_fd["stock_cn_day_bar_nafilled"]
+    Volume = StockDayBarDef.getFactor(factor_name="volume")
+
+    StockDayBarAdjDef = dep_fd["stock_cn_day_bar_adj_backward_nafilled"]
+    AdjClose = StockDayBarAdjDef.getFactor("close")
+    AdjHigh = StockDayBarAdjDef.getFactor("high")
+    AdjLow = StockDayBarAdjDef.getFactor("low")
+    AdjOpen = StockDayBarAdjDef.getFactor("open")
+    AdjVWAP = StockDayBarAdjDef.getFactor("avg")
 
     # K 线类
     # KMID
@@ -166,6 +173,6 @@ def defFactor(fdi: FactorDefInput):
         IDType="A股",
         MaxLookBack=365,
         Author="麦冬",
-        Description="QLib Alpha 158 因子集, 主要为量价类因子",
+        Description="QLib Alpha 158 因子集, 全部为量价类因子",
         DefScriptPath=__file__
     )

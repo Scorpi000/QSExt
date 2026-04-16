@@ -1,6 +1,7 @@
 # coding=utf-8
 """资金流因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -12,12 +13,12 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
     
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     Volume = StockDayBarDef.getFactor(factor_name="volume")# 股
 
     # ### Level1 指标因子 #############################################################################
@@ -44,5 +45,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_money_flow",
         MaxLookBack=max(365, StockDayBarDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

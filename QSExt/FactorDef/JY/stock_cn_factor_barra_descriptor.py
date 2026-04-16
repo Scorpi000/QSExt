@@ -1,6 +1,7 @@
 # coding=utf-8
 """Barra 模型描述子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -199,25 +200,25 @@ def calcSTOQ(f, idt, iid, x, args):
     return Rslt
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]
     ND_RF = fdi.ModelArgs.get("ND_RF", 360)
     
     # ### 行情因子 #################################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     DayTurnover = StockDayBarDef.getFactor(factor_name="turnover")# %
     TotalCap = StockDayBarDef.getFactor("total_cap")# 万元
     DayReturn = StockDayBarDef.getFactor("chg_rate")
     
-    StockStatusDef = defStockStatus(fdi=fdi)
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
     IsTrading = StockStatusDef.getFactor("if_trading")
     ST = StockStatusDef.getFactor("st")
     ListDayNum = StockStatusDef.getFactor("listed_days")
     IsListed = StockStatusDef.getFactor("if_listed")
     
-    StockIndustryDef = defStockIndustry(fdi=fdi)
+    StockIndustryDef = dep_fd.get("stock_cn_industry", defStockIndustry(fdi=fdi, dep_fd=dep_fd))
     Industry = StockIndustryDef.getFactor(factor_name="barra_industry")
     Factors.append(Industry)
     
@@ -228,7 +229,7 @@ def defFactor(fdi: FactorDefInput):
     Factors.append(ESTU)
     
     # ### 财务因子 #################################################################################
-    StockConsensusDef = defStockConsensus(fdi=fdi)
+    StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
     PredictedEarnings = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     PredictedEarningsFY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     PredictedEarningsFY2 = StockConsensusDef.getFactor(factor_name="net_profit_fy2")
@@ -373,5 +374,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_barra_descriptor",
         MaxLookBack=max(3650, StockConsensusDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockIndustryDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

@@ -3,6 +3,7 @@
 import datetime as dt
 from itertools import product
 from functools import partial
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -125,20 +126,20 @@ def calcIVFFAndIVR(f, idt, iid, x, args):
         return (np.nan, np.nan)
     return (np.nanstd(Result.resid)*np.sqrt(240.0), 1-Result.rsquared_adj)
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     # ### 行情因子 #############################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
     FloatCap = StockDayBarDef.getFactor(factor_name="float_cap")# 万元
     Weight = StockDayBarDef.getFactor(factor_name="float_cap")# 万元
-    StockStatusDef = defStockStatus(fdi=fdi)
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
     IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
     IfListed = StockStatusDef.getFactor(factor_name="if_listed")
     ST = StockStatusDef.getFactor("st")
     ListDays = StockStatusDef.getFactor("listed_days")
-    StockFactorValue = defStockFactorValue(fdi=fdi)
+    StockFactorValue = dep_fd.get("stock_cn_factor_value", defStockFactorValue(fdi=fdi, dep_fd=dep_fd))
     BP = StockFactorValue.getFactor(factor_name="bp_lr")
 
     Mask = ((IfTrading==1) & (IfListed==1))
@@ -167,5 +168,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_volatility",
         MaxLookBack=max(365 * 2, StockDayBarDef.MaxLookBack, StockFactorValue.MaxLookBack, StockStatusDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

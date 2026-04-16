@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """A股基本信息"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -10,7 +11,7 @@ import QuantStudio.Factor.FactorOperator as fo
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
-def defFactor(fdi: FactorDefInput) -> FactorDef:
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]

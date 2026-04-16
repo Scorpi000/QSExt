@@ -1,6 +1,7 @@
 # coding=utf-8
 """Barra 模型因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -87,9 +88,9 @@ def fillna(f, idt, iid, x, args):
     Rslt[Mask] = FactorData
     return Rslt
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     # ### 描述子 ###########################################################################
-    BarraDescriptorDef = defBarraDescriptor(fdi=fdi)
+    BarraDescriptorDef = dep_fd.get("stock_cn_factor_barra_descriptor", defBarraDescriptor(fdi=fdi, dep_fd=dep_fd))
     DescriptorNames = ['LNCAP', 'NLSIZE', 'BETA', 'RSTR', 'DASTD', 'CMRA', 'HSIGMA', 'BTOP', 'STOM', 'STOQ', 'STOA', 'EPFWD', 'CETOP', 'ETOP', 'EGRLF', 'EGRSF', 'EGRO', 'SGRO', 'MLEV', 'BLEV', 'DTOA']
     Descriptors = {iDescriptorName: BarraDescriptorDef.getFactor(factor_name=iDescriptorName) for iDescriptorName in DescriptorNames}
 
@@ -97,11 +98,11 @@ def defFactor(fdi: FactorDefInput):
     ESTU = BarraDescriptorDef.getFactor("ESTU")
     Industry = BarraDescriptorDef.getFactor("barra_industry")
     
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     Cap = StockDayBarDef.getFactor("total_cap")# 万元
     DailyReturn = StockDayBarDef.getFactor("chg_rate")
     
-    StockStatusDef = defStockStatus(fdi=fdi)
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
     IsListed = StockStatusDef.getFactor("if_listed")
 
     for iDescriptorName in DescriptorNames:
@@ -145,5 +146,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_barra",
         MaxLookBack=max(365, BarraDescriptorDef.MaxLookBack, StockDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

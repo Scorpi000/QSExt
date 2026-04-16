@@ -1,6 +1,7 @@
 # coding=utf-8
 """规模因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
@@ -28,10 +29,10 @@ def defFactor(fdi: FactorDefInput):
     # FloatStkNums = FT.getFactor("当日自由流通股本")
 
     ### 行情因子 #############################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
-    TotalCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...")# 单位: 万元
-    FloatCap = StockDayBarDef.getFactor(factor_name="float_cap", def_path="...")# 单位: 万元
-    Close = StockDayBarDef.getFactor(factor_name="close", def_path="...")
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
+    TotalCap = StockDayBarDef.getFactor(factor_name="total_cap")# 单位: 万元
+    FloatCap = StockDayBarDef.getFactor(factor_name="float_cap")# 单位: 万元
+    Close = StockDayBarDef.getFactor(factor_name="close")
 
     Factors.append(TotalCap)
     Factors.append(FloatCap)
@@ -57,5 +58,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_size",
         MaxLookBack=max(365, StockDayBarDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

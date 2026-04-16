@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """A股一致预期"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -28,7 +29,7 @@ def calcFwd12M(f, idt, iid, x, args):
     Fwd12M = Weight * NetProfitAvg0 + (1 - Weight) * NetProfitAvg1
     return Fwd12M.values
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]

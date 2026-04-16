@@ -2,6 +2,7 @@
 """流动性因子"""
 import datetime as dt
 from functools import partial
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -14,17 +15,17 @@ from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDa
 from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     # ### 日行情因子 #############################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     DayReturn = StockDayBarDef.getFactor(factor_name="chg_rate")
     Turnover = StockDayBarDef.getFactor("turnover")# %
     Volume = StockDayBarDef.getFactor("volume")# 股
     Amount = StockDayBarDef.getFactor("amount")# 元    
     
-    StockStatusDef = defStockStatus(fdi=fdi)
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
     IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
     IfListed = StockStatusDef.getFactor(factor_name="if_listed")
     Mask = ((IfListed==1) & (IfTrading==1))
@@ -56,5 +57,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_liquidity",
         MaxLookBack=max(365 * 2, StockDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

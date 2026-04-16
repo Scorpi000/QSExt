@@ -11,6 +11,7 @@ from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
 
 
 class FactorDefInput(__QS_Args__):
+    """因子定义输入对象"""
     Debug: bool = Field(default=False, title="调试环境", frozen=True)
     FDB: Dict[str, FactorDB] = Field(default={}, title="可用因子库")
     ModelArgs: Dict = Field(default={}, title="模型参数")
@@ -22,8 +23,9 @@ class FactorDefInput(__QS_Args__):
     ProxyDB: Optional[FactorDB] = Field(default=None, title="代理因子库")
     ProxyTableMapping: Dict[str, str] = Field(default={}, title="代理表映射")
 
-# 因子定义对象
+
 class FactorDef(__QS_Args__):
+    """因子定义对象"""
     FactorList: List[Factor] = Field(title="因子列表")
     TargetTable: str = Field(title="因子表")
     IDType: str = Field(title="ID类型")
@@ -37,10 +39,18 @@ class FactorDef(__QS_Args__):
     FDI: Optional[FactorDefInput] = Field(default=None, title="因子定义入参")
 
     @property
-    def FactorNames(self):
+    def FactorNames(self) -> List[str]:
         return [iFactor._QSArgs.Name for iFactor in self.FactorList]
     
-    def getProxyFactor(self, factor_name: Optional[str]=None, factor_id:Optional[str]=None):
+    def getProxyFactor(self, factor_name:Optional[str]=None, factor_id:Optional[str]=None) -> None | Factor:
+        """查找代理因子对象
+
+        Args:
+            factor_name: 因子名称, None 表示忽略该检索条件
+            factor_id: 因子 QSID, None 表示忽略该检索条件
+        
+        Returns: 如果查找到符合要求的则返回找到的因子, 否则返回 None
+        """
         if (self.FDI is None) or (self.FDI.ProxyDB is None): return None
         if factor_name is None and factor_id is None:
             self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 的代理表 '{ProxyTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中不存在!")
@@ -70,8 +80,18 @@ class FactorDef(__QS_Args__):
                 self.Logger.warning(f"FactorDef.getProxyFactor: 表 '{self.TargetTable}' 在代理因子库 '{self.FDI.ProxyDB.Name}' 中的代理表 '{ProxyTable}' 中存在 SourceFactorID='{factor_id}' 的多个代理因子: {SourceFactorNameList}")
             return ProxyFT.getFactor(SourceFactorNameList[0])
 
-    # 查找因子对象, def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1/...， ...表示只在这层搜索，不查询该层的描述子
-    def getFactor(self, factor_name: Optional[str]=None, def_path: str="...", factor_id: Optional[str]=None, only_one=True, use_proxy=True):
+    def getFactor(self, factor_name:Optional[str]=None, def_path:str="...", factor_id:Optional[str]=None, only_one:bool=True, use_proxy:bool=True) -> Factor | List[Factor]:
+        """查找因子对象
+
+        Args:
+            factor_name: 因子名称, None 表示忽略该检索条件
+            def_path: 以/分割的因子查找路径, 比如 年化收益率/0/1/..., 其中 ... 表示只在这层搜索，不查询该层的描述子
+            factor_id: 因子 QSID, None 表示忽略该检索条件
+            only_one: 查找到一个符合要求的因子对象后即返回, False 表示找到所有符合要求的因子对象后才返回
+            use_proxy: 是否使用代理因子, 根据 FDI 中设置的代理因子库和代理表映射来查找代理因子
+        
+        Returns: 如果 only_one=True 则返回找到的一个因子, 如果 only_one=False 则返回找到的因子列表
+        """
         if (factor_id is None) and (factor_name is None):
             raise __QS_Error__(f"入参 factor_id、factor_name 不可同时为 None")
 

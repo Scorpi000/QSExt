@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """质量因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -108,7 +109,7 @@ def calcOCFA(f, idt, iid, x, args):
     return (residual[-1], para[-1])
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
@@ -260,7 +261,7 @@ def defFactor(fdi: FactorDefInput):
     Capex_TTM = FT.getFactor("购建固定资产、无形资产和其他长期资产支付的现金")
     
     # ### 一致预期因子 #############################################################################
-    StockConsensusDef = defStockConsensus(fdi=fdi)
+    StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     
@@ -458,5 +459,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_quality",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

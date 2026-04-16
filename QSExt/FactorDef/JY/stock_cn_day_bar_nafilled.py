@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """A股日行情(缺失填充)"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -8,10 +9,10 @@ import pandas as pd
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.BasicOperator import rename
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QSExt.FactorDef.JY.stock_cn_status import defFactor as defStockStatus
+from QSExt.FactorDef.JY import stock_cn_status
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]
@@ -33,8 +34,8 @@ def defFactor(fdi: FactorDefInput):
     
     FT = JYDB.getTable("日行情表", args={"LookBack": np.inf, "FilterCondition": "{Table}.ClosePrice>0"})
     Close = FT.getFactor("收盘价(元)")
-    StockStatusDef = defStockStatus(fdi=fdi)
-    IfListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
+    StockStatusDef = dep_fd.get("stock_cn_status", stock_cn_status.defFactor(fdi=fdi, dep_fd=dep_fd))
+    IfListed = StockStatusDef.getFactor(factor_name="if_listed")
     Mask = (IfListed==1)
 
     where = fo.Where(dtype="double")

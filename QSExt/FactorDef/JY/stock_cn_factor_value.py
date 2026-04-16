@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """价值因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -59,7 +60,7 @@ def calcValueBias(f, idt, iid, x, args):
     return 1 - c * SVR / VR
     
     
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
@@ -109,21 +110,21 @@ def defFactor(fdi: FactorDefInput):
     FCF_LYR = FT.getFactor("企业自由现金流量FCFF")
     
     # ### 一致预期因子 #############################################################################
-    StockConsensusDef = defStockConsensus(fdi=fdi)
+    StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_FY1 = StockConsensusDef.getFactor(factor_name="net_profit_fy1")
     NetProfitAvg_FY2 = StockConsensusDef.getFactor(factor_name="net_profit_fy2")
     NetProfitAvg_Fwd12M = StockConsensusDef.getFactor(factor_name="net_profit_fwd12m")
     
     # ### 特征因子 #############################################################################
-    StockIndustryDef = defStockIndustry(fdi=fdi)
+    StockIndustryDef = dep_fd.get("stock_cn_industry", defStockIndustry(fdi=fdi, dep_fd=dep_fd))
     Sector = StockIndustryDef.getFactor("citic2019_level1")
-    StockStatusDef = defStockStatus(fdi=fdi)
-    IsListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
+    IsListed = StockStatusDef.getFactor(factor_name="if_listed")
 
     # ### 行情因子 #############################################################################
-    StockDayBarDef = defStockDayBar(fdi=fdi)
-    MarketCap = StockDayBarDef.getFactor(factor_name="total_cap", def_path="...") * 10000# 单位: 元
+    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
+    MarketCap = StockDayBarDef.getFactor(factor_name="total_cap") * 10000# 单位: 元
     
     # #### 股息类 #############################################################################
     FT = JYDB.getTable("公司分红")

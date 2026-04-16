@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """成长因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -50,7 +51,7 @@ def calcACC(f, idt, iid, x, args):
     est = est.fit()
     return est.params[-1]
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
@@ -159,7 +160,7 @@ def defFactor(fdi: FactorDefInput):
     EPS_LR_L1 = FT.getFactor("每股收益(摊薄)(元)")
     
     # ### 一致预期因子 #############################################################################
-    StockConsensusDef = defStockConsensus(fdi=fdi)
+    StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
     NetProfitAvg_FY0 = StockConsensusDef.getFactor(factor_name="net_profit_fy0")
     NetProfitAvg_FY1 = StockConsensusDef.getFactor(factor_name="net_profit_fy1")
     
@@ -237,5 +238,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_growth",
         MaxLookBack=max(365, StockConsensusDef.MaxLookBack),
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )

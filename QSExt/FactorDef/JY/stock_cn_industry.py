@@ -3,6 +3,7 @@
 import os
 import datetime as dt
 from pathlib import Path
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -25,7 +26,7 @@ def mapValue(f, idt, iid, x, args):
     return Rslt.reshape(TargetShape)
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]

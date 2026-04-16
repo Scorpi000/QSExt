@@ -1,6 +1,7 @@
 # coding=utf-8
 """动量因子"""
 import datetime as dt
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -22,15 +23,15 @@ def calcMomentum(f, idt, iid, x, args):
     Mask = (np.sum(IfTrading==1, axis=0) / Len < args['非空率'])
     return LastClose / np.where((FirstClose==0) | Mask, np.nan, FirstClose) - 1
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     # ### 日行情因子 #############################################################################
-    StockAdjDayBarDef = defStockAdjDayBar(fdi=fdi)
-    AdjClose = StockAdjDayBarDef.getFactor(factor_name="close", def_path="...")
-    StockStatusDef = defStockStatus(fdi=fdi)
-    IfTrading = StockStatusDef.getFactor(factor_name="if_trading", def_path="...")
-    IfListed = StockStatusDef.getFactor(factor_name="if_listed", def_path="...")
+    StockAdjDayBarDef = dep_fd.get("stock_cn_day_bar_adj_backward_nafilled", defStockAdjDayBar(fdi=fdi, dep_fd=dep_fd))
+    AdjClose = StockAdjDayBarDef.getFactor(factor_name="close")
+    StockStatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
+    IfTrading = StockStatusDef.getFactor(factor_name="if_trading")
+    IfListed = StockStatusDef.getFactor(factor_name="if_listed")
     Mask = ((IfListed==1) & (IfTrading==1))
 
     # 计算RTN_1D
@@ -75,5 +76,6 @@ def defFactor(fdi: FactorDefInput):
         TargetTable="stock_cn_factor_momentum",
         MaxLookBack=max(365 * 6, StockAdjDayBarDef.MaxLookBack, StockStatusDef.MaxLookBack), 
         IDType="A股",
-        Author="麦冬"
+        Author="麦冬",
+        DefScriptPath=__file__
     )
