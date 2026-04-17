@@ -40,7 +40,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     # 基本因子
     StockDayBarDef = dep_fd["stock_cn_day_bar_nafilled"]
-    Volume = StockDayBarDef.getFactor(factor_name="volume")
+    Volume = StockDayBarDef.getFactor("volume")
 
     StockDayBarAdjDef = dep_fd["stock_cn_day_bar_adj_backward_nafilled"]
     AdjClose = StockDayBarAdjDef.getFactor("close")
