@@ -16,7 +16,9 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 @FactorOperatorized(operator_type="Time", args={"Arity": 2, 'LookBack': [5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
 def rollingCorr(f, idt, iid, x, args):
     F1, F2 = x
-    return stats.pearsonr(F1, F2, axis=0).correlation
+    return 0
+    # return stats.pearsonr(F1, F2, axis=0).correlation
+
 
 def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
