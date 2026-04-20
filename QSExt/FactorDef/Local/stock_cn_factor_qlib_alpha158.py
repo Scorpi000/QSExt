@@ -11,13 +11,7 @@ from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-
-
-@FactorOperatorized(operator_type="Time", args={"Arity": 2, 'LookBack': [5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
-def rollingCorr(f, idt, iid, x, args):
-    F1, F2 = x
-    return 0
-    # return stats.pearsonr(F1, F2, axis=0).correlation
+from QSExt.Factor.FactorOperator import RollingCorr
 
 
 def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
@@ -95,6 +89,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
         rollingMeanN = fo.RollingMean(window=N, min_periods=N)
         rollingStdN = fo.RollingApply(func=np.nanstd, window=N, min_periods=N)
         rollingSumN = fo.RollingApply(func=np.nansum, window=N, min_periods=N)
+        rollingCorrN = RollingCorr(window=N, min_periods=N)
         # ROC
         Factors.append(rename(lagN(AdjClose) / AdjClose, factor_name=f"ROC{N}"))
         # MA
@@ -131,9 +126,9 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
         # IMXD
         Factors.append(rename((IMaxN - IMinN) / N, factor_name=f"IMXD{N}"))
         # CORR
-        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
+        Factors.append(rename(rollingCorrN(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
         # CORD
-        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
+        Factors.append(rename(rollingCorrN(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
         # CNTP
         CntPN = rollingMeanN(AdjClose > lag1(AdjClose))
         Factors.append(rename(CntPN, factor_name=f"CNTP{N}"))
