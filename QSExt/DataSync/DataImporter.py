@@ -197,7 +197,7 @@ if __name__ == "__main__":
     target_dir = r'D:\Data\JYDBSync'
     config = {
         'host': '172.25.109.134',
-        'port': '5433',
+        'port': '5432',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',
