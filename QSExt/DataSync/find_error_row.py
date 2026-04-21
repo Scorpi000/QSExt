@@ -87,7 +87,7 @@ def bifind_error_row(conn, sql, batch):
 if __name__=="__main__":
     config = {
         'host': 'localhost',
-        'port': '5433',
+        'port': '5432',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',

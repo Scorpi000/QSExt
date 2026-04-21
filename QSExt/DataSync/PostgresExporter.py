@@ -376,7 +376,7 @@ if __name__ == "__main__":
     main_dir = r'D:\Data\PostgresSync'
     config = {
         'server': 'localhost',
-        'port': '5433',
+        'port': '5432',
         'database': 'JYDB',
         'username': 'shzq',
         'password': 'shzq#321',
