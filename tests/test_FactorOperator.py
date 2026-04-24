@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from QuantStudio.Factor.Factor import DataFactor
+import QuantStudio.Factor.FactorOperator as fo
 from QSExt.Factor.FactorOperator import RollingCorr
 
 
@@ -24,8 +25,13 @@ Open = DataFactor(data=pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTRuler
 Close = DataFactor(data=pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTRuler, columns=SectionIDs), args={"Name": "close"})
 
 
-rollingCorr = RollingCorr(window=5, min_periods=3)
-TestF = rollingCorr(F1, Open, factor_args={"Name": "TestF"})
+# rollingCorr = RollingCorr(window=5, min_periods=3)
+# TestF = rollingCorr(F1, Open, factor_args={"Name": "TestF"})
+# TestData = TestF.readData(ids=IDs, dts=DTs, dt_ruler=DTRuler)
+# print(TestData)
+
+rollingSum = fo.RollingApply(func=np.nansum, window=5, min_periods=3)
+TestF = rollingSum(F1, factor_args={"Name": "TestF"})
 TestData = TestF.readData(ids=IDs, dts=DTs, dt_ruler=DTRuler)
 print(TestData)
 

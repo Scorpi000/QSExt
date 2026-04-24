@@ -14,6 +14,12 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 from QSExt.Factor.FactorOperator import RollingCorr
 
 
+@FactorOperatorized(operator_type="Time", args={"Arity": 2, 'LookBack': [5-1, 5-1], "IDMode": "多ID", "DTMode": "单时点"})
+def rollingCorr(f, idt, iid, x, args):
+    F1, F2 = x
+    return stats.pearsonr(F1, F2, axis=0).correlation
+
+
 def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
@@ -125,10 +131,14 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
         Factors.append(rename(IMinN / N, factor_name=f"IMIN{N}"))
         # IMXD
         Factors.append(rename((IMaxN - IMinN) / N, factor_name=f"IMXD{N}"))
+        # # CORR
+        # Factors.append(rename(rollingCorrN(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
+        # # CORD
+        # Factors.append(rename(rollingCorrN(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
         # CORR
-        Factors.append(rename(rollingCorrN(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
+        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose, log(Volume + 1)), factor_name=f"CORR{N}"))
         # CORD
-        Factors.append(rename(rollingCorrN(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
+        Factors.append(rename(rollingCorr.new(args={"LookBack": [N-1, N-1]})(AdjClose / lag1(AdjClose), log(Volume / lag1(Volume) + 1)), factor_name=f"CORD{N}"))
         # CNTP
         CntPN = rollingMeanN(AdjClose > lag1(AdjClose))
         Factors.append(rename(CntPN, factor_name=f"CNTP{N}"))
