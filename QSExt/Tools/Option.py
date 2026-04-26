@@ -1,6 +1,6 @@
 from enum import Enum
 import traceback
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import numpy as np
 import pandas as pd
@@ -301,7 +301,7 @@ class EuropeanOptionPortfolio:
             premium += opt.quantity * price
         return premium
 
-    def get_payoff_at_expiry(self, s: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarry]=None, include_premium: bool=False) -> float | np.ndarray:
+    def get_payoff_at_expiry(self, s: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarray]=None, include_premium: bool=False) -> float | np.ndarray:
         """
         计算组合到期时的总盈亏
 
@@ -320,7 +320,7 @@ class EuropeanOptionPortfolio:
         if include_premium: total_payoff = total_payoff - self.get_net_premium()
         return total_payoff
     
-    def get_individual_payoff_at_expiry(self, s: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarry]=None, include_premium: bool=False) -> np.ndarray:
+    def get_individual_payoff_at_expiry(self, s: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarray]=None, include_premium: bool=False) -> np.ndarray:
         """
         计算组合到期时的总盈亏
 
@@ -348,23 +348,79 @@ class EuropeanOptionPortfolio:
 
     def get_current_theoretical_value(self, s: Optional[float | np.ndarray]=None, tau: Optional[float | np.ndarray]=None, r: Optional[float | np.ndarray]=None, sigma: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarray]=None, include_premium: bool=False) -> float | np.ndarray:
         """
-        计算当前时刻在给定标的价格范围下的理论价值
+        计算当前组合的理论价值
 
         Args:
-            spot_price_range: 标的资产价格数组
+            s: 标的资产价格
+            tau: 到期时间(单位：年)
+            r: 无风险利率
+            sigma: 波动率
+            k: 执行价
             include_premium: 是否包含权利金
 
         Returns:
-            np.ndarray: 对应的当前理论盈亏数组
+            组合当前理论价值
         """
-        current_values = np.zeros_like(spot_price_range, dtype=float)
-        for opt in self.options:
-            price = opt.get_theoretical_price(spot_price_range, self.market_params.risk_free_rate, volatility=self.market_params.volatility, spot_price=self.market_params.spot_price)
-            current_values += opt.quantity * price
-        if include_premium: current_values = current_values - self.get_net_premium()
-        return current_values
+        if s is None: s = self.market_params.spot_price
+        if r is None: r = self.market_params.risk_free_rate
+        if sigma is None: sigma = self.market_params.volatility
 
-    def get_greeks(self, spot_price_range: np.ndarray) -> pd.DataFrame:
+        current_value = 0
+        for i, opt in enumerate(self.options):
+            opt_tau = (opt.maturity if tau is None else tau)
+            opt_k = (opt.strike if k is None else k)
+            if (sigma is None) and (opt.market_price is None):
+                raise Exception(f"没有传入波动率，市场参数中没有波动率，并且第 {i} 个期权的市场价格为 None 无法估计隐含波动率")
+            elif sigma is None:
+                opt_sigma = EuropeanBlackSholesModel.calcImpliedVolatility(p=opt.market_price, s=self.market_params.spot_price, tau=opt.maturity, r=self.market_params.risk_free_rate, k=opt.strike, option_type=opt.option_type)
+            else:
+                opt_sigma = sigma
+            price = EuropeanBlackSholesModel.calcPrice(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type)
+            current_value += opt.quantity * price
+        if include_premium: current_value = current_value - self.get_net_premium()
+        return current_value
+
+    def get_individual_current_theoretical_value(self, s: Optional[float | np.ndarray]=None, tau: Optional[float | np.ndarray]=None, r: Optional[float | np.ndarray]=None, sigma: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarray]=None, include_premium: bool=False) -> float | np.ndarray:
+        """
+        计算当前组合的理论价值
+
+        Args:
+            s: 标的资产价格
+            tau: 到期时间(单位：年)
+            r: 无风险利率
+            sigma: 波动率
+            k: 执行价
+            include_premium: 是否包含权利金
+
+        Returns:
+            组合当前理论价值
+        """
+        if s is None: s = self.market_params.spot_price
+        if r is None: r = self.market_params.risk_free_rate
+        if sigma is None: sigma = self.market_params.volatility
+
+        current_value_list = []
+        for i, opt in enumerate(self.options):
+            opt_tau = (opt.maturity if tau is None else tau)
+            opt_k = (opt.strike if k is None else k)
+            if (sigma is None) and (opt.market_price is None):
+                raise Exception(f"没有传入波动率，市场参数中没有波动率，并且第 {i} 个期权的市场价格为 None 无法估计隐含波动率")
+            elif sigma is None:
+                opt_sigma = EuropeanBlackSholesModel.calcImpliedVolatility(p=opt.market_price, s=self.market_params.spot_price, tau=opt.maturity, r=self.market_params.risk_free_rate, k=opt.strike, option_type=opt.option_type)
+            else:
+                opt_sigma = sigma
+            value = EuropeanBlackSholesModel.calcPrice(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity
+            if include_premium:
+                # 如果有市场价格，优先使用市场价格计算成本，否则使用理论价格
+                if opt.market_price is not None:
+                    premium = opt.market_price
+                else:
+                    premium = EuropeanBlackSholesModel.calcPrice(s=self.market_params.spot_price, tau=opt.maturity, r=self.market_params.risk_free_rate, sigma=self.market_params.volatility, k=opt.strike, option_type=opt.option_type)
+                value = value - premium * opt.quantity
+            current_value_list.append(value)
+        return np.array(current_value_list)
+
+    def get_greeks(self, s: Optional[float | np.ndarray]=None, tau: Optional[float | np.ndarray]=None, r: Optional[float | np.ndarray]=None, sigma: Optional[float | np.ndarray]=None, k: Optional[float | np.ndarray]=None) -> Dict[str, np.ndarray]:
         """
         计算当前组合的总希腊字母。
 
@@ -374,26 +430,37 @@ class EuropeanOptionPortfolio:
         Returns:
             组合的总希腊字母
         """
-        total_greeks = pd.DataFrame(0, index=spot_price_range, columns=["delta", "gamma", "theta", "vega", "rho"])
+        if s is None: s = self.market_params.spot_price
+        if r is None: r = self.market_params.risk_free_rate
+        if sigma is None: sigma = self.market_params.volatility
 
-        for opt in self.options:
-            greeks = opt.get_greeks(spot_price_range, self.market_params.risk_free_rate, volatility=self.market_params.volatility, spot_price=self.market_params.spot_price)
-            total_greeks += opt.quantity * greeks
+        greeks = {"Delta": 0, "Gamma": 0, "Theta": 0, "Vega": 0, "Rho": 0}
+        for i, opt in enumerate(self.options):
+            opt_tau = (opt.maturity if tau is None else tau)
+            opt_k = (opt.strike if k is None else k)
+            if (sigma is None) and (opt.market_price is None):
+                raise Exception(f"没有传入波动率，市场参数中没有波动率，并且第 {i} 个期权的市场价格为 None 无法估计隐含波动率")
+            elif sigma is None:
+                opt_sigma = EuropeanBlackSholesModel.calcImpliedVolatility(p=opt.market_price, s=self.market_params.spot_price, tau=opt.maturity, r=self.market_params.risk_free_rate, k=opt.strike, option_type=opt.option_type)
+            else:
+                opt_sigma = sigma
+            greeks = {
+                "Delta": EuropeanBlackSholesModel.calcDelta(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity + greeks["Delta"],
+                "Gamma": EuropeanBlackSholesModel.calcGamma(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity + greeks["Gamma"],
+                "Theta": EuropeanBlackSholesModel.calcTheta(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity + greeks["Theta"],
+                "Vega": EuropeanBlackSholesModel.calcVega(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity + greeks["Vega"],
+                "Rho": EuropeanBlackSholesModel.calcRho(s=s, tau=opt_tau, r=r, sigma=opt_sigma, k=opt_k, option_type=opt.option_type) * opt.quantity + greeks["Rho"]
+            }
+        return greeks
 
-        return total_greeks
-
-# ==========================================
-# 绘图功能
-# ==========================================
-
-def plot_portfolio_pnl(portfolio: EuropeanOptionPortfolio, portfolio_pnl: pd.Series, individual_pnl: Optional[pd.DataFrame]=None, ax=None):
+def plot_portfolio_value_relative_to_s(portfolio: EuropeanOptionPortfolio, portfolio_value: pd.Series, individual_value: Optional[pd.DataFrame]=None, ax=None):
     """
-    绘制期权组合的盈亏分布
+    绘制期权组合价值相对于标的资产价格的分布
     
     Args:
         portfolio : 期权组合
-        portfolio_pnl: 期权组合盈亏
-        individual_pnl: 单个期权盈亏
+        portfolio_value: 期权组合价值
+        individual_value: 单个期权价值
         ax : 绘图的坐标轴
     """
     if ax is None:
@@ -403,16 +470,16 @@ def plot_portfolio_pnl(portfolio: EuropeanOptionPortfolio, portfolio_pnl: pd.Ser
         fig = None
     colors = plt.cm.tab10(np.linspace(0, 1, len(portfolio.options)))
     # 绘制单个期权盈亏
-    if individual_pnl is not None:
+    if individual_value is not None:
         for i, opt in enumerate(portfolio.options):
             label = (f"{'买入' if opt.quantity > 0 else '卖出'}"
                     f"{opt.quantity}手"
                     f"{'看涨' if opt.option_type == OptionType.CALL else '看跌'}"
                     f"(K={opt.strike}, P={opt.market_price})")
-            ax.plot(individual_pnl.index, individual_pnl.iloc[:, i].values, '--', alpha=0.6, color=colors[i], label=label)
+            ax.plot(individual_value.index, individual_value.iloc[:, i].values, '--', alpha=0.6, color=colors[i], label=label)
     
     # 绘制组合总盈亏
-    ax.plot(portfolio_pnl.index, portfolio_pnl.values, 'k-', linewidth=2.5, label='组合总盈亏')
+    ax.plot(portfolio_value.index, portfolio_value.values, 'k-', linewidth=2.5, label='组合总盈亏')
     ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
     
     # 标注关键行权价
@@ -422,17 +489,17 @@ def plot_portfolio_pnl(portfolio: EuropeanOptionPortfolio, portfolio_pnl: pd.Ser
         ax.annotate(f'K={strike}', xy=(strike, ax.get_ylim()[0]), xytext=(strike, ax.get_ylim()[0]*0.9), fontsize=8, color='red', ha='center')
     
     # 标注盈亏平衡点
-    zero_crossings = portfolio_pnl.index[:-1][np.diff(np.sign(portfolio_pnl.values)) != 0]
+    zero_crossings = portfolio_value.index[:-1][np.diff(np.sign(portfolio_value.values)) != 0]
     for bp in zero_crossings[:3]:# 最多标注3个平衡点
         ax.plot(bp, 0, color='steelblue', marker='o', markersize=8)
-        ax.annotate(f'盈亏平衡\n{bp:.2f}', xy=(bp, 0), xytext=(bp, max(portfolio_pnl.values)*0.1), fontsize=9, ha='center')
+        ax.annotate(f'盈亏平衡\n{bp:.2f}', xy=(bp, 0), xytext=(bp, max(portfolio_value.values)*0.1), fontsize=9, ha='center')
     
     # 最大盈利/亏损标注
-    S_max, S_min = portfolio_pnl.index[0], portfolio_pnl.index[-1]
-    max_profit = portfolio_pnl.max()
-    max_loss = portfolio_pnl.min()
-    ax.annotate(f'最大盈利: {max_profit:.2f}',  xy=(portfolio_pnl.idxmax(), max_profit), xytext=(portfolio_pnl.idxmax() + (S_max-S_min)*0.05, max_profit*0.9), fontsize=10, color='red', arrowprops=dict(arrowstyle='->', color='red'))
-    ax.annotate(f'最大亏损: {max_loss:.2f}', xy=(portfolio_pnl.idxmin(), max_loss), xytext=(portfolio_pnl.idxmin() + (S_max-S_min)*0.05, max_loss*1.1), fontsize=10, color='green', arrowprops=dict(arrowstyle='->', color='green'))
+    S_max, S_min = portfolio_value.index[0], portfolio_value.index[-1]
+    max_profit = portfolio_value.max()
+    max_loss = portfolio_value.min()
+    ax.annotate(f'最大盈利: {max_profit:.2f}',  xy=(portfolio_value.idxmax(), max_profit), xytext=(portfolio_value.idxmax() + (S_max-S_min)*0.05, max_profit*0.9), fontsize=10, color='red', arrowprops=dict(arrowstyle='->', color='red'))
+    ax.annotate(f'最大亏损: {max_loss:.2f}', xy=(portfolio_value.idxmin(), max_loss), xytext=(portfolio_value.idxmin() + (S_max-S_min)*0.05, max_loss*1.1), fontsize=10, color='green', arrowprops=dict(arrowstyle='->', color='green'))
     
     # ax.set_xlabel('标的资产到期价格 $S_T$', fontsize=12)
     # ax.set_ylabel('到期盈亏', fontsize=12)
@@ -440,13 +507,53 @@ def plot_portfolio_pnl(portfolio: EuropeanOptionPortfolio, portfolio_pnl: pd.Ser
     ax.grid(True, alpha=0.3)
     return fig, ax
 
-def plot_greek(greek: pd.DataFrame, S_0:Optional[float]=None, ax = None):
+def plot_portfolio_value(portfolio: EuropeanOptionPortfolio, portfolio_value: pd.Series, individual_value: Optional[pd.DataFrame]=None, ax=None):
+    """
+    绘制期权组合的价值分布
+    
+    Args:
+        portfolio : 期权组合
+        portfolio_value: 期权组合价值
+        individual_value: 单个期权价值
+        ax : 绘图的坐标轴
+    """
+    if ax is None:
+        fig = Figure(figsize=(12, 7))
+        ax = fig.add_subplot(1, 1, 1)
+    else:
+        fig = None
+    colors = plt.cm.tab10(np.linspace(0, 1, len(portfolio.options)))
+    # 绘制单个期权价值
+    if individual_value is not None:
+        for i, opt in enumerate(portfolio.options):
+            label = (f"{'买入' if opt.quantity > 0 else '卖出'}"
+                    f"{opt.quantity}手"
+                    f"{'看涨' if opt.option_type == OptionType.CALL else '看跌'}"
+                    f"(K={opt.strike}, P={opt.market_price})")
+            ax.plot(individual_value.index, individual_value.iloc[:, i].values, '--', alpha=0.6, color=colors[i], label=label)
+    
+    # 绘制组合价值
+    ax.plot(portfolio_value.index, portfolio_value.values, 'k-', linewidth=2.5, label='组合')
+    ax.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
+    
+    # 最大价值/最小价值标注
+    S_max, S_min = portfolio_value.index[0], portfolio_value.index[-1]
+    max_profit = portfolio_value.max()
+    max_loss = portfolio_value.min()
+    ax.annotate(f'最大价值: {max_profit:.2f}',  xy=(portfolio_value.idxmax(), max_profit), xytext=(portfolio_value.idxmax() + (S_max-S_min)*0.05, max_profit*0.9), fontsize=10, color='red', arrowprops=dict(arrowstyle='->', color='red'))
+    ax.annotate(f'最小价值: {max_loss:.2f}', xy=(portfolio_value.idxmin(), max_loss), xytext=(portfolio_value.idxmin() + (S_max-S_min)*0.05, max_loss*1.1), fontsize=10, color='green', arrowprops=dict(arrowstyle='->', color='green'))
+    
+    ax.legend(loc='upper left', fontsize=9)
+    ax.grid(True, alpha=0.3)
+    return fig, ax
+
+def plot_greek(greek: pd.DataFrame, current_idx:Optional[float]=None, ax = None):
     """
     计算并绘制期权组合的希腊字母分布
     
     Args:
         greek : 希腊字母, 
-        S_0: 当前价格
+        current_idx: 当前位置
     """
     if ax is None:
         fig = Figure(figsize=(12, 7))
@@ -459,8 +566,238 @@ def plot_greek(greek: pd.DataFrame, S_0:Optional[float]=None, ax = None):
     for i, igreek in enumerate(greek.columns):
         ax.plot(greek.index, greek[igreek].values, label=igreek, color=colors[i], alpha=0.9)
         ax.axhline(0, color='black', linewidth=1)
-        if S_0 is not None: ax.axvline(S_0, color='red', linestyle=':')
+        if current_idx is not None: ax.axvline(current_idx, color='red', linestyle=':')
         ax.set_xlabel('标的资产价格')
         ax.legend()
         ax.grid(True, alpha=0.3)
     return fig, ax
+
+def calc_single_maturity_variance(T: float, opts: pd.DataFrame, R: float) -> float:
+    """
+    计算单个到期月份的隐含方差
+
+    Args:
+        T: 剩余到期时间（年）
+        opts: 该月份所有期权，索引为代码（可忽略），包含列：type, strike, price
+        R: 无风险利率（连续复利，年化）
+
+    Returns: 年化方差，若无法计算则返回 nan
+    """
+    if opts.empty:
+        return np.nan
+
+    # 1. 寻找平值执行价：对同一执行价，看涨与看跌价格差的绝对值最小
+    min_diff = np.inf
+    K_atm = None
+    call_atm = put_atm = None
+    for strike, group in opts.groupby("strike"):
+        if len(group) == 2:
+            c = group[group["type"] == "call"]
+            p = group[group["type"] == "put"]
+            if len(c) == 1 and len(p) == 1:
+                diff = abs(c["price"].iloc[0] - p["price"].iloc[0])
+                if diff < min_diff:
+                    min_diff = diff
+                    K_atm = strike
+                    call_atm = c["price"].iloc[0]
+                    put_atm = p["price"].iloc[0]
+    if K_atm is None:
+        return np.nan
+
+    # 2. 远期价格 F
+    F = K_atm + np.exp(R * T) * (call_atm - put_atm)
+
+    # 3. 确定 K0：小于等于 F 的最大可用执行价
+    all_strikes = sorted(opts["strike"].unique())
+    K0_candidates = [k for k in all_strikes if k <= F]
+    if not K0_candidates:
+        return np.nan
+    K0 = max(K0_candidates)
+
+    # 4. 筛选虚值期权并定价
+    #    用字典便于后面按执行价取价
+    price_dict = {}
+    for k in all_strikes:
+        if k < K0:
+            # 虚值看跌
+            put = opts[(opts["type"] == "put") & (opts["strike"] == k)]
+            if not put.empty:
+                price_dict[k] = put["price"].iloc[0]
+        elif k > K0:
+            # 虚值看涨
+            call = opts[(opts["type"] == "call") & (opts["strike"] == k)]
+            if not call.empty:
+                price_dict[k] = call["price"].iloc[0]
+        else:  # k == K0
+            call = opts[(opts["type"] == "call") & (opts["strike"] == K0)]
+            put = opts[(opts["type"] == "put") & (opts["strike"] == K0)]
+            if not call.empty and not put.empty:
+                price_dict[K0] = (call["price"].iloc[0] + put["price"].iloc[0]) / 2.0
+            elif not call.empty:
+                price_dict[K0] = call["price"].iloc[0]
+            elif not put.empty:
+                price_dict[K0] = put["price"].iloc[0]
+
+    if not price_dict:
+        return np.nan
+
+    # 5. 分左右方向截断连续零报价
+    #    左边（执行价 <= K0）：从 K0 向下遍历，遇到连续两个零停止
+    left_strikes = sorted([k for k in price_dict if k <= K0], reverse=True)  # 降序
+    left_final = []
+    consec_zeros = 0
+    for k in left_strikes:
+        p = price_dict[k]
+        if p <= 1e-12 or np.isnan(p):
+            consec_zeros += 1
+            if consec_zeros >= 2:
+                break  # 连续两个零，停止选取，且不添加当前零
+            else:
+                left_final.append((k, 0.0))  # 保留第一个零
+        else:
+            consec_zeros = 0
+            left_final.append((k, p))
+
+    # 右边（执行价 > K0）：从 K0 向上遍历
+    right_strikes = sorted([k for k in price_dict if k >= K0])
+    right_final = []
+    consec_zeros = 0
+    for k in right_strikes:
+        p = price_dict[k]
+        if p <= 1e-12 or np.isnan(p):
+            consec_zeros += 1
+            if consec_zeros >= 2:
+                break
+            else:
+                right_final.append((k, 0.0))
+        else:
+            consec_zeros = 0
+            right_final.append((k, p))
+
+    # 合并并去重（K0 可能重复）
+    final_pairs = left_final.copy()
+    for k, p in right_final:
+        if k == K0:
+            continue
+        final_pairs.append((k, p))
+    final_pairs.sort(key=lambda x: x[0])
+
+    strikes = np.array([x[0] for x in final_pairs])
+    prices = np.array([x[1] for x in final_pairs])
+
+    if len(strikes) == 0:
+        return np.nan
+
+    # 6. 计算 ΔK
+    n = len(strikes)
+    delta_K = np.zeros(n)
+    if n == 1:
+        delta_K[0] = 1.0  # 单点情况，理论上不会发生
+    else:
+        delta_K[0] = strikes[1] - strikes[0]
+        delta_K[-1] = strikes[-1] - strikes[-2]
+        if n > 2:
+            for i in range(1, n - 1):
+                delta_K[i] = (strikes[i + 1] - strikes[i - 1]) / 2.0
+
+    # 7. 求和项
+    contrib = np.sum(delta_K / (strikes**2) * np.exp(R * T) * prices)
+
+    # 8. 方差公式
+    variance = (2.0 / T) * contrib - (1.0 / T) * ((F / K0) - 1) ** 2
+    return max(variance, 0.0)
+
+def calc_variance_swap_iv(spot_price: pd.Series, risk_free_rate: pd.Series, option_info: pd.DataFrame, option_price: pd.DataFrame, option_maturity: pd.DataFrame) -> pd.Series:
+    """基于方差互换原理估计隐含波动率（无模型隐含波动率，类似CBOE VIX方法）
+
+    Args:
+        spot_price: 标的资产价格序列, index 是时间序列
+        risk_free_rate: 年化无风险利率（连续复利）, index 是时间序列
+        option_info: 期权基本信息, index 是期权证券代码, columns=["type", "strike"], 其中 type 表示期权类型，可选值有 "call"(看涨期权), "put"(看跌期权), strike 表示期权的执行价
+        option_price: 期权价格序列, index 是时间序列, columns 是期权证券代码
+        option_maturity: 期权到期时间, 单位是年, index 是时间序列, columns 是期权证券代码，若值为NaN表示该时点该期权未上市。
+    
+    Returns:
+        隐含波动率估计值（年化）, index 是时间序列
+    """
+    # 用于年化与分钟数转换常数
+    MINUTES_PER_YEAR = 365 * 24 * 60  # 525600
+    MINUTES_PER_30_DAYS = 30 * 24 * 60  # 43200
+    NEAR_TERM_THRESHOLD_DAYS = 7 / 365  # 7天转换为年
+
+    result = pd.Series(index=spot_price.index, dtype=float)
+
+    # 主循环：每个时点
+    for t in spot_price.index:
+        try:
+            # 当前时点在市的期权
+            avail_opts = option_maturity.loc[t].dropna().index
+            if len(avail_opts) == 0:
+                result[t] = np.nan
+                continue
+
+            # 构建该时点所有上市期权的 DataFrame
+            info = option_info.loc[avail_opts]  # type, strike
+            prices = option_price.loc[t, avail_opts]
+            maturities = option_maturity.loc[t, avail_opts]
+            opts_df = pd.DataFrame({
+                "type": info["type"],
+                "strike": info["strike"],
+                "price": prices.values,
+                "maturity": maturities.values,
+            }, index=avail_opts)
+
+            # 按到期时间分组，选取两个最短的到期日（注意可能有微小不一致，这里直接用唯一值）
+            unique_maturities = sorted(opts_df["maturity"].unique())
+            if len(unique_maturities) < 2:
+                result[t] = np.nan
+                continue
+
+            T_near = unique_maturities[0]
+            T_next = unique_maturities[1]
+
+            # 近月到期时间不足7天则切换至次近月，并取再下一个月份作为次近月
+            if T_near < NEAR_TERM_THRESHOLD_DAYS:
+                if len(unique_maturities) >= 3:
+                    T_near = unique_maturities[1]
+                    T_next = unique_maturities[2]
+                else:
+                    # 只有两个月且近月即将到期，无法可靠计算
+                    result[t] = np.nan
+                    continue
+
+            # 获取近月与次近月期权子集
+            near_opts = opts_df[opts_df["maturity"] == T_near].copy()
+            next_opts = opts_df[opts_df["maturity"] == T_next].copy()
+
+            if near_opts.empty or next_opts.empty:
+                result[t] = np.nan
+                continue
+
+            R = risk_free_rate.loc[t]
+
+            var_near = calc_single_maturity_variance(T_near, near_opts, R)
+            var_next = calc_single_maturity_variance(T_next, next_opts, R)
+
+            if np.isnan(var_near) or np.isnan(var_next):
+                result[t] = np.nan
+                continue
+
+            # 时间加权插值到30天
+            N_T1 = T_near * MINUTES_PER_YEAR
+            N_T2 = T_next * MINUTES_PER_YEAR
+            N_30 = MINUTES_PER_30_DAYS
+
+            # 权重
+            w_near = (N_T2 - N_30) / (N_T2 - N_T1)
+            w_next = (N_30 - N_T1) / (N_T2 - N_T1)
+
+            # 加权总方差（再乘以365/30转换为30天年化方差，开方得标准差）
+            weighted_var = T_near * var_near * w_near + T_next * var_next * w_next
+            implied_vol = np.sqrt((365.0 / 30.0) * max(weighted_var, 0.0))
+
+            result[t] = implied_vol
+        except Exception:
+            result[t] = np.nan
+
+    return result
