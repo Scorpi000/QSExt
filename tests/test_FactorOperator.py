@@ -1,5 +1,5 @@
 # coding=utf-8
-"""测试在因子算子"""
+"""测试因子算子"""
 import datetime as dt
 
 import numpy as np
@@ -24,14 +24,8 @@ F1 = DataFactor(data=pd.DataFrame(F1, index=DTRuler, columns=SectionIDs), args={
 Open = DataFactor(data=pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTRuler, columns=SectionIDs), args={"Name": "open"})
 Close = DataFactor(data=pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTRuler, columns=SectionIDs), args={"Name": "close"})
 
-
-# rollingCorr = RollingCorr(window=5, min_periods=3)
-# TestF = rollingCorr(F1, Open, factor_args={"Name": "TestF"})
-# TestData = TestF.readData(ids=IDs, dts=DTs, dt_ruler=DTRuler)
-# print(TestData)
-
-rollingSum = fo.RollingApply(func=np.nansum, window=5, min_periods=3)
-TestF = rollingSum(F1, factor_args={"Name": "TestF"})
+rollingCorr = RollingCorr(window=5, min_periods=3)
+TestF = rollingCorr(F1, Open, factor_args={"Name": "TestF"})
 TestData = TestF.readData(ids=IDs, dts=DTs, dt_ruler=DTRuler)
 print(TestData)
 
