@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """指数行情"""
+from typing import Dict
+
 from QuantStudio.Factor.BasicOperator import rename
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
-def defFactor(fdi: FactorDefInput):
+def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]

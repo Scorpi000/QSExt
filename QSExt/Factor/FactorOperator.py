@@ -8,34 +8,27 @@ import pandas as pd
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import TimeOperator, SectionOperator, SectionOperation
+from QuantStudio.Factor.FactorOperation import TimeOperator, TimeOperation, SectionOperator, SectionOperation
 from QuantStudio.Tools import DataPreprocessingFun
 
 
 # ----------------------时序运算--------------------------------
-class FillNa(TimeOperator):
-    def __init__(self, value=None, lookback=1, sys_args={}, config_file=None, **kwargs):
-        if value is None:
-            Args = {"名称": "fillna", "入参数": 1, "最大入参数": 1, "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [lookback], "参数": {"fill_value": False, "lookback": lookback}}
-        else:
-            Args = {"名称": "fillna", "入参数": 2, "最大入参数": 2, "运算时点": "多时点", "运算ID": "多ID", "回溯期数": [0, 0], "参数": {"fill_value": True, "lookback": lookback}}
-        Args.update(sys_args)
-        self._Value = value
-        return super().__init__(sys_args=Args, config_file=config_file, **kwargs)
+class FFill(TimeOperator):
+    def __init__(self, lookback:int=1, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        Args = {"Name": "ffill", "LookBack": [lookback], "DataType": "double"} | args | {"Arity": 1, "DTMode": "多时点", "IDMode": "多ID"}
+        Args["ModelArgs"] = {"lookback": lookback} | Args.get("ModelArgs", {})
+        return super().__init__(args=Args, config_file=config_file, **kwargs)
     
-    def calculate(self, f, idt, iid, x, args):
-        Data, Val = x
-        if not args["fill_value"]:
-            LookBack = args["lookback"]
-            return pd.DataFrame(Data).fillna(method="pad", limit=LookBack).values[LookBack:]
-        else:
-            return np.where(pd.notnull(Data), Data, Val)
+    def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
+        LookBack = args["lookback"]
+        return pd.DataFrame(x[0]).ffill(limit=LookBack).values[LookBack:]
     
-    def __call__(self, f:Factor, factor_name:Optional[str]=None, factor_args:Dict={}, **kwargs):
-        if self._Value is None:
-            return super().__call__(f, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+    def __call__(self, f:Factor, factor_args:dict={}, **kwargs) -> TimeOperation:
+        DataType = f.getMetaData(key="DataType")
+        if DataType != self._QSArgs.DataType:
+            return super(FFill, self.new(args={"DataType": DataType})).__call__(f, factor_args=factor_args, **kwargs)
         else:
-            return super().__call__(f, self._Value, args={}, factor_name=factor_name, factor_args=factor_args, **kwargs)
+            return super().__call__(f, factor_args=factor_args, **kwargs)
 
 class RollingCorr(TimeOperator):
     """滚动相关系数

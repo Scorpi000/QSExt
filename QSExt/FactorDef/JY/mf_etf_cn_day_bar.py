@@ -36,7 +36,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(rename(FT.getFactor("贴水(元)"), factor_name="discount"))
     Factors.append(rename(FT.getFactor("贴水率(%)") / 100, factor_name="discount_ratio"))
     
-    FT = JYDB.getTable("公募基金份额变动", args={"统计区间": "996"})
+    FT = JYDB.getTable("公募基金份额变动", args={"AdditionalCondition": {"统计区间": "996"}})
     Factors.append(rename(FT.getFactor("期末份额(份)"), factor_name="total_shares"))
     Factors.append(rename(FT.getFactor("流通份额(份)"), factor_name="float_shares"))
     

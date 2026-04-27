@@ -9,13 +9,13 @@ from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QSExt.Factor.FactorOperator import FillNa
+from QSExt.Factor.FactorOperator import FFill
 
 
 @FactorOperatorized(operator_type="Section", args={"DTMode": "单时点"})
 def calcIndexValue(f, idt, iid, x, args):
     Value, ComponentID, ComponentWeight = x
-    Value = pd.Series(Value, index=f.DescriptorSection[0])
+    Value = pd.Series(Value, index=f.Operator.Args.DescriptorSection[0])
     Rslt = np.full_like(ComponentID, np.nan)
     for i, iIDs in enumerate(ComponentID):
         if isinstance(iIDs, list):
@@ -36,19 +36,19 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     ComponentIDs = fdi.ModelArgs["component_ids"]
 
-    fillna = FillNa()
+    ffill = FFill(lookback=63)
 
     # 指数成份
     FT = LDB.getTable(fdi.ModelArgs["component_table"])
-    ComponentID = fillna(FT.getFactor("component_code"), lookback=63)
-    ComponentWeight = fillna(FT.getFactor("weight"), lookback=63)
+    ComponentID = ffill(FT.getFactor("component_code"))
+    ComponentWeight = ffill(FT.getFactor("weight"))
 
-    calcIndexValue = calcIndexValue.new(args={"DescriptorSection": [ComponentIDs, None, None]})
+    calculateIndexValue = calcIndexValue.new(args={"DescriptorSection": [ComponentIDs, None, None]})
 
     FT = LDB.getTable(fdi.ModelArgs["component_factor_table"])
     for iFactorName in FT.FactorNames:
         iComponentFactor = FT.getFactor(iFactorName)
-        iFactor = calcIndexValue(iComponentFactor, ComponentID, ComponentWeight, factor_args={"Name": iFactorName})
+        iFactor = calculateIndexValue(iComponentFactor, ComponentID, ComponentWeight, factor_args={"Name": iFactorName})
         Factors.append(iFactor)
     
     return FactorDef(

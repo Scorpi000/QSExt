@@ -20,11 +20,11 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(rename(FT.getFactor("收盘价(元-点)"), factor_name="close"))
     Factors.append(rename(FT.getFactor("成交量"), factor_name="volume"))
     Factors.append(rename(FT.getFactor("成交金额(元)"), factor_name="amount"))
-    Factors.append(rename(FT.getFactor("成交笔数"), factor_name="turnover_deals"))
+    # Factors.append(rename(FT.getFactor("成交笔数"), factor_name="turnover_deals"))
     Factors.append(rename(FT.getFactor("指数市盈率"), factor_name="pe"))
     Factors.append(rename(FT.getFactor("指数市净率"), factor_name="pb"))
     Factors.append(rename(FT.getFactor("总市值(万元)"), factor_name="total_cap"))
-    Factors.append(rename(FT.getFactor("A股流通市值(万元)"), factor_name="float_cap"))
+    Factors.append(rename(FT.getFactor("自由流通市值(万元)"), factor_name="free_float_cap"))
     Factors.append(rename(FT.getFactor("涨跌幅") / 100, factor_name="chg"))
     
     return FactorDef(

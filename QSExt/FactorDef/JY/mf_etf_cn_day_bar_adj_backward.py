@@ -31,7 +31,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(rename(FT.getFactor("最低价(元)") * AdjFactor, factor_name="low"))
     Factors.append(rename(Close * AdjFactor, factor_name="close"))
     
-    Amount, Volume = FT.getFactor("成交金额(元)", factor_name="amount"), rename(FT.getFactor("成交量(股)"), factor_name="volume")
+    Amount, Volume = rename(FT.getFactor("成交金额(元)"), factor_name="amount"), rename(FT.getFactor("成交量(股)"), factor_name="volume")
     Factors.append(Volume)
     Factors.append(Amount)
     Factors.append(rename(Amount / Volume * AdjFactor, factor_name="avg"))

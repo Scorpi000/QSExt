@@ -16,18 +16,20 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     
     JYDB = fdi.FDB["JYDB"]
 
-    FT = JYDB.getTable("公募基金ETF申购赎回清单信息")
-    TargetIndex = FT.getFactor("标的指数内部编码")
+    # 证券特征
+    FT = JYDB.getTable("公募基金证券主表")
+    Factors.append(rename(FT.getFactor("中文名称"), factor_name="name"))
+    Factors.append(rename(FT.getFactor("证券简称"), factor_name="abbr"))
+    Factors.append(rename(FT.getFactor("拼音证券简称"), factor_name="pinyin_abbr"))
+    Factors.append(rename(FT.getFactor("证券市场_R"), factor_name="listed_market"))
+    Factors.append(fo.Applymap(func=lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else None, dtype="string")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
-    # ETF 所属市场
-    SQLStr = "SELECT CONCAT(t.SecuCode, '.OF') AS ID, t1.MS AS Market FROM secumain t LEFT JOIN ct_systemconst t1 ON (t.SecuMarket=t1.DM AND t1.LB=201) WHERE t.InnerCode IN (SELECT DISTINCT InnerCode FROM mf_etfprlist) ORDER BY ID"
-    IDInfo = pd.read_sql(SQLStr, JYDB.Connection, index_col=["ID"]).iloc[:, 0]
-    Factors.append(QS.FactorDB.DataFactor(name="market", data=IDInfo))
-    
-    # ETF 成份所属市场
-    SQLStr = "SELECT t.IndexCode AS ID, t1.MS AS Market FROM lc_indexbasicinfo t LEFT JOIN ct_systemconst t1 ON (t.SecuMarket=t1.DM AND t1.LB=2015) WHERE t.IndexCode IN (SELECT DISTINCT TargetIndexInnerCode FROM mf_etfprlist WHERE TargetIndexInnerCode IS NOT NULL)"
-    IndexInfo = pd.read_sql(SQLStr, JYDB.Connection, index_col=["ID"]).iloc[:, 0]
-    Factors.append(fd.map_value(TargetIndex, IndexInfo, data_type="string", factor_name="component_market"))
+    # # ETF 成份所属市场
+    # FT = JYDB.getTable("公募基金ETF申购赎回清单信息")
+    # TargetIndex = FT.getFactor("标的指数内部编码")
+    # SQLStr = "SELECT t.IndexCode AS ID, t1.MS AS Market FROM lc_indexbasicinfo t LEFT JOIN ct_systemconst t1 ON (t.SecuMarket=t1.DM AND t1.LB=2015) WHERE t.IndexCode IN (SELECT DISTINCT TargetIndexInnerCode FROM mf_etfprlist WHERE TargetIndexInnerCode IS NOT NULL)"
+    # IndexInfo = pd.read_sql(SQLStr, JYDB.Connection, index_col=["ID"]).iloc[:, 0]
+    # Factors.append(fd.map_value(TargetIndex, IndexInfo, data_type="string", factor_name="component_market"))
     
     return FactorDef(
         FDI=fdi,
