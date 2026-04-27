@@ -501,7 +501,8 @@ class PostgresImporter:
             if col["type"].lower().startswith("date"): datetime_col_idx.append(i)
             elif col["type"].lower().startswith("float"): float_col_idx.append(i)
             elif "int" in col["type"].lower(): int_col_idx.append(i)
-            elif col["type"].lower().startswith("text") or col["type"].lower()=="varchar(-1)": text_col_idx.append(i)
+            # elif col["type"].lower().startswith("text") or col["type"].lower()=="varchar(-1)": text_col_idx.append(i)
+            elif col["type"].lower().startswith("text") or col["type"].lower().startswith("varchar") or col["type"].lower().startswith("char"): text_col_idx.append(i)
         if id_col_idx is None: raise Exception(f"没有找到 ID 字段: {columns_info}")
         
         total_imported = imported_rows
@@ -540,9 +541,11 @@ class PostgresImporter:
                         mask = pd.isnull(batch[:, i])
                         batch[:, i] = np.where(mask, batch[:, i], np.where(mask, 0, batch[:, i]).astype(int))
                 if text_col_idx:
-                    modify_func = lambda x: x.replace("\x00", "") if pd.notnull(x) else None
+                    # modify_func = lambda x: x.replace("\x00", "") if pd.notnull(x) else None
+                    modify_func = np.vectorize(lambda x: x.replace("\x00", "") if pd.notnull(x) else None, otypes="O")
                     for i in text_col_idx:
-                        batch[:, i] = [modify_func(x) for x in batch[:, i]]
+                        # batch[:, i] = [modify_func(x) for x in batch[:, i]]
+                        batch[:, i] = modify_func(batch[:, i])
                 # 处理被删除的行
                 if del_ids is not None:
                     batch = batch[~np.isin(batch[:, id_col_idx], del_ids)]
@@ -612,7 +615,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="184914c48a3a4dc6a04363d3f1564b3a", table_name="LC_PerformanceForecast", del_table_name="JYDB_DeleteRec", resume=False)
+    imported_rows = importer.import_table(token="b9299fb23be94e89b4fb2e90979fdbdf", table_name="MF_ETFPRComponents", del_table_name="JYDB_DeleteRec", resume=True)
     print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)
