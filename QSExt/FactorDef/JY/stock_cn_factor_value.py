@@ -72,42 +72,77 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新"})
     TotalAsset = FT.getFactor("资产总计")
     IntangibleAsset = FT.getFactor("无形资产")
-    IntangibleAsset = where(IntangibleAsset, notnull(IntangibleAsset), 0)
     Goodwill = FT.getFactor("商誉")
-    Goodwill = where(Goodwill, notnull(Goodwill), 0)
     TotalLiability = FT.getFactor("负债合计")
     MonetaryFund = FT.getFactor("货币资金")
     SEWithoutMI = FT.getFactor("归属母公司股东权益合计")
+
+    FT = JYDB.getTable("科创板资产负债表", args={"CalcType": "最新"})
+    TotalAsset = where(TotalAsset, notnull(TotalAsset), FT.getFactor("资产总计"))
+    IntangibleAsset = where(IntangibleAsset, notnull(IntangibleAsset), FT.getFactor("无形资产"))
+    Goodwill = where(Goodwill, notnull(Goodwill), FT.getFactor("商誉"))
+    TotalLiability = where(TotalLiability, notnull(TotalLiability), FT.getFactor("负债合计"))
+    MonetaryFund = where(MonetaryFund, notnull(MonetaryFund), FT.getFactor("货币资金"))
+    SEWithoutMI = where(SEWithoutMI, notnull(SEWithoutMI), FT.getFactor("归属母公司股东权益合计"))
+
+    IntangibleAsset = where(IntangibleAsset, notnull(IntangibleAsset), 0)
+    Goodwill = where(Goodwill, notnull(Goodwill), 0)
     
     # ### 利润表因子 #############################################################################
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM"})
     Sales_TTM = FT.getFactor("营业收入")
     NetProfit_TTM = FT.getFactor("归属于母公司所有者的净利润")
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "TTM"})
+    Sales_TTM = where(Sales_TTM, notnull(Sales_TTM), FT.getFactor("营业收入"))
+    NetProfit_TTM = where(NetProfit_TTM, notnull(NetProfit_TTM), FT.getFactor("归属于母公司所有者的净利润"))
+
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报"})
     Sales_LYR = FT.getFactor("营业收入")
     NetProfit_LYR = FT.getFactor("归属于母公司所有者的净利润")
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报"})
+    Sales_LYR = where(Sales_LYR, notnull(Sales_LYR), FT.getFactor("营业收入"))
+    NetProfit_LYR = where(NetProfit_LYR, notnull(NetProfit_LYR), FT.getFactor("归属于母公司所有者的净利润"))
     
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM"})
     OCF_TTM = FT.getFactor("经营活动产生的现金流量净额")
-    NCF_TTM = fo.Sum(all_nan=np.nan)(OCF_TTM, FT.getFactor("投资活动产生的现金流量净额"), FT.getFactor("筹资活动产生的现金流量净额"))
+    ICF_TTM = FT.getFactor("投资活动产生的现金流量净额")
+    BCF_TTM = FT.getFactor("筹资活动产生的现金流量净额")
+
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "TTM"})
+    OCF_TTM = where(OCF_TTM, notnull(OCF_TTM), FT.getFactor("经营活动产生的现金流量净额"))
+    ICF_TTM = where(ICF_TTM, notnull(ICF_TTM), FT.getFactor("投资活动产生的现金流量净额"))
+    BCF_TTM = where(BCF_TTM, notnull(BCF_TTM), FT.getFactor("筹资活动产生的现金流量净额"))
+
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报"})
     OCF_LYR = FT.getFactor("经营活动产生的现金流量净额")
+
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报"})
+    OCF_LYR = where(OCF_LYR, notnull(OCF_LYR), FT.getFactor("经营活动产生的现金流量净额"))
+
+    NCF_TTM = fo.Sum(all_nan=np.nan)(OCF_TTM, ICF_TTM, BCF_TTM)
     
     # ### 衍生报表因子 #########################################################################
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"最新"})
     InterestBearingObligation = FT.getFactor("带息债务")
+
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"TTM"})
     EBIT_TTM = FT.getFactor("息税前利润")
     EBITDA_TTM = FT.getFactor("息税折旧摊销前利润")
     NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FCF_TTM = FT.getFactor("企业自由现金流量FCFF")
+
     # 在TTM因缺失值不能计算时，采用最近年报数据填充
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"最新", "ReportDate":"年报"})
-    EBIT  = where(EBIT_TTM, notnull(EBIT_TTM), FT.getFactor("息税前利润"))
-    EBITDA  = where(EBITDA_TTM, notnull(EBITDA_TTM), FT.getFactor("息税折旧摊销前利润"))
-    NetProfit_LYR_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FCF_LYR = FT.getFactor("企业自由现金流量FCFF")
+    NetProfit_LYR_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
+    EBIT_LYR = FT.getFactor("息税前利润")
+    EBITDA_LYR = FT.getFactor("息税折旧摊销前利润")
+
+    EBIT  = where(EBIT_TTM, notnull(EBIT_TTM), EBIT_LYR)
+    EBITDA  = where(EBITDA_TTM, notnull(EBITDA_TTM), EBITDA_LYR)
     
     # ### 一致预期因子 #############################################################################
     StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))
@@ -135,9 +170,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     # ### 盈利类 ########################################################################
     Factors.append(rename(NetProfit_TTM_Deducted / MarketCap, factor_name="ep_ttm_deducted"))
-    
-    EP_LYR_Deducted=rename(NetProfit_LYR_Deducted / MarketCap, factor_name="ep_lyr_deducted")
-    Factors.append(EP_LYR_Deducted)
+    Factors.append(rename(NetProfit_LYR_Deducted / MarketCap, factor_name="ep_lyr_deducted"))
     
     EP_TTM = rename(NetProfit_TTM / MarketCap, factor_name="ep_ttm")
     Factors.append(EP_TTM)
