@@ -55,17 +55,25 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
 
     JYDB = fdi.FDB["JYDB"]
+
+    where = fo.Where(dtype="double")
+    notnull = fo.NotNull()
     
     # ### 利润表因子 #############################################################################
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有"})
     Sales_TTM = FT.getFactor("营业收入")
     OperNetProfit_TTM = FT.getFactor("营业利润")
     NetProfit_TTM = FT.getFactor("归属于母公司所有者的净利润")
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "TTM", "ReportDate": "所有"})
+    Sales_TTM = where(Sales_TTM, notnull(Sales_TTM), FT.getFactor("营业收入"))
+    OperNetProfit_TTM = where(OperNetProfit_TTM, notnull(OperNetProfit_TTM), FT.getFactor("营业利润"))
+    NetProfit_TTM = where(NetProfit_TTM, notnull(NetProfit_TTM), FT.getFactor("归属于母公司所有者的净利润"))
+
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
     Sales_L1 = FT.getFactor("营业收入")
     OperNetProfit_L1 = FT.getFactor("营业利润")
     NetProfit_L1 = FT.getFactor("归属于母公司所有者的净利润")
-    
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 0})
     Sales_Y0 = FT.getFactor("营业收入")
     NetProfit_Y0 = FT.getFactor("归属于母公司所有者的净利润")
@@ -81,6 +89,26 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 4})
     Sales_Y4 = FT.getFactor("营业收入")
     NetProfit_Y4 = FT.getFactor("归属于母公司所有者的净利润")
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    Sales_L1 = where(Sales_L1, notnull(Sales_L1), FT.getFactor("营业收入"))
+    OperNetProfit_L1 = where(OperNetProfit_L1, notnull(OperNetProfit_L1), FT.getFactor("营业利润"))
+    NetProfit_L1 = where(OperNetProfit_L1, notnull(OperNetProfit_L1), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 0})
+    Sales_Y0 = where(Sales_Y0, notnull(Sales_Y0), FT.getFactor("营业收入"))
+    NetProfit_Y0 = where(NetProfit_Y0, notnull(NetProfit_Y0), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 1})
+    Sales_Y1 = where(Sales_Y1, notnull(Sales_Y1), FT.getFactor("营业收入"))
+    NetProfit_Y1 = where(NetProfit_Y1, notnull(NetProfit_Y1), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 2})
+    Sales_Y2 = where(Sales_Y2, notnull(Sales_Y2), FT.getFactor("营业收入"))
+    NetProfit_Y2 = where(NetProfit_Y2, notnull(NetProfit_Y2), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 3})
+    Sales_Y3 = where(Sales_Y3, notnull(Sales_Y3), FT.getFactor("营业收入"))
+    NetProfit_Y3 = where(NetProfit_Y3, notnull(NetProfit_Y3), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 4})
+    Sales_Y4 = where(Sales_Y4, notnull(Sales_Y4), FT.getFactor("营业收入"))
+    NetProfit_Y4 = where(NetProfit_Y4, notnull(NetProfit_Y4), FT.getFactor("归属于母公司所有者的净利润"))
 
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
     OperNetProfit_SQ0P = FT.getFactor("营业利润")
@@ -106,7 +134,32 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     NetProfit_SQ6P = FT.getFactor("归属于母公司所有者的净利润")
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 7})
     NetProfit_SQ7P = FT.getFactor("归属于母公司所有者的净利润")
-    
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
+    OperNetProfit_SQ0P = where(OperNetProfit_SQ0P, notnull(OperNetProfit_SQ0P), FT.getFactor("营业利润"))
+    NetProfit_SQ0P = where(NetProfit_SQ0P, notnull(NetProfit_SQ0P), FT.getFactor("归属于母公司所有者的净利润"))
+    Sales_SQ0P = where(Sales_SQ0P, notnull(Sales_SQ0P), FT.getFactor("营业收入"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
+    OperNetProfit_SQ1P = where(OperNetProfit_SQ1P, notnull(OperNetProfit_SQ1P), FT.getFactor("营业利润"))
+    NetProfit_SQ1P = where(NetProfit_SQ1P, notnull(NetProfit_SQ1P), FT.getFactor("归属于母公司所有者的净利润"))
+    Sales_SQ1P = where(Sales_SQ1P, notnull(Sales_SQ1P), FT.getFactor("营业收入"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 2})
+    NetProfit_SQ2P = where(NetProfit_SQ2P, notnull(NetProfit_SQ2P), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 3})
+    NetProfit_SQ3P = where(NetProfit_SQ3P, notnull(NetProfit_SQ3P), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
+    OperNetProfit_SQ4P = where(OperNetProfit_SQ4P, notnull(OperNetProfit_SQ4P), FT.getFactor("营业利润"))
+    NetProfit_SQ4P = where(NetProfit_SQ4P, notnull(NetProfit_SQ4P), FT.getFactor("归属于母公司所有者的净利润"))
+    Sales_SQ4P = where(Sales_SQ4P, notnull(Sales_SQ4P), FT.getFactor("营业收入"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 5})
+    OperNetProfit_SQ5P = where(OperNetProfit_SQ5P, notnull(OperNetProfit_SQ5P), FT.getFactor("营业利润"))
+    NetProfit_SQ5P = where(NetProfit_SQ5P, notnull(NetProfit_SQ5P), FT.getFactor("归属于母公司所有者的净利润"))
+    Sales_SQ5P = where(Sales_SQ5P, notnull(Sales_SQ5P), FT.getFactor("营业收入"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 6})
+    NetProfit_SQ6P = where(NetProfit_SQ6P, notnull(NetProfit_SQ6P), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 7})
+    NetProfit_SQ7P = where(NetProfit_SQ7P, notnull(NetProfit_SQ7P), FT.getFactor("归属于母公司所有者的净利润"))
+
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有"})
     NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
@@ -117,6 +170,17 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     NetProfit_Deducted_SQ1P = FT.getFactor("扣除非经常性损益后的归母净利润")
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
     NetProfit_Deducted_SQ4P = FT.getFactor("扣除非经常性损益后的归母净利润")
+
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "TTM", "ReportDate": "所有"})
+    NetProfit_TTM_Deducted = where(NetProfit_TTM_Deducted, notnull(NetProfit_TTM_Deducted), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    NetProfit_TTM_Deducted_L1 = where(NetProfit_TTM_Deducted_L1, notnull(NetProfit_TTM_Deducted_L1), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
+    NetProfit_Deducted_SQ0P = where(NetProfit_Deducted_SQ0P, notnull(NetProfit_Deducted_SQ0P), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
+    NetProfit_Deducted_SQ1P = where(NetProfit_Deducted_SQ1P, notnull(NetProfit_Deducted_SQ1P), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
+    NetProfit_Deducted_SQ4P = where(NetProfit_Deducted_SQ4P, notnull(NetProfit_Deducted_SQ4P), FT.getFactor("扣除非经常性损益后的归母净利润"))
     
     # ### 现金流量表因子 #############################################################################
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 0})
@@ -144,6 +208,31 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("现金流量表_新会计准则", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
     OCF_TTM_L1 = FT.getFactor("经营活动产生的现金流量净额")
 
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 0})
+    OCF_Y0 = where(OCF_Y0, notnull(OCF_Y0), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 1})
+    OCF_Y1 = where(OCF_Y1, notnull(OCF_Y1), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 2})
+    OCF_Y2 = where(OCF_Y2, notnull(OCF_Y2), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 3})
+    OCF_Y3 = where(OCF_Y3, notnull(OCF_Y3), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "最新", "ReportDate": "年报", "YearLookBack": 4})
+    OCF_Y4 = where(OCF_Y4, notnull(OCF_Y4), FT.getFactor("经营活动产生的现金流量净额"))
+    
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 0})
+    OCF_SQ0P = where(OCF_SQ0P, notnull(OCF_SQ0P), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 1})
+    OCF_SQ1P = where(OCF_SQ1P, notnull(OCF_SQ1P), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 4})
+    OCF_SQ4P = where(OCF_SQ4P, notnull(OCF_SQ4P), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "单季度", "ReportDate": "所有", "PeriodLookBack": 5})
+    OCF_SQ5P = where(OCF_SQ5P, notnull(OCF_SQ5P), FT.getFactor("经营活动产生的现金流量净额"))
+    
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "TTM", "ReportDate": "所有"})
+    OCF_TTM = where(OCF_TTM, notnull(OCF_TTM), FT.getFactor("经营活动产生的现金流量净额"))
+    FT = JYDB.getTable("科创板现金流量表", args={"CalcType": "TTM", "ReportDate": "所有", "YearLookBack": 1})
+    OCF_TTM_L1 = where(OCF_TTM_L1, notnull(OCF_TTM_L1), FT.getFactor("经营活动产生的现金流量净额"))
+
     # ### 资产负债表 #############################################################################
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
     Asset = FT.getFactor("资产总计")
@@ -152,12 +241,26 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Asset_L1 = FT.getFactor("资产总计")
     Equity_L1 = FT.getFactor("归属母公司股东权益合计")
 
+    FT = JYDB.getTable("科创板资产负债表", args={"CalcType": "最新", "ReportDate": "所有"})
+    Asset = where(Asset, notnull(Asset), FT.getFactor("资产总计"))
+    Equity = where(Equity, notnull(Equity), FT.getFactor("归属母公司股东权益合计"))
+    FT = JYDB.getTable("科创板资产负债表", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    Asset_L1 = where(Asset_L1, notnull(Asset_L1), FT.getFactor("资产总计"))
+    Equity_L1 = where(Equity_L1, notnull(Equity_L1), FT.getFactor("归属母公司股东权益合计"))
+
     FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"})
     BPS_LR = FT.getFactor("每股净资产(元)")
     EPS_LR = FT.getFactor("每股收益(摊薄)(元)")
     FT = JYDB.getTable("公司报告期主要会计数据_新会计准则", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
     BPS_LR_L1 = FT.getFactor("每股净资产(元)")
     EPS_LR_L1 = FT.getFactor("每股收益(摊薄)(元)")
+
+    FT = JYDB.getTable("科创板报告期主要会计数据", args={"CalcType": "最新", "ReportDate": "所有"})
+    BPS_LR = where(BPS_LR, notnull(BPS_LR), FT.getFactor("每股净资产(元)"))
+    EPS_LR = where(EPS_LR, notnull(EPS_LR), FT.getFactor("每股收益(摊薄)(元)"))
+    FT = JYDB.getTable("科创板报告期主要会计数据", args={"CalcType": "最新", "ReportDate": "所有", "YearLookBack": 1})
+    BPS_LR_L1 = where(BPS_LR_L1, notnull(BPS_LR_L1), FT.getFactor("每股净资产(元)"))
+    EPS_LR_L1 = where(EPS_LR_L1, notnull(EPS_LR_L1), FT.getFactor("每股收益(摊薄)(元)"))
     
     # ### 一致预期因子 #############################################################################
     StockConsensusDef = dep_fd.get("stock_cn_consensus_expectation", defStockConsensus(fdi=fdi, dep_fd=dep_fd))

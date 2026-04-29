@@ -231,7 +231,6 @@ def defFactor(fdi: FactorDefInput):
     
     # ### 日行情因子 #################################
     StockDayBarDef = defStockDayBar(fdi=fdi)
-    FT = LDB.getTable("stock_cn_day_bar_nafilled")
     PreClose = StockDayBarDef.getFactor(factor_name="pre_close")
     Open = StockDayBarDef.getFactor(factor_name="open")
     High = StockDayBarDef.getFactor(factor_name="high")

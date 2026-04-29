@@ -128,11 +128,20 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"最新"})
     InterestBearingObligation = FT.getFactor("带息债务")
 
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType":"最新"})
+    InterestBearingObligation = where(InterestBearingObligation, notnull(InterestBearingObligation), FT.getFactor("带息债务"))
+
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"TTM"})
     EBIT_TTM = FT.getFactor("息税前利润")
     EBITDA_TTM = FT.getFactor("息税折旧摊销前利润")
     NetProfit_TTM_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     FCF_TTM = FT.getFactor("企业自由现金流量FCFF")
+
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType":"TTM"})
+    EBIT_TTM = where(EBIT_TTM, notnull(EBIT_TTM), FT.getFactor("息税前利润"))
+    EBITDA_TTM = where(EBITDA_TTM, notnull(EBITDA_TTM), FT.getFactor("息税折旧摊销前利润"))
+    NetProfit_TTM_Deducted = where(NetProfit_TTM_Deducted, notnull(NetProfit_TTM_Deducted), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    FCF_TTM = where(FCF_TTM, notnull(FCF_TTM), FT.getFactor("企业自由现金流量FCFF"))
 
     # 在TTM因缺失值不能计算时，采用最近年报数据填充
     FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType":"最新", "ReportDate":"年报"})
@@ -140,6 +149,12 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     NetProfit_LYR_Deducted = FT.getFactor("扣除非经常性损益后的归母净利润")
     EBIT_LYR = FT.getFactor("息税前利润")
     EBITDA_LYR = FT.getFactor("息税折旧摊销前利润")
+
+    FT = JYDB.getTable("科创板衍生报表数据", args={"CalcType":"最新", "ReportDate":"年报"})
+    FCF_LYR = where(FCF_LYR, notnull(FCF_LYR), FT.getFactor("企业自由现金流量FCFF"))
+    NetProfit_LYR_Deducted = where(NetProfit_LYR_Deducted, notnull(NetProfit_LYR_Deducted), FT.getFactor("扣除非经常性损益后的归母净利润"))
+    EBIT_LYR = where(EBIT_LYR, notnull(EBIT_LYR), FT.getFactor("息税前利润"))
+    EBITDA_LYR = where(EBITDA_LYR, notnull(EBITDA_LYR), FT.getFactor("息税折旧摊销前利润"))
 
     EBIT  = where(EBIT_TTM, notnull(EBIT_TTM), EBIT_LYR)
     EBITDA  = where(EBITDA_TTM, notnull(EBITDA_TTM), EBITDA_LYR)
@@ -163,7 +178,12 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     
     # #### 股息类 #############################################################################
     FT = JYDB.getTable("公司分红")
-    CashDvdPerShare, BaseShare = FT.getFactor("派现(含税-人民币元)"), FT.getFactor("分红股本基数(股)")
+    CashDvdPerShare, BaseShare = FT.getFactor("派现(含税10派X元)(人民币)"), FT.getFactor("分红股本基数(股)")
+
+    FT = JYDB.getTable("科创板分红")
+    CashDvdPerShare = where(CashDvdPerShare, notnull(CashDvdPerShare), FT.getFactor("派现(含税10派X元)"))
+    BaseShare = where(BaseShare, notnull(BaseShare), FT.getFactor("分红基数(股)"))
+
     Dividend = calcDvd(CashDvdPerShare, BaseShare, factor_args={"Name": "税前现金总红利"})
     DP_LTM = rename(fo.RollingApply(func=np.nansum, window=240, min_periods=1)(Dividend) / MarketCap, factor_name="dp_ltm")
     Factors.append(DP_LTM)

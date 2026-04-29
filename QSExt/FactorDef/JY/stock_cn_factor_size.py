@@ -18,9 +18,15 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     JYDB = fdi.FDB["JYDB"]
 
+    where = fo.Where(dtype="double")
+    notnull = fo.NotNull()
+
     # ### 财务因子 ##########################################################################
     Asset = JYDB.getTable("资产负债表_新会计准则", args={"CalcType":"最新", "ReportDate":"所有"}).getFactor("资产总计")
     Sales_TTM = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("营业收入")
+
+    Asset = where(Asset, notnull(Asset), JYDB.getTable("科创板资产负债表", args={"CalcType":"最新", "ReportDate":"所有"}).getFactor("资产总计"))
+    Sales_TTM = where(Sales_TTM, notnull(Sales_TTM), JYDB.getTable("科创板利润分配表", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("营业收入"))
 
     # ### 企业管理因子 ##########################################################################
     # EmpNum = JYDB.getTable("A股员工人数变更", args={"DTField": "公告日期", "LookBack": np.inf}).getFactor("员工人数(人)")

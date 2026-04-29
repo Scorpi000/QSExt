@@ -19,6 +19,9 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     JYDB = fdi.FDB["JYDB"]
 
+    where = fo.Where(dtype="double")
+    notnull = fo.NotNull()
+
     # ### 行情因子 #############################################################################
     StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     Close = StockDayBarDef.getFactor("close")
@@ -38,6 +41,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     # ### 资产负债表因子 #########################################################################
     Equity = JYDB.getTable("资产负债表_新会计准则", args={"CalcType": "最新", "ReportDate": "所有"}).getFactor("归属母公司股东权益合计")
+    Equity = where(Equity, notnull(Equity), JYDB.getTable("科创板资产负债表", args={"CalcType": "最新", "ReportDate": "所有"}).getFactor("归属母公司股东权益合计"))
     
     # 算子
     rolling_change_rate_20d = fo.RollingChangeRate(window=20+1)

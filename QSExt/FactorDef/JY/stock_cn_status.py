@@ -107,7 +107,7 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     JYDB = fdi.FDB["JYDB"]
 
-    where, notnull = fo.Where(), fo.NotNull()
+    notnull = fo.NotNull()
 
     # 证券特征
     ListDate = JYDB.getTable("A股证券主表").getFactor("上市日期")
@@ -115,34 +115,41 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(ListDayNum)
 
     StatusChg = JYDB.getTable("上市状态更改", args={"LookBack": np.inf}).getFactor("变更类型")
+
     StatusChg_STIB = JYDB.getTable("科创板上市状态更改", args={"LookBack": np.inf}).getFactor("变更类型")
-    StatusChg = where(StatusChg, notnull(StatusChg), StatusChg_STIB)
+    StatusChg = fo.Where(dtype="double")(StatusChg, notnull(StatusChg), StatusChg_STIB)
+
     IfListed = ifListed(ListDate, StatusChg, factor_args={"Name": "if_listed"})
     Factors.append(IfListed)
 
     ST = JYDB.getTable("证券特别处理", args={"LookBack": np.inf, "Operator": mergeST, "OperatorDataType": "string", "MultiMapping": True, "OrderFields": [("信息发布日期", "ASC")]}).getFactor("特别处理(或撤销)类别")
+
     ST_STIB = JYDB.getTable("科创板证券简称更改", args={"FilterCondition": "{Table}.ChangeType<>99", "PublDTField": None, "LookBack": np.inf, "Operator": mergeST, "OperatorDataType": "string", "MultiMapping": True, "OrderFields": [("信息发布日期", "ASC")]}).getFactor("变更类型")
-    ST = where(ST, notnull(ST), ST_STIB, factor_args={"Name": "st"})
+    ST = fo.Where(dtype="string")(ST, notnull(ST), ST_STIB, factor_args={"Name": "st"})
+
     # ST = calcST(ST, factor_args={"Name": "st"})
     Factors.append(ST)
 
     # 交易状态
     FT = JYDB.getTable("日行情表", args={"LookBack": 0})
     Volume = FT.getFactor("成交量(股)")
+
     FT = JYDB.getTable("科创板日行情", args={"LookBack": 0})
-    Volume_STIB = FT.getFactor("收盘成交量(股)")
-    Volume = where(Volume, notnull(Volume), Volume_STIB)
+    Volume = fo.Where(dtype="double")(Volume, notnull(Volume), FT.getFactor("收盘成交量(股)"))
+
     FT = JYDB.getTable("停牌复牌表", args={"OnlyStartFilled": False, "MultiMapping": False})
     SuspendDate = FT.getFactor("停牌日期")
     SuspendTime = FT.getFactor("停牌时间")
+
     FT = JYDB.getTable("科创板停复牌", args={"LookBack": np.inf, "MultiMapping": True, "OrderFields": [("停复牌时间", "ASC")], "Operator": lambda s: s.iloc[-1], "OperatorDataType": "string"})
     SuspendDate_STIB = FT.getFactor("停复牌日期")
     SuspendTime_STIB = FT.getFactor("停复牌时间")
     SuspendType_STIB = FT.getFactor("停复牌类型")
-    SuspendDate_STIB = where(SuspendDate_STIB, SuspendType_STIB==1, None)
-    SuspendTime_STIB = where(SuspendTime_STIB, SuspendType_STIB==1, None)
+    SuspendDate_STIB = fo.Where(dtype="object")(SuspendDate_STIB, SuspendType_STIB==1, None)
+    SuspendTime_STIB = fo.Where(dtype="string")(SuspendTime_STIB, SuspendType_STIB==1, None)
     SuspendDate = fo.Where(dtype="object")(SuspendDate, notnull(SuspendDate), SuspendDate_STIB)
     SuspendTime = fo.Where(dtype="string")(SuspendTime, notnull(SuspendTime), SuspendTime_STIB)
+
     IfTrading = ifTrading(Volume, SuspendDate, SuspendTime, factor_args={"Name": "if_trading"})
     Factors.append(IfTrading)
 

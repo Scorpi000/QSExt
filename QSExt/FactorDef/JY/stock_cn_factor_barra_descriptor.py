@@ -235,11 +235,17 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     PredictedEarningsFY2 = StockConsensusDef.getFactor(factor_name="net_profit_fy2")
     
     CashEarnings_TTM = JYDB.getTable("现金流量表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("经营活动产生的现金流量净额")
+    CashEarnings_TTM = where(CashEarnings_TTM, notnull(CashEarnings_TTM), JYDB.getTable("科创板现金流量表", args={"CalcType":"TTM", "ReportDate":"所有"}).getFactor("经营活动产生的现金流量净额"))
 
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"TTM", "ReportDate":"所有"})
     Earnings_TTM = FT.getFactor("归属于母公司所有者的净利润")
     FT = JYDB.getTable("利润分配表_新会计准则", args={"CalcType":"最新", "ReportDate":"年报"})
     Earnings_LYR = FT.getFactor("归属于母公司所有者的净利润")
+
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType":"TTM", "ReportDate":"所有"})
+    Earnings_TTM = where(Earnings_TTM, notnull(Earnings_TTM), FT.getFactor("归属于母公司所有者的净利润"))
+    FT = JYDB.getTable("科创板利润分配表", args={"CalcType":"最新", "ReportDate":"年报"})
+    Earnings_LYR = where(Earnings_LYR, notnull(Earnings_LYR), FT.getFactor("归属于母公司所有者的净利润"))
 
     FT = JYDB.getTable("公司主要财务分析指标_新会计准则", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":0})
     EPS0 = FT.getFactor("基本每股收益(元-股)")
@@ -256,6 +262,22 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("公司主要财务分析指标_新会计准则", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":4})
     EPS4 = FT.getFactor("基本每股收益(元-股)")
     SPS4 = FT.getFactor("每股营业收入(元-股)")
+
+    FT = JYDB.getTable("科创板主要财务分析指标", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":0})
+    EPS0 = where(EPS0, notnull(EPS0), FT.getFactor("基本每股收益(元-股)"))
+    SPS0 = where(SPS0, notnull(SPS0), FT.getFactor("每股营业收入(元-股)"))
+    FT = JYDB.getTable("科创板主要财务分析指标", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":1})
+    EPS1 = where(EPS1, notnull(EPS1), FT.getFactor("基本每股收益(元-股)"))
+    SPS1 = where(SPS1, notnull(SPS1), FT.getFactor("每股营业收入(元-股)"))
+    FT = JYDB.getTable("科创板主要财务分析指标", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":2})
+    EPS2 = where(EPS2, notnull(EPS2), FT.getFactor("基本每股收益(元-股)"))
+    SPS2 = where(SPS2, notnull(SPS2), FT.getFactor("每股营业收入(元-股)"))
+    FT = JYDB.getTable("科创板主要财务分析指标", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":3})
+    EPS3 = where(EPS3, notnull(EPS3), FT.getFactor("基本每股收益(元-股)"))
+    SPS3 = where(SPS3, notnull(SPS3), FT.getFactor("每股营业收入(元-股)"))
+    FT = JYDB.getTable("科创板主要财务分析指标", args={"CalcType":"最新", "ReportDate":"年报", "YearLookBack":4})
+    EPS4 = where(EPS4, notnull(EPS4), FT.getFactor("基本每股收益(元-股)"))
+    SPS4 = where(SPS4, notnull(SPS4), FT.getFactor("每股营业收入(元-股)"))
     
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType":"最新", "ReportDate":"年报"})
     LongDebt = FT.getFactor("非流动负债合计")
@@ -264,6 +286,14 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Equity_LYR = FT.getFactor("归属母公司股东权益合计")
     FT = JYDB.getTable("资产负债表_新会计准则", args={"CalcType":"最新", "ReportDate":"所有"})
     Equity_LR = FT.getFactor("归属母公司股东权益合计")
+
+    FT = JYDB.getTable("科创板资产负债表", args={"CalcType":"最新", "ReportDate":"年报"})
+    LongDebt = where(LongDebt, notnull(LongDebt), FT.getFactor("非流动负债合计"))
+    TotalAsset = where(TotalAsset, notnull(TotalAsset), FT.getFactor("资产总计"))
+    TotalDebt = where(TotalDebt, notnull(TotalDebt), FT.getFactor("负债合计"))
+    Equity_LYR = where(Equity_LYR, notnull(Equity_LYR), FT.getFactor("归属母公司股东权益合计"))
+    FT = JYDB.getTable("科创板资产负债表", args={"CalcType":"最新", "ReportDate":"所有"})
+    Equity_LR = where(Equity_LR, notnull(Equity_LR), FT.getFactor("归属母公司股东权益合计"))
 
     # ### 收益率 ###########################################################################
     MonthReturn = calcMonthReturn(DayReturn, factor_args={"Name": "月收益率"})
