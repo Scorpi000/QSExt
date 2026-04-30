@@ -4,6 +4,7 @@ from functools import partial
 from typing import Dict
 
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 from QuantStudio.Core import __QS_Error__
@@ -124,10 +125,10 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
         # RSV
         Factors.append(rename((AdjClose - LowN) / (HighN - LowN + 1e-12), factor_name=f"RSV{N}"))
         # IMAX
-        IMaxN = fo.RollingApply(func=np.nanargmax, window=N, min_periods=N)(AdjHigh)
+        IMaxN = fo.RollingApply(func=lambda a: np.nan if np.all(pd.isnull(a)) else np.nanargmax(a), window=N, min_periods=N)(AdjHigh)
         Factors.append(rename(IMaxN / N, factor_name=f"IMAX{N}"))
         # IMIN
-        IMinN = fo.RollingApply(func=np.nanargmin, window=N, min_periods=N)(AdjLow)
+        IMinN = fo.RollingApply(func=lambda a: np.nan if np.all(pd.isnull(a)) else np.nanargmin(a), window=N, min_periods=N)(AdjLow)
         Factors.append(rename(IMinN / N, factor_name=f"IMIN{N}"))
         # IMXD
         Factors.append(rename((IMaxN - IMinN) / N, factor_name=f"IMXD{N}"))
