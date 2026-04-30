@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """ETF 基金行情"""
-import datetime as dt
 from typing import Dict
 
 import numpy as np
@@ -16,14 +15,22 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     
     JYDB = fdi.FDB["JYDB"]
 
+    strftime = fo.Applymap(func=lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else None, dtype="string")
+
     # 证券特征
     FT = JYDB.getTable("公募基金证券主表")
     Factors.append(rename(FT.getFactor("中文名称"), factor_name="name"))
     Factors.append(rename(FT.getFactor("证券简称"), factor_name="abbr"))
     Factors.append(rename(FT.getFactor("拼音证券简称"), factor_name="pinyin_abbr"))
     Factors.append(rename(FT.getFactor("证券市场_R"), factor_name="listed_market"))
-    Factors.append(fo.Applymap(func=lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else None, dtype="string")(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
+    Factors.append(strftime(FT.getFactor("上市日期"), factor_args={"Name": "listed_date"}))
     
+    # 基金特征
+    FT = JYDB.getTable("公募基金概况")
+    Factors.append(strftime(FT.getFactor("设立日期"), factor_args={"Name": "establish_date"}))
+    Factors.append(strftime(FT.getFactor("存续期截止日"), factor_args={"Name": "expire_date"}))
+    Factors.append(rename(FT.getFactor("基金类别代码_R"), factor_name="fund_type"))
+
     # # ETF 成份所属市场
     # FT = JYDB.getTable("公募基金ETF申购赎回清单信息")
     # TargetIndex = FT.getFactor("标的指数内部编码")
