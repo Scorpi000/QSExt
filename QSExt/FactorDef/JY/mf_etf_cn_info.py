@@ -7,6 +7,7 @@ import pandas as pd
 
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
+from QuantStudio.Factor.FactorUtils import SQLQueryTable
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
@@ -30,13 +31,28 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(strftime(FT.getFactor("设立日期"), factor_args={"Name": "establish_date"}))
     Factors.append(strftime(FT.getFactor("存续期截止日"), factor_args={"Name": "expire_date"}))
     Factors.append(rename(FT.getFactor("基金类别代码_R"), factor_name="fund_type"))
+    Factors.append(rename(FT.getFactor("基金性质_R"), factor_name="fund_nature"))
 
-    # # ETF 成份所属市场
-    # FT = JYDB.getTable("公募基金ETF申购赎回清单信息")
-    # TargetIndex = FT.getFactor("标的指数内部编码")
-    # SQLStr = "SELECT t.IndexCode AS ID, t1.MS AS Market FROM lc_indexbasicinfo t LEFT JOIN ct_systemconst t1 ON (t.SecuMarket=t1.DM AND t1.LB=2015) WHERE t.IndexCode IN (SELECT DISTINCT TargetIndexInnerCode FROM mf_etfprlist WHERE TargetIndexInnerCode IS NOT NULL)"
-    # IndexInfo = pd.read_sql(SQLStr, JYDB.Connection, index_col=["ID"]).iloc[:, 0]
-    # Factors.append(fd.map_value(TargetIndex, IndexInfo, data_type="string", factor_name="component_market"))
+    # 其他
+    SQLStr = """
+        SELECT 
+            CONCAT(tm.SecuCode, '.OF') AS QS_ID,
+            t.TradingDay AS QS_DT,
+            tc.MS AS component_market -- 成份所属市场
+        FROM mf_etfprlist t
+        INNER JOIN SecuMain tm
+        ON t.InnerCode = tm.InnerCode
+        INNER JOIN lc_indexbasicinfo ti
+        ON t.TargetIndexInnerCode = ti.IndexCode
+        LEFT JOIN ct_systemconst tc
+        ON (ti.SecuMarket = tc.DM AND tc.LB = 2015)
+        WHERE t.TradingDay >= {StartDT}
+        AND t.TradingDay <= {EndDT}
+        AND CONCAT(tm.SecuCode, '.OF') IN {IDs}
+        ORDER BY QS_ID, QS_DT
+    """
+    FT = SQLQueryTable(fdb=JYDB, args={"QuerySQL": SQLStr, "FieldDataTypes": {"component_market": "string"}, "TableType": "WideTable", "CalcArgs": {"LookBack": 0}})
+    Factors.append(FT.getFactor("component_market"))
     
     return FactorDef(
         FDI=fdi,

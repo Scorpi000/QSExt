@@ -6,9 +6,9 @@ import pandas as pd
 
 from QuantStudio.Factor.BasicOperator import rename
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
+import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Tools.DataTypeConversionFun import expandListElementDataFrame
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
-from QSExt.FactorDef.JY.stock_cn_day_bar_nafilled import defFactor as defStockDayBar
 
 
 @FactorOperatorized(operator_type="Section", args={"Arity": 4, "DTMode": "单时点", "DataType": "object"})
@@ -27,16 +27,18 @@ def calcWeight(f, idt, iid, x, args):
     return ComponentInfo.groupby(["ID"])["Weight"].apply(lambda s: s.tolist()).reindex(index=iid).values
 
 def calcSubstituteAmt(df):
-    ApplyAmt = df["申购替代金额(元)"].astype(float).where(pd.notnull(df["申购替代金额(元)"]), df["固定替代金额(元)"]) / (1 + df["申购现金替代溢价比例"].astype(float).fillna(0))
-    RedeemAmt = df["赎回替代金额(元)"].astype(float).where(pd.notnull(df["赎回替代金额(元)"]), df["固定替代金额(元)"]) / (1 - df["赎回现金替代折价比例"].astype(float).fillna(0))
+    ApplyAmt = df["申购替代金额(元)"].where(pd.notnull(df["申购替代金额(元)"]), df["固定替代金额(元)"]).astype(float) / (1 + df["申购现金替代溢价比例"].astype(float).fillna(0))
+    RedeemAmt = df["赎回替代金额(元)"].where(pd.notnull(df["赎回替代金额(元)"]), df["固定替代金额(元)"]).astype(float) / (1 - df["赎回现金替代折价比例"].astype(float).fillna(0))
     return ApplyAmt.where(pd.notnull(ApplyAmt), RedeemAmt).tolist()
 
 def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors = []
     
     JYDB = fdi.FDB["JYDB"]
+    LDB = fdi.FDB["LDB"]
 
-    ComponentIDs = fdi.ModelArgs["component_ids"]
+    AStockIDs, HKStockIDs = fdi.ModelArgs["stock_cn_ids"], fdi.ModelArgs["stock_hk_ids"]
+    ComponentIDs = sorted(AStockIDs + HKStockIDs)
     
     FT = JYDB.getTable("公募基金ETF申购赎回成份股信息(公募基金ID)")
     ComponentID = FT.getFactor("成份股内部编码_R")
@@ -47,9 +49,11 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     FT = JYDB.getTable("公募基金ETF申购赎回成份股信息(公募基金ID)", args={"MultiMapping": True, "Operator": calcSubstituteAmt, "OperatorDataType": "object", "AdditionalFields": ["申购替代金额(元)", "申购现金替代溢价比例", "赎回替代金额(元)", "赎回现金替代折价比例"]})
     SubstituteAmt = FT.getFactor("固定替代金额(元)")
-
-    StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
-    StockClose = StockDayBarDef.getFactor(factor_name="close")
+    
+    FT = LDB.getTable("stock_cn_day_bar_nafilled")
+    StockClose = FT.getFactor("close")
+    FT = LDB.getTable("stock_hk_day_bar")
+    StockClose = fo.ConcatSection([AStockIDs, HKStockIDs])(StockClose, FT.getFactor("close"))
 
     # 根据申赎清单估计的持仓权重
     calculateWeight = calcWeight.new(args={"DescriptorSection": [None, None, None, ComponentIDs]})
