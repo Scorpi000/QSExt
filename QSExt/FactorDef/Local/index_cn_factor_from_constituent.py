@@ -21,7 +21,7 @@ def calcIndexValue(f, idt, iid, x, args):
         if isinstance(iIDs, list):
             iWeight = np.array(ComponentWeight[i])
             if Value.index.intersection(iIDs).shape[0]>0:
-                iValue = Value.loc[iIDs].values
+                iValue = Value.reindex(index=iIDs).values
                 iMask = (pd.notnull(iValue) & pd.notnull(iWeight))
                 iWeightSum = np.sum(iWeight[iMask])
                 if iWeightSum>0:

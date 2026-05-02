@@ -112,6 +112,9 @@ def main(
         (index_cn_factor_value, {}, "index_etf_cn_factor_value"),
         (index_cn_factor_from_constituent, ModelArgs | {"component_factor_table": "stock_cn_factor_value", "target_table": "index_etf_cn_factor_value_from_constituent"}, None),
         (index_cn_factor_from_constituent, ModelArgs | {"component_factor_table": "stock_cn_factor_growth", "target_table": "index_etf_cn_factor_growth_from_constituent"}, None),
+        (index_cn_factor_from_constituent, ModelArgs | {"component_factor_table": "stock_cn_factor_quality", "target_table": "index_etf_cn_factor_quality_from_constituent"}, None),
+        (index_cn_factor_from_constituent, ModelArgs | {"component_factor_table": "stock_cn_factor_sentiment", "target_table": "index_etf_cn_factor_sentiment_from_constituent"}, None),
+        (index_cn_factor_from_constituent, ModelArgs | {"component_factor_table": "stock_cn_factor_size", "target_table": "index_etf_cn_factor_size_from_constituent"}, None),
     ]
 
     # 先补充增加的指数数据
@@ -119,8 +122,8 @@ def main(
         Logger.info(f"先补充增加的指数数据的证券数量: {len(ExtraIDs)}")
         Logger.info(f"先补充增加的指数数据的时点数量: {len(ExtraDTs)}")
         SectionIDs = IDs = ExtraIDs
-        FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=ExtraDTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)# 不使用数据代理
-        # FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=ExtraDTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)# 使用数据代理
+        FDI = FactorDefInput(FDB={"JYDB": SDB, "LDB": TDB}, DTs=ExtraDTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)# 不使用数据代理
+        # FDI = FactorDefInput(FDB={"JYDB": SDB, "LDB": TDB}, DTs=ExtraDTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)# 使用数据代理
         StorerList, FactorDefDict = [], {}
         for iModule, iModelArgs, iTargetTable in ModuleList:
             FDI.ModelArgs = iModelArgs
@@ -145,8 +148,8 @@ def main(
     SectionIDs = IDs = ETFIndexIDs
     Logger.info(f"再数据更新的证券数量: {len(IDs)}")
     if not IDs: return
-    FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)# 不使用数据代理
-    # FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)# 使用数据代理
+    FDI = FactorDefInput(FDB={"JYDB": SDB, "LDB": TDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)# 不使用数据代理
+    # FDI = FactorDefInput(FDB={"JYDB": SDB, "LDB": TDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)# 使用数据代理
     StorerList, FactorDefDict = [], {}
     for iModule, iModelArgs, iTargetTable in ModuleList:
         FDI.ModelArgs = iModelArgs
