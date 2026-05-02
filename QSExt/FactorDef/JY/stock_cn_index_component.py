@@ -1,14 +1,8 @@
 # coding=utf-8
 """指数成份及其权重因子"""
-import datetime as dt
 from typing import Dict
 
-import numpy as np
-import pandas as pd
-
-import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.BasicOperator import rename
-from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
 
 
@@ -18,20 +12,18 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     JYDB = fdi.FDB["JYDB"]
 
     # 指数成份
+    ConstituentIndexList = fdi.ModelArgs["constituent_index_list"]
     FT = JYDB.getTable("指数成份")
-    Factors.append(rename(FT.getFactor("46"), factor_name="sh50"))
-    Factors.append(rename(FT.getFactor("3145"), factor_name="hs300"))
-    Factors.append(rename(FT.getFactor("4978"), factor_name="zz500"))
-    Factors.append(rename(FT.getFactor("4982"), factor_name="zz800"))
-    Factors.append(rename(FT.getFactor("39144"), factor_name="zz1000"))
+    for iRow in ConstituentIndexList.iterrows():
+        iIndexID, iInnerCode = iRow["指数代码"], iRow["聚源内码"]
+        Factors.append(rename(FT.getFactor(str(iInnerCode)), factor_name=iIndexID.replace(".", "_")))
 
     # 指数成份权重
-    Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "46"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="sh50_weight"))
-    Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "3145"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="hs300_weight"))
-    Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "4978"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="zz500_weight"))
-    Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "4982"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="zz800_weight"))
-    Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": "39144"}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name="zz1000_weight"))
-
+    WeightIndexList = fdi.ModelArgs["weight_index_list"]
+    for iRow in WeightIndexList.iterrows():
+        iIndexID, iInnerCode = iRow["指数代码"], iRow["聚源内码"]
+        Factors.append(rename(JYDB.getTable("指数成份股权重", args={"AdditionalCondition": {"指数内部编码": str(iInnerCode)}, "LookBack": 35, "OnlyLookBackDT": True}).getFactor("权重(%)") / 100, factor_name=iIndexID.replace(".", "_") + "_weight"))
+    
     return FactorDef(
         FDI=fdi,
         FactorList=Factors,

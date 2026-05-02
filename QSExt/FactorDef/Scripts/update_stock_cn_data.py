@@ -1,5 +1,5 @@
 # coding=utf-8
-"""更新股票数据"""
+"""更新A股数据"""
 import os
 import logging
 import datetime as dt
@@ -40,7 +40,7 @@ def main(
     workers:int=8,
     cache_dir:Optional[str]=None
 ):
-    """更新股票数据
+    """更新A股数据
 
     Args:
         end_dt: 数据更新的截止时点
@@ -48,7 +48,7 @@ def main(
         lookback: 从 end_dt 开始的回溯天数，在 start_dt 为 None 时用于计算起始时点
         workers: 并发数量
     """
-    Logger.info(f"开始更新股票数据..., 主进程: {os.getpid()}, 启动时间: {__NOW__}")
+    Logger.info(f"开始更新A股数据..., 主进程: {os.getpid()}, 启动时间: {__NOW__}")
     if cache_dir:
         if not os.path.exists(CacheDir := os.path.join(cache_dir, __FILE_NAME__)): os.makedirs(CacheDir, exist_ok=True)
     else:
@@ -80,39 +80,41 @@ def main(
     Logger.info(f"数据更新的时点数量: {len(DTs)}")
     if not DTs: return
     
-    SectionIDs = SDB.getStockID(is_current=False)
-    IDs = SectionIDs
+    IDs = SectionIDs = SDB.getStockID(is_current=False)
     Logger.info(f"数据更新的证券数量: {len(IDs)}")
     if not IDs: return
+
+    with pd.ExcelFile("../conf/config.xlsx", engine="openpyxl") as xlsFile:
+        IndexList = pd.read_excel(xlsFile, sheet_name="常用指数", index_col=None, header=0)
     
     FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)# 不使用数据代理
     # FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)# 使用数据代理
-    
     ModuleList = [
-        stock_cn_info, 
-        stock_cn_status, 
-        stock_cn_industry, 
-        stock_cn_index_component, 
-        stock_cn_day_bar_nafilled,
-        stock_cn_day_bar_adj_backward_nafilled, 
-        stock_cn_consensus_expectation, 
-        stock_cn_factor_value, 
-        stock_cn_factor_growth, 
-        stock_cn_factor_quality,
-        stock_cn_factor_momentum, 
-        stock_cn_factor_sentiment, 
-        stock_cn_factor_size, 
-        stock_cn_factor_liquidity, 
-        stock_cn_factor_volatility, 
-        stock_cn_factor_alternative,
-        stock_cn_factor_barra_descriptor, 
-        stock_cn_factor_barra, 
-        stock_cn_margin_trading, 
-        stock_cn_factor_money_flow,
-        # stock_cn_factor_qlib_alpha158
+        (stock_cn_info, {}, None),
+        (stock_cn_status, {}, None),
+        (stock_cn_industry, {}, None),
+        (stock_cn_index_component, {"constituent_index_list": IndexList, "weight_index_list": IndexList}, None),
+        (stock_cn_day_bar_nafilled, {}, None),
+        (stock_cn_day_bar_adj_backward_nafilled, {}, None),
+        (stock_cn_consensus_expectation, {}, None),
+        (stock_cn_factor_value, {}, None),
+        (stock_cn_factor_growth, {}, None),
+        (stock_cn_factor_quality, {}, None),
+        (stock_cn_factor_momentum, {}, None),
+        (stock_cn_factor_sentiment, {}, None),
+        (stock_cn_factor_size, {}, None),
+        (stock_cn_factor_liquidity, {}, None),
+        (stock_cn_factor_volatility, {}, None),
+        (stock_cn_factor_alternative, {}, None),
+        (stock_cn_factor_barra_descriptor, {}, None),
+        (stock_cn_factor_barra, {}, None),
+        (stock_cn_margin_trading, {}, None),
+        (stock_cn_factor_money_flow, {}, None),
+        # (stock_cn_factor_qlib_alpha158, {}, None),
     ]
     StorerList, FactorDefDict = [], {}
-    for iModule in ModuleList:
+    for iModule, iModelArgs in ModuleList:
+        FDI.ModelArgs = iModelArgs
         iFactorDef: FactorDef = iModule.defFactor(fdi=FDI, dep_fd=FactorDefDict)
         FactorDefDict[iFactorDef.TargetTable] = iFactorDef
         if iFactorDef.MaxLookBack > MaxLookBack:
@@ -123,11 +125,10 @@ def main(
         StorerList.append(iStorer)
 
     Logger.info(f"并发数量: {workers}")
-    PIDList = [f"0-{i}" for i in range(int(workers))]
+    PIDList = [f"0-{i}" for i in range(int(workers))] if workers > 0 else ["0"]
     with FeatherFactorCache(args={"DTRuler": DTRuler, "PIDs": PIDList, "CacheDir": CacheDir, "StartMode": "new", "Suffix": ".pkl"}) as Cache:
         with FactorContext(Mode="DEBUG", PIDList=PIDList, DTRuler=DTRuler, SectionIDs=SectionIDs, DataCache=Cache) as Context:
-            # with Engine() as ExecEngine:
-            with ParallelEngine() as ExecEngine:
+            with (ParallelEngine() if workers > 0 else Engine()) as ExecEngine:
                 LocalContext = FactorLocalContext(DTs=DTs, IDs=IDs)
                 InitData = FactorInitData(DTRange=(DTs[0], DTs[-1]), SectionIDs=SectionIDs)
                 ExecEngine.run(StorerList, Context, fwd_data_list=[LocalContext] * len(StorerList), init_data_list=[InitData] * len(StorerList))

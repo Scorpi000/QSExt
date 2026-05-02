@@ -2,7 +2,7 @@
 """指数择时因子"""
 import datetime as dt
 
-import datetime as dt
+import numpy as np
 import pandas as pd
 
 import QuantStudio.api as QS
