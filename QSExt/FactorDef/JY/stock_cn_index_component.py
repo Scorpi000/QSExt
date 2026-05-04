@@ -16,7 +16,8 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     FT = JYDB.getTable("指数成份")
     for iRow in ConstituentIndexList.iterrows():
         iIndexID, iInnerCode = iRow["指数代码"], iRow["聚源内码"]
-        Factors.append(rename(FT.getFactor(str(iInnerCode)), factor_name=iIndexID.replace(".", "_")))
+        # Factors.append(rename(FT.getFactor(str(iInnerCode)), factor_name=iIndexID.replace(".", "_")))
+        Factors.append(rename(FT.getFactor(iIndexID), factor_name=iIndexID.replace(".", "_")))
 
     # 指数成份权重
     WeightIndexList = fdi.ModelArgs["weight_index_list"]
