@@ -36,15 +36,21 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
 
     ComponentIDs = fdi.ModelArgs["component_ids"]
 
-    ffill = FFill(lookback=63)
-
-    # 指数成份
-    # FT = LDB.getTable(fdi.ModelArgs["component_table"])
-    # ComponentID = ffill(FT.getFactor("component_code"))
-    # ComponentWeight = ffill(FT.getFactor("weight"))
-    ComponentDef = dep_fd[fdi.ModelArgs["component_table"]]
-    ComponentID = ffill(ComponentDef.getFactor("component_code"))
-    ComponentWeight = ffill(ComponentDef.getFactor("weight"))
+    if fdi.ModelArgs.get("lookback", 0) > 0:
+        ffill = FFill(lookback=fdi.ModelArgs["lookback"])
+        FT = LDB.getTable(fdi.ModelArgs["component_table"])
+        ComponentID = ffill(FT.getFactor("component_code"))
+        ComponentWeight = ffill(FT.getFactor("weight"))
+        # ComponentDef = dep_fd[fdi.ModelArgs["component_table"]]
+        # ComponentID = ffill(ComponentDef.getFactor("component_code"))
+        # ComponentWeight = ffill(ComponentDef.getFactor("weight"))
+    else:
+        FT = LDB.getTable(fdi.ModelArgs["component_table"])
+        ComponentID = FT.getFactor("component_code")
+        ComponentWeight = FT.getFactor("weight")
+        # ComponentDef = dep_fd[fdi.ModelArgs["component_table"]]
+        # ComponentID = ComponentDef.getFactor("component_code")
+        # ComponentWeight = ComponentDef.getFactor("weight")
     
     calculateIndexValue = calcIndexValue.new(args={"DescriptorSection": [ComponentIDs, None, None]})
 
