@@ -19,8 +19,8 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     JYDB = fdi.FDB["JYDB"]
     
     FT = JYDB.getTable("融资融券标的证券")
-    Factors.append(rename(FT.getFactor("10"), factor_name="finance_target"))
-    Factors.append(rename(FT.getFactor("20"), factor_name="security_target"))
+    Factors.append(rename(FT.getFactor("融资买入标的"), factor_name="finance_target"))
+    Factors.append(rename(FT.getFactor("融券卖出标的"), factor_name="security_target"))
     
     StockDayBarDef = dep_fd.get("stock_cn_day_bar_nafilled", defStockDayBar(fdi=fdi, dep_fd=dep_fd))
     MarketCap = StockDayBarDef.getFactor(factor_name="total_cap") * 10000
