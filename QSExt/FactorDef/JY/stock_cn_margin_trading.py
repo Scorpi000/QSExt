@@ -32,6 +32,10 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(SecurityValue)
     TradingValue = rename(FT.getFactor("融资融券余额(元)"), factor_name="trading_value")
     Factors.append(TradingValue)
+    FinanceBuyAmt = rename(FT.getFactor("融资买入额(元)"), factor_name="finance_buy_amount")
+    Factors.append(FinanceBuyAmt)
+    SecuritySellVol = rename(FT.getFactor("融券卖出量(股)"), factor_name="security_sell_volume")
+    Factors.append(SecuritySellVol)
     
     notnull, where = fo.NotNull(), fo.Where()
     FinanceSecurityDiff = where(FinanceValue, notnull(FinanceValue), 0) - where(SecurityValue, notnull(SecurityValue), 0)

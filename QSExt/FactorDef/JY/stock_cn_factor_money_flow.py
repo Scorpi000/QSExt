@@ -41,16 +41,27 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> FactorDef:
     Factors.append(fo.RollingApply(func=np.nansum, window=5)(ActiveBuyAmount - ActiveSellAmount, factor_args={"Name": "buy_minus_sell_5d_amt"}))
     Factors.append(fo.RollingApply(func=np.nansum, window=5)(ActiveBuyVolume - ActiveSellVolume, factor_args={"Name": "buy_minus_sell_5d_vol"}))
     
-    # ### 散户量差
+    # 散户量差
     FT = JYDB.getTable("股票交易资金流向", args={"AdditionalCondition": {"行情类别": "1", "单笔成交金额区间": "1,2"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
     SmallActiveBuyVolume = FT.getFactor("流入量(股)")
     SmallActiveSellVolume = FT.getFactor("流出量(股)")
 
     FT = JYDB.getTable("科创板交易资金分类流向", args={"AdditionalCondition": {"划分标准": "1", "单笔成交金额区间": "1,2"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
-    SmallActiveBuyVolume = FT.getFactor("流入量(股)")
-    SmallActiveSellVolume = FT.getFactor("流出量(股)")
+    SmallActiveBuyVolume = where(SmallActiveBuyVolume, notnull(SmallActiveBuyVolume), FT.getFactor("流入量(股)"))
+    SmallActiveSellVolume = where(SmallActiveSellVolume, notnull(SmallActiveSellVolume), FT.getFactor("流出量(股)"))
     
     Factors.append(rename((SmallActiveBuyVolume - SmallActiveSellVolume) / Volume, factor_name="small_trade_flow_1d"))
+
+    # 大单净流入
+    FT = JYDB.getTable("股票交易资金流向", args={"AdditionalCondition": {"行情类别": "1", "单笔成交金额区间": "3,4"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
+    BigActiveBuyAmount = FT.getFactor("流入金额(元)")
+    BigActiveSellAmount = FT.getFactor("流出金额(元)")
+
+    FT = JYDB.getTable("科创板交易资金分类流向", args={"AdditionalCondition": {"划分标准": "1", "单笔成交金额区间": "3,4"}, "MultiMapping": True, "Operator": sum, "OperatorDataType": "double"})
+    BigActiveBuyAmount = where(BigActiveBuyAmount, notnull(BigActiveBuyAmount), FT.getFactor("流入额(元)"))
+    BigActiveSellAmount = where(BigActiveSellAmount, notnull(BigActiveSellAmount), FT.getFactor("流出额(元)"))
+
+    Factors.append(rename((BigActiveBuyAmount - BigActiveSellAmount), factor_name="big_net_flow_in_amount_1d"))
 
     return FactorDef(
         FDI=fdi,
