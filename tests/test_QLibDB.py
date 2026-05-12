@@ -50,7 +50,7 @@ if __name__=="__main__":
     print(Data.iloc[0])
 
     # # 因子数据读取
-    # F = FT.getFactor(ifactor_name="($open - $close) / $close")
+    # F = FT.getFactor(factor_name="($open - $close) / $close")
     # IDs = ["000001.SZ", "600000.SH"]
     # DTs = [dt.datetime(2026, 3, 31), dt.datetime(2026, 4, 1)]
     # Data = F.readData(ids=IDs, dts=DTs)

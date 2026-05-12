@@ -67,12 +67,12 @@ class QLibFactorTable(FactorTable):
                 return sorted("$" + (iFactorName[:-SuffixLen] if iFactorName.endswith(Freq) else iFactorName) for iFactorName in listDirFile(str(iDir), suffix=self._FactorDB._QSArgs.Suffix))
         return []
     
-    def getFactor(self, ifactor_name:str, args:dict={}) -> Factor:
-        FieldSet = _parseField(ifactor_name)
+    def getFactor(self, factor_name:str, args:dict={}) -> Factor:
+        FieldSet = _parseField(factor_name)
         FactorNames = {iFactorName.replace("$", "") for iFactorName in self.FactorNames}
         if not FieldSet.issubset(FactorNames):
             raise __QS_Error__(f"因子表中不存在因子: {["$"+iField for iField in FieldSet.difference(FactorNames)]}")
-        return Factor(ft=self, args={"CacheEnabled": False} | args | {"Name": ifactor_name}, logger=self._QS_Logger)
+        return Factor(ft=self, args={"CacheEnabled": False} | args | {"Name": factor_name}, logger=self._QS_Logger)
 
     def getMetaData(self, key:Optional[str]=None) -> Union[Any, pd.Series]:
         with self._FactorDB._getLock(self._QSArgs.Name) as DataLock:
