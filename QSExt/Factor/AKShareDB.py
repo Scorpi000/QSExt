@@ -2,18 +2,21 @@
 """基于 akshare 的因子库(TODO)"""
 import os
 import datetime as dt
+from typing import Tuple, Optional, List, Literal, Union, Any
 
 import numpy as np
 import pandas as pd
 import akshare as ak
-from traits.api import Enum, Int, Str, File, Dict
+from pydantic import Field, FilePath
 
-from QuantStudio import __QS_Error__
-from QSExt import  __QS_LibPath__, __QS_MainPath__, __QS_ConfigPath__
-from QuantStudio.FactorDataBase.FactorDB import FactorDB, FactorTable
-from QuantStudio.FactorDataBase.FDBFun import _QS_calcData_WideTable
+from QuantStudio.Core import __QS_Error__
+from QuantStudio.Factor.FactorDB import FactorDB
+from QuantStudio.Factor.FactorTable import FactorTable
+from QuantStudio.Factor.FactorUtils import _QS_calcData_WideTable
 from QuantStudio.Tools.IDFun import suffixAShareID
 from QuantStudio.Tools.DateTimeFun import getDateTimeSeries
+from QSExt import __QS_MainPath__, __QS_ConfigPath__
+
 
 # 将信息源文件中的表和字段信息导入信息文件
 def _importInfo(info_file, info_resource, logger, out_info=False):
@@ -55,98 +58,118 @@ def _updateInfo(info_file, info_resource, logger, out_info=False):
 
 class _AKSTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
-        IDAdj = Enum("无", "前缀", arg_type="SingleOption", label="ID调整", order=50)
-        DTFmt = Str(arg_type="String", label="时点格式", order=51)
-        def __QS_initArgs__(self, args={}):
-            super().__QS_initArgs__(args=args)
-            ArgInfo = self._Owner._ArgInfo
-            ArgInfo = ArgInfo[ArgInfo["FieldType"]=="QSArg"]
-            for i, iArgName in enumerate(ArgInfo.index):
-                iArgInfo = eval(ArgInfo.loc[iArgName, "ArgInfo"])
-                if iArgInfo["arg_type"]=="SingleOption":
-                    self.add_trait(iArgName, Enum(*iArgInfo["option_range"], arg_type="SingleOption", label=iArgName, order=i+100, option_range=iArgInfo["option_range"]))
-                else:
-                    raise __QS_Error__(f"无法识别的参数信息: {iArgInfo}")
-                iDataType = ArgInfo.loc[iArgName, "DataType"]
-                iDefaultVal = ArgInfo.loc[iArgName, "DefaultValue"]
-                if iDataType=="str":
-                    self[iArgName] = (str(iDefaultVal) if pd.notnull(iDefaultVal) else "")
-                elif iDataType=="float":
-                    self[iArgName] = float(iDefaultVal)
-                elif iDataType=="int":
-                    self[iArgName] = int(iDefaultVal)
-                else:
-                    self[iArgName] = iDefaultVal
+        TableType: str = Field(default="AKSTable", title="因子表类型", frozen=True, description="""只能在 getTable 时传入，因子表创建后不可改变, 用于指明形成的因子表的类型""")
+        IDAdj: Literal["去后缀", "无", "前缀"] = Field(default="去后缀", title="ID调整")
+        DTFmt: str = Field(default="", title="时点格式")
+        APIArgs: dict = Field(default={}, title="API参数", frozen=True, repr=False)
     
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
-        self._TableInfo = fdb._TableInfo.loc[name]
-        self._FactorInfo = fdb._FactorInfo.loc[name]
-        self._ArgInfo = fdb._ArgInfo.loc[name]
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
-    
-    def _getAPIArgs(self, args={}):
-        return {iArgName: args.get(iArgName, self.Args[iArgName]) for iArgName in self._ArgInfo.index[self._ArgInfo["FieldType"]=="QSArg"]}
-    def __QS_adjustID__(self, ids, args={}):
-        IDAdj = args.get("ID调整", self._QSArgs.IDAdj)
-        if IDAdj=="无":
-            return ids
-        elif IDAdj=="前缀":
-            return [iID.split(".")[-1].lower() + ".".join(iID.split(".")[:-1]) if "." in iID else iID for iID in ids]
+    def __init__(self, fdb:"AKShareDB", args:dict={}, **kwargs):
+        super().__init__(fdb=fdb, args=args, **kwargs)
+        self._TableInfo = fdb._TableInfo.loc[self._QSArgs.Name]
+        self._FactorInfo = fdb._FactorInfo.loc[self._QSArgs.Name]
+        if self._QSArgs.Name in fdb._ArgInfo.index.get_level_values(0):
+            self._ArgInfo = fdb._ArgInfo.loc[self._QSArgs.Name]
         else:
-            raise __QS_Error__(f"AKShareDB._AKSTable: 不支持的 ID 调整方法 '{IDAdj}'")
-    def __QS_restoreID__(self, ids, args={}):
-        return ids
-    def __QS_adjustDT__(self, dts, args={}):
-        DTFmt = args.get("时点格式", self._QSArgs.DTFmt)
-        if not DTFmt:
+            self._ArgInfo = pd.DataFrame(columns=fdb._ArgInfo.columns)
+
+    def model_dump(self):
+        DumpedMdl = super().model_dump()
+        DumpedMdl["__module__"] = "AKShare"
+        DumpedMdl["__qsargs__"]["APIArgs"] = self._getAPIArgs()
+        return DumpedMdl
+
+    def _getAPIArgs(self):
+        APIArgs = {}
+        for iArgName in self._ArgInfo.index[self._ArgInfo["FieldType"] == "QSArg"]:
+            iArgInfo = eval(self._ArgInfo.loc[iArgName, "ArgInfo"])
+            if iArgName in self._QSArgs.APIArgs:
+                iArgVal = self._QSArgs.APIArgs[iArgName]
+                if iArgInfo["arg_type"]=="SingleOption":
+                    if iArgVal not in iArgInfo["option_range"]:
+                        raise __QS_Error__(f"不支持的参数值: {iArgVal}, 所有可选值: {iArgInfo['option_range']}")
+                else:
+                    raise __QS_Error__(f"不支持的参数类型: {iArgInfo['arg_type']}")
+            else:
+                if iArgInfo["arg_type"]=="SingleOption":
+                    iArgVal = self._ArgInfo.loc[iArgName, "DefaultValue"]
+                    iDataType = self._ArgInfo.loc[iArgName, "DataType"]
+                    if iDataType == "int":
+                        iArgVal = int(iArgVal)
+                    elif iDataType == "float":
+                        iArgVal = float(iArgVal)
+                    elif iDataType == "str":
+                        iArgVal = "" if pd.isnull(iArgVal) else str(iArgVal)
+                    else:
+                        raise __QS_Error__(f"不支持的参数数据类型: {iDataType}")
+                else:
+                    raise __QS_Error__(f"不支持的参数类型: {iArgInfo['arg_type']}")
+            APIArgs[iArgName] = iArgVal
+        return APIArgs
+    
+    def __QS_getIDMapping__(self, ids):
+        if self._QSArgs.IDAdj=="无":
+            return {}
+        elif self._QSArgs.IDAdj=="前缀":
+            return {iID: (iID.split(".")[-1].lower() + ".".join(iID.split(".")[:-1]) if "." in iID else iID) for iID in ids}
+        elif self._QSArgs.IDAdj=="去后缀":
+            return {iID: (".".join(iID.split(".")[:-1]) if "." in iID else iID) for iID in ids}
+        else:
+            raise __QS_Error__(f"AKShareDB._AKSTable: 不支持的 ID 调整方法 '{self._QSArgs.IDAdj}'")
+    
+    def __QS_adjustDT__(self, dts):
+        if not self._QSArgs.DTFmt:
             return dts
         else:
-            return [dt.datetime.strptime(iDT, DTFmt) if pd.notnull(iDT) else pd.NaT for iDT in dts]
-    def getMetaData(self, key=None, args={}):
-        TableInfo = self._FactorDB._TableInfo.loc[self.Name]
-        if key is None:
-            return TableInfo
-        else:
-            return TableInfo.get(key, None)
-    
+            return [dt.datetime.strptime(iDT, self._QSArgs.DTFmt) if pd.notnull(iDT) else pd.NaT for iDT in dts]
+
     @property
-    def FactorNames(self):
+    def FactorNames(self) -> List[str]:
         FactorInfo = self._FactorInfo
         return FactorInfo[FactorInfo["FieldType"]=="因子"].index.tolist()
     
-    def getFactorMetaData(self, factor_names=None, key=None, args={}):
-        if factor_names is None:
-            factor_names = self.FactorNames
-        FactorInfo = self._FactorDB._FactorInfo.loc[self.Name]
-        if key=="DataType":
+    def getMetaData(self, key:Optional[str]=None) -> Union[Any, pd.Series]:
+        if key is None:
+            return self._TableInfo
+        else:
+            return self._TableInfo.get(key, None)
+
+    def getFactorMetaData(self, factor_names:Optional[List[str]]=None, key:Optional[str]=None) -> Union[pd.DataFrame, pd.Series]:
+        if factor_names is None: factor_names = self.FactorNames
+        if key == "DataType":
             if hasattr(self, "_DataType"): return self._DataType.reindex(index=factor_names)
-            MetaData = FactorInfo["DataType"].reindex(index=factor_names)
+            MetaData = self._FactorInfo["DataType"].reindex(index=factor_names)
             for i in range(MetaData.shape[0]):
                 iDataType = MetaData.iloc[i].lower()
                 if iDataType.find("str")!=-1: MetaData.iloc[i] = "string"
                 else: MetaData.iloc[i] = "double"
             return MetaData
-        elif key=="Description": return FactorInfo["Description"].reindex(index=factor_names)
+        elif key == "Description":
+            return self._FactorInfo.loc[factor_names, "Description"]
         elif key is None:
-            return pd.DataFrame({"DataType":self.getFactorMetaData(factor_names, key="DataType", args=args),
-                                 "Description":self.getFactorMetaData(factor_names, key="Description", args=args)})
+            return self._FactorInfo.loc[factor_names, ["DataType", "Description"]]
         else:
-            return pd.Series([None]*len(factor_names), index=factor_names, dtype=np.dtype("O"))
+            return None
 
 
 class _DTTable(_AKSTable):
-    """DTTable"""
+    """AKShareDB 库中基于取单个时点数据 API 的因子表"""
+
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
-        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=50)
+        TableType: Literal["DTTable"] = Field(default="DTTable", title="因子表类型", frozen=True)
+        LookBack: int = Field(default=0, title="回溯天数", frozen=True, ge=0)
+    
+    def __init__(self, fdb:"AKShareDB", args:dict={}, **kwargs):
+        super().__init__(fdb=fdb, args=args, **kwargs)
+        self._QS_PrepareIgnoredArgs += ("LookBack",)
     
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
-        StartDT = dts[0] - dt.timedelta(args.get("回溯天数", self._QSArgs.LookBack))
+        StartDT = dts[0] - dt.timedelta(args.get("LookBack", self._QSArgs.LookBack))
         DTs = getDateTimeSeries(StartDT, dts[0]) + dts[1:]
         APIName = self._TableInfo.loc["DBTableName"]
         ArgInfo = self._ArgInfo
         DTArg = ArgInfo.index[ArgInfo["FieldType"]=="Date"][0]
         APIArgs = {DTArg: None}
-        APIArgs.update(self._getAPIArgs(args=args))
+        APIArgs.update(self._getAPIArgs())
         RawData = []
         for iDT in DTs:
             APIArgs[DTArg] = iDT.strftime("%Y%m%d")
@@ -159,100 +182,127 @@ class _DTTable(_AKSTable):
         IDField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="ID"][0]
         if RawData:
             RawData = pd.concat(RawData, axis=0, ignore_index=True)
-            RawData = RawData.rename(columns={IDField: "ID"}).reindex(columns=["ID", "QS_DT"]+factor_names)
-            RawData["ID"] = RawData["ID"].apply(suffixAShareID)
-            return RawData.sort_values(by=["ID", "QS_DT"])
+            RawData = RawData.rename(columns={IDField: "QS_ID"}).reindex(columns=["QS_ID", "QS_DT"]+factor_names)
+            RawData["QS_ID"] = RawData["QS_ID"].apply(suffixAShareID)
+            return RawData.sort_values(by=["QS_ID", "QS_DT"])
         else:
-            return pd.DataFrame(columns=["ID", "QS_DT"]+factor_names)
+            return pd.DataFrame(columns=["QS_ID", "QS_DT"]+factor_names)
     
-    def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
-        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType", args=args)
-        Args = self.Args.to_dict()
-        Args.update(args)
+    def __QS_calcData__(self, raw_data, factor_names, ids, dts):
+        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType")
+        Args = self._QSArgs.to_dict(repr=False)
         ErrorFmt = {"DuplicatedIndex":  "%s 的表 %s 无法保证唯一性 : {Error}, 可以尝试将 '多重映射' 参数取值调整为 True" % (self._FactorDB.Name, self.Name)}
         return _QS_calcData_WideTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
 
 class _DTRangeTable(_AKSTable):
-    """DTRangeTable"""
+    """AKShareDB 库中基于取时间区间数据 API 的因子表"""
+
     class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
-        LookBack = Int(0, arg_type="Integer", label="回溯天数", order=50)
+        TableType: Literal["DTRangeTable"] = Field(default="DTRangeTable", title="因子表类型", frozen=True)
+        LookBack: int = Field(default=0, title="回溯天数", frozen=True, ge=0)
+    
+    def __init__(self, fdb: "AKShareDB", args:dict={}, **kwargs):
+        super().__init__(fdb=fdb, args=args, **kwargs)
+        self._QS_PrepareIgnoredArgs += ("LookBack",)
     
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         StartDate, EndDate = dts[0].date(), dts[-1].date()
-        StartDate -= dt.timedelta(args.get("回溯天数", self._QSArgs.LookBack))
+        StartDate -= dt.timedelta(args.get("LookBack", self._QSArgs.LookBack))
         APIName = self._TableInfo.loc["DBTableName"]
         ArgInfo = self._ArgInfo
         StartDTArg = ArgInfo.index[ArgInfo["FieldType"]=="StartDate"][0]
         EndDTArg = ArgInfo.index[ArgInfo["FieldType"]=="EndDate"][0]
         IDArg = ArgInfo.index[ArgInfo["FieldType"]=="ID"][0]
         APIArgs = {StartDTArg: StartDate.strftime("%Y%m%d"), EndDTArg: EndDate.strftime("%Y%m%d")}
-        APIArgs.update(self._getAPIArgs(args=args))
-        AdjustedIDs = self.__QS_adjustID__(ids, args=args)
+        APIArgs.update(self._getAPIArgs())
+        IDMapping = self.__QS_getIDMapping__(ids)
         RawData = []
-        for i, iID in enumerate(AdjustedIDs):
-            APIArgs[IDArg] = iID
+        for iID in ids:
+            APIArgs[IDArg] = IDMapping.get(iID, iID)
             try:
                 iRawData = getattr(ak, APIName)(**APIArgs)
-            except:
+            except Exception as e:
                 continue
-            iRawData["ID"] = ids[i]
+            iRawData["QS_ID"] = iID
             RawData.append(iRawData)
         DTField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="Date"][0]
         if RawData:
             RawData = pd.concat(RawData, axis=0, ignore_index=True)
-            RawData = RawData.rename(columns={DTField: "QS_DT"}).reindex(columns=["ID", "QS_DT"]+factor_names)
+            RawData = RawData.rename(columns={DTField: "QS_DT"}).reindex(columns=["QS_ID", "QS_DT"]+factor_names)
             RawData["QS_DT"] = self.__QS_adjustDT__(RawData["QS_DT"])
-            return RawData.sort_values(by=["ID", "QS_DT"])
+            return RawData.sort_values(by=["QS_ID", "QS_DT"])
         else:
-            return pd.DataFrame(columns=["ID", "QS_DT"]+factor_names)
+            return pd.DataFrame(columns=["QS_ID", "QS_DT"]+factor_names)
     
-    def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
-        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType", args=args)
-        Args = self.Args.to_dict()
-        Args.update(args)
+    def __QS_calcData__(self, raw_data, factor_names, ids, dts):
+        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType")
+        Args = self._QSArgs.to_dict(repr=False)
         ErrorFmt = {"DuplicatedIndex":  "%s 的表 %s 无法保证唯一性 : {Error}, 可以尝试将 '多重映射' 参数取值调整为 True" % (self._FactorDB.Name, self.Name)}
         return _QS_calcData_WideTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
 
 
 class AKShareDB(FactorDB):
-    """AKShareDB"""
+    """基于 akshare 的因子库
+    Document: https://akshare.akfamily.xyz/index.html
+    GitHub: https://github.com/akfamily/akshare
+    库配置信息文件在 Resource 目录下的 AKShareDBInfo.xlsx, 记录了相关配置信息"""
     class __QS_ArgClass__(FactorDB.__QS_ArgClass__):
-        Name = Str("AKShareDB", arg_type="String", label="名称", order=-100)
-        DBInfoFile = File(label="库信息文件", arg_type="File", order=100)
-        FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
+        Name: str = Field(default="AKShareDB", title="名称", frozen=True)
+        UserID: str = Field(default="anonymous", title="用户ID", frozen=True, repr=False)
+        Pwd: str = Field(default="123456", title="密码", frozen=True, repr=False)
+        DBInfoFile: Optional[FilePath] = Field(default=None, title="库信息文件", frozen=True, repr=False)
+        FTArgs: dict = Field(default={}, title="因子表参数", frozen=True, repr=False)
     
-    def __init__(self, sys_args={}, config_file=None, **kwargs):
-        super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"AKShareDBConfig.json" if config_file is None else config_file), **kwargs)
-        self._InfoFilePath = __QS_LibPath__+os.sep+"AKShareDBInfo.hdf5"# 数据库信息文件路径
-        if not os.path.isfile(self._QSArgs.DBInfoFile):
+    def __init__(self, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        """初始化 AKShareDB
+
+        Args:
+            args: 指定的对象参数集
+            config_file: 配置文件路径, 默认配置文件为 "~/QuantStudioConfig/AKShareDBConfig.json"
+        """
+        super().__init__(args=args, config_file=(__QS_ConfigPath__ + os.sep + "AKShareDBConfig.json" if config_file is None else config_file), **kwargs)
+        self._InfoFilePath = __QS_MainPath__ + os.sep + "Resource" + os.sep + "AKShareDBInfo.hdf5"  # 数据库信息文件路径
+        if (not self._QSArgs.DBInfoFile) or (not os.path.isfile(self._QSArgs.DBInfoFile)):
             if self._QSArgs.DBInfoFile: self._QS_Logger.warning("找不到指定的库信息文件 : '%s'" % self._QSArgs.DBInfoFile)
-            self._InfoResourcePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"AKShareDBInfo.xlsx"# 默认数据库信息源文件路径
-            self._TableInfo, self._FactorInfo, self._ArgInfo = _updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)# 数据库表信息, 数据库字段信息
+            self._InfoResourcePath = __QS_MainPath__ + os.sep + "Resource" + os.sep + "AKShareDBInfo.xlsx"  # 默认数据库信息源文件路径
+            self._TableInfo, self._FactorInfo, self._ArgInfo = _updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)  # 数据库表信息, 数据库字段信息
         else:
             self._InfoResourcePath = self._QSArgs.DBInfoFile
-            self._TableInfo, self._FactorInfo, self._ArgInfo = _updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger, out_info=True)# 数据库表信息, 数据库字段信息
-        return
+            self._TableInfo, self._FactorInfo, self._ArgInfo = _updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger, out_info=True)  # 数据库表信息, 数据库字段信息
     
     @property
-    def TableNames(self):
+    def TableNames(self) -> List[str]:
         if self._TableInfo is not None: return self._TableInfo.index.tolist()
         else: return []
-    def getTable(self, table_name, args={}):
+    
+    def getTable(self, table_name:str, args:dict={}) -> _AKSTable:
         if table_name in self._TableInfo.index:
-            TableClass = args.get("因子表类型", self._TableInfo.loc[table_name, "TableClass"])
-            if pd.notnull(TableClass) and (TableClass!=""):
+            TableClass = args.get("TableType", self._TableInfo.loc[table_name, "TableClass"])
+            if pd.notnull(TableClass) and (TableClass != ""):
                 DefaultArgs = self._TableInfo.loc[table_name, "DefaultArgs"]
-                if pd.isnull(DefaultArgs): DefaultArgs = {}
-                else: DefaultArgs = eval(DefaultArgs)
+                if pd.isnull(DefaultArgs):
+                    DefaultArgs = {}
+                else:
+                    DefaultArgs = eval(DefaultArgs)
                 Args = self._QSArgs.FTArgs.copy()
                 Args.update(DefaultArgs)
                 Args.update(args)
-                return eval("_"+TableClass+"(name='"+table_name+"', fdb=self, sys_args=Args, logger=self._QS_Logger)")
+                Args["Name"] = table_name
+                return eval("_"+TableClass+"(fdb=self, args=Args, logger=self._QS_Logger)")
         Msg = ("因子库 '%s' 目前尚不支持因子表: '%s'" % (self.Name, table_name))
         self._QS_Logger.error(Msg)
         raise __QS_Error__(Msg)
-    # 给定起始日期和结束日期, 获取交易所交易日期
-    def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
+    
+    def getTradeDay(self, start_date:Optional[dt.datetime]=None, end_date:Optional[dt.datetime]=None, **kwargs) -> List[dt.datetime]:
+        """给定交易所、起始日和结束日, 获取交易日序列
+
+        Args:
+            start_date: 起始日, None 表示从可取的最早日期开始
+            end_date: 结束日, None 表示当前日期
+
+        Returns:
+            交易日序列
+        """
         DTs = ak.tool_trade_date_hist_sina().iloc[:, 0]
         if start_date: DTs = DTs[DTs>=(start_date.date() if isinstance(start_date, dt.datetime) else start_date)]
         if end_date: DTs = DTs[DTs<=(end_date.date() if isinstance(end_date, dt.datetime) else end_date)]
@@ -260,27 +310,24 @@ class AKShareDB(FactorDB):
             return DTs.tolist()
         else:
             return [dt.datetime.combine(iDT, dt.time(0)) for iDT in DTs]
-    # 获取指定日 date 的股票 ID
-    # exchange: 交易所(str)或者交易所列表(list(str))
-    # date: 指定日, 默认值 None 表示今天
-    # is_current: False 表示上市日期在指定日之前的股票, True 表示上市日期在指定日之前且尚未退市的股票
-    # start_date: 起始日, 如果非 None, is_current=False 表示提取在 start_date 至 date 之间上市过的股票 ID, is_current=True 表示提取在 start_date 至 date 之间均保持上市的股票
-    def getStockID(self, exchange=("SSE", "SZSE", "BSE"), date=None, is_current=True, start_date=None, **kwargs):
-        if is_current:
-            Msg = f"暂不支持 is_current={is_current}"
-            self._QS_Logger.error(Msg)
-            raise __QS_Error__(Msg)
-        if date:
-            Msg = f"暂不支持 date={date}, 只能为 None"
-            self._QS_Logger.error(Msg)
-            raise __QS_Error__(Msg)
-        if start_date:
-            Msg = f"暂不支持 start_date={start_date}, 只能为 None"
-            self._QS_Logger.error(Msg)
-            raise __QS_Error__(Msg)
+    
+    def getStockID(self, exchange:Tuple[str]=("SSE", "SZSE", "BSE"), **kwargs) -> List[str]:
+        """给定交易所和日期, 获取股票证券代码序列, 包括已退市的
+
+        Args:
+            exchange: 交易所列表(tuple), 默认 ("SSE", "SZSE", "BSE") 表示上交所、深交所、北交所
+            
+        Returns:
+            股票证券代码序列
+        """
         if set(exchange)=={"SSE", "SZSE", "BSE"}:
-            IDs = sorted(suffixAShareID(ak.stock_zh_a_spot_em()["代码"]))
-            return IDs
+            try:
+                Rslt = ak.stock_zh_a_spot_em()
+            except Exception as e:
+                self._QS_Logger.warning(f"API ak.stock_zh_a_spot_em 访问失败：{e}")
+            else:
+                IDs = sorted(suffixAShareID(Rslt["代码"]))
+                return IDs
         IDs = []
         if "SSE" in exchange:
             IDs = ak.stock_sh_a_spot_em()["代码"].tolist()
@@ -290,22 +337,3 @@ class AKShareDB(FactorDB):
             IDs += ak.stock_bj_a_spot_em()["代码"].tolist()
         IDs = sorted(suffixAShareID(IDs))
         return IDs
-
-
-
-if __name__=="__main__":
-    AKSDB = AKShareDB().connect()
-    print(AKSDB.TableNames)
-    
-    DTs = AKSDB.getTradeDay(start_date=dt.datetime(2022, 1, 1), end_date=dt.datetime(2022, 1, 31))
-    #IDs = AKSDB.getStockID(is_current=False)    
-    
-    #FT = AKSDB["历史行情数据-东财"]
-    #FT = AKSDB.getTable("历史行情数据-东财", args={"adjust": "hfq"})
-    FT = AKSDB.getTable("两市停复牌")
-
-    Data = FT.readData(factor_names=["停牌时间", "停牌原因"], ids=IDs, 
-        dts=[dt.datetime(2022, 10, 28), dt.datetime(2022, 10, 31)])
-    print(Data)
-    
-    print("===")
