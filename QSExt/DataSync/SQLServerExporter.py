@@ -177,7 +177,11 @@ class SQLServerExporter:
             
             # 获取总行数
             if max_id is not None:
-                cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE {id_field} > {max_id}")
+                if table_name.upper().endswith("_SE"):# 该表为从表
+                    if id_field in [col[0] for col in columns]:
+                        cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE {id_field} > {max_id}")
+                    else:
+                        cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE ID IN (SELECT ID FROM {table_name[:-3]} WHERE {id_field} > {max_id})")
             else:
                 cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
             total_rows = cursor.fetchone()[0]
@@ -346,7 +350,7 @@ class SQLServerExporter:
                     base_query += f" WHERE {where_clause}"
                 
                 # 如果有排序字段，用于断点续传
-                if order_by:
+                if order_by and (order_by in column_names):
                     if last_id is not None:
                         if where_clause:
                             base_query += f" AND [{order_by}] > {last_id}"
@@ -356,14 +360,14 @@ class SQLServerExporter:
 
                 # 执行查询
                 query = f"{base_query} OFFSET {offset} ROWS FETCH NEXT {self.batch_size} ROWS ONLY"
-                if not order_by:  # 如果没有排序字段，使用简单的分页
+                if (not order_by) or (order_by not in column_names):  # 如果没有排序字段，使用简单的分页
                     query = f"""
                         SELECT * FROM (
                             SELECT {', '.join([f'[{col}]' for col in column_names])}, ROW_NUMBER() OVER (ORDER BY {column_names[0]}) as rn
                             FROM [{table_name}]
                         ) t WHERE rn > {offset} AND rn <= {offset + self.batch_size}
                     """
-                print(table_name, query)# DEBUG
+                # print(table_name, query)# DEBUG
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 
@@ -380,7 +384,7 @@ class SQLServerExporter:
                 idx += 1
                 
                 # 更新断点
-                if order_by and rows:
+                if order_by and (order_by in column_names) and rows:
                     last_id = rows[-1][column_names.index(order_by)]
                     checkpoint = checkpoint | {
                         'token': token,

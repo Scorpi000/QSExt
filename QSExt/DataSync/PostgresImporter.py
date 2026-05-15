@@ -7,7 +7,7 @@ import traceback
 from io import StringIO
 import datetime as dt
 from collections import deque
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from multiprocessing import Lock
 
 import numpy as np
@@ -291,9 +291,15 @@ class PostgresImporter:
             cursor.close()
             conn.close()
 
-    def get_max_id(self, table_name:str, id_field:str="JSID"):
+    def get_max_id(self, table_name:str, id_field:str="JSID", main_table_name:Optional[str]=None):
         exists = self.check_table_exists(table_name)
         if not exists: return None
+        # 判断该表是否为从表，从表将从主表处获取
+        if main_table_name is not None:
+            table_name = main_table_name
+        elif table_name.upper().endswith("_SE"):
+            # TODO: 检查表中缺失 id_field
+            table_name = table_name[:-3]
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
