@@ -357,7 +357,7 @@ class SQLServerExporter:
                     query = f"{base_query} OFFSET {offset} ROWS FETCH NEXT {self.batch_size} ROWS ONLY"
                 else:  # 如果没有排序字段，使用简单的分页
                     if table_name.upper().endswith("_SE"):# 从表
-                        filter_condition += f"id IN (SELECT id FROM {table_name[:-3]} WHERE {id_field} > {last_id})"
+                        filter_condition = f"id IN (SELECT id FROM {table_name[:-3]} WHERE {id_field} > {last_id})"
                     else:
                         filter_condition = "TRUE"
                     if where_clause: filter_condition += f" AND {where_clause}"
