@@ -186,6 +186,9 @@ class PostgresImporter:
         if selected_index:
             selected_index = sorted(selected_index)[0]
             return unique_index_info[unique_index_info["index_name"]==selected_index]["column_name"].tolist()
+        elif index_name_list:
+            selected_index = sorted(index_name_list)[0]
+            return unique_index_info[unique_index_info["index_name"]==selected_index]["column_name"].tolist()
         else:
             return None
 
@@ -455,7 +458,7 @@ class PostgresImporter:
             index_info = pd.DataFrame(index_info[1:], columns=index_info[0])
             self.create_index(db_table_name, index_info)
             unique_fields = self.get_unique_fields(index_info=index_info)
-            unique_fields = [ifield.lower() for ifield in unique_fields]
+            if unique_fields: unique_fields = [ifield.lower() for ifield in unique_fields]
         else:
             unique_fields = None
         if not unique_fields:
@@ -498,8 +501,16 @@ class PostgresImporter:
         # 构建插入语句
         columns_str = ', '.join(headers)
         placeholders = ', '.join(['%s'] * len(headers))
-        update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() != "id")
-        insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
+        if db_table_name.upper().endswith("_SE"):# 从表
+            if unique_fields:
+                update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() not in unique_fields)
+                if update_str:
+                    insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({", ".join(unique_fields)}) DO UPDATE SET {update_str}'
+                else:
+                    insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT ({", ".join(unique_fields)}) DO NOTHING'
+        else:
+            update_str = ", ".join(f"{col}=EXCLUDED.{col}" for col in headers if col.lower() != "id")
+            insert_sql = f'INSERT INTO {db_table_name} ({columns_str}) VALUES ({placeholders}) ON CONFLICT (id) DO UPDATE SET {update_str}'
         
         id_col_idx, datetime_col_idx, float_col_idx, int_col_idx, text_col_idx = None, [], [], [], []
         for i, col in enumerate(columns_info):
@@ -621,7 +632,7 @@ if __name__=="__main__":
     # importer.create_index("CT_Personal", index_info=index_info)
     # index_info = importer.get_index_info(table_name="lc_exgindchange")
 
-    imported_rows = importer.import_table(token="b9299fb23be94e89b4fb2e90979fdbdf", table_name="MF_ETFPRComponents", del_table_name="JYDB_DeleteRec", resume=True)
+    imported_rows = importer.import_table(token="4898e79b23c6480099e456f5b81d4aa9", table_name="LC_GreatEvents_SE", del_table_name="JYDB_DeleteRec", resume=True)
     print(imported_rows)
     
     #imported_rows = importer.import_table(token="aha", table_name="jydb_deleterec", del_table_name="JYDB_DeleteRec", resume=False)

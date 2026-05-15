@@ -345,29 +345,31 @@ class SQLServerExporter:
         try:
             while True:
                 # 构建查询语句
-                base_query = f"SELECT {', '.join([(f'[{col}]' if col not in data_type_mapping else f'CONVERT({data_type_mapping[col]}, [{col}]) AS {col}') for col in column_names])} FROM [{table_name}]"
-                if where_clause:
-                    base_query += f" WHERE {where_clause}"
-                
-                # 如果有排序字段，用于断点续传
-                if order_by and (order_by in column_names):
+                if order_by and (order_by in column_names):# 如果有排序字段，用于断点续传
+                    base_query = f"SELECT {', '.join([(f'[{col}]' if col not in data_type_mapping else f'CONVERT({data_type_mapping[col]}, [{col}]) AS {col}') for col in column_names])} FROM [{table_name}]"
+                    if where_clause: base_query += f" WHERE {where_clause}"
                     if last_id is not None:
                         if where_clause:
                             base_query += f" AND [{order_by}] > {last_id}"
                         else:
                             base_query += f" WHERE [{order_by}] > {last_id}"
                     base_query += f" ORDER BY [{order_by}]"
-
-                # 执行查询
-                query = f"{base_query} OFFSET {offset} ROWS FETCH NEXT {self.batch_size} ROWS ONLY"
-                if (not order_by) or (order_by not in column_names):  # 如果没有排序字段，使用简单的分页
+                    query = f"{base_query} OFFSET {offset} ROWS FETCH NEXT {self.batch_size} ROWS ONLY"
+                else:  # 如果没有排序字段，使用简单的分页
+                    if table_name.upper().endswith("_SE"):# 从表
+                        filter_condition += f"id IN (SELECT id FROM {table_name[:-3]} WHERE {id_field} > {last_id})"
+                    else:
+                        filter_condition = "TRUE"
+                    if where_clause: filter_condition += f" AND {where_clause}"
                     query = f"""
-                        SELECT * FROM (
+                        SELECT {', '.join([f'[{col}]' for col in column_names])} FROM (
                             SELECT {', '.join([f'[{col}]' for col in column_names])}, ROW_NUMBER() OVER (ORDER BY {column_names[0]}) as rn
-                            FROM [{table_name}]
+                            FROM [{table_name}] WHERE {filter_condition}
                         ) t WHERE rn > {offset} AND rn <= {offset + self.batch_size}
                     """
                 # print(table_name, query)# DEBUG
+
+                # 执行查询
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 
