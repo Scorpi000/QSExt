@@ -182,6 +182,8 @@ class SQLServerExporter:
                         cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE {id_field} > {max_id}")
                     else:
                         cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE ID IN (SELECT ID FROM {table_name[:-3]} WHERE {id_field} > {max_id})")
+                else:
+                    cursor.execute(f"SELECT COUNT(*) FROM [{table_name}] WHERE {id_field} > {max_id}")
             else:
                 cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
             total_rows = cursor.fetchone()[0]
