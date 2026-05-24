@@ -77,7 +77,7 @@ class DataImporter(FileSystemEventHandler):
         self.max_check_alive_num = max_check_alive_num
 
         self.proc_list = {}# {(token, table_name): Process}
-        self.pending_proc_list = []# [(token, table_name, Process)]
+        self.pending_proc_list = {}# {(token, table_name): Process}
         self.proc_check_alive_cnt = {}# {(token, table_name): 检查 alive 次数}
         self.queue = Queue()
         self.observation_list = {
@@ -126,11 +126,10 @@ class DataImporter(FileSystemEventHandler):
                             self.proc_check_alive_cnt.pop((token, table_name), None)
             if self.pending_proc_list:
                 nproc = self.concurrent_num - len(self.proc_list)
-                for token, itable, iproc in self.pending_proc_list[:nproc]:
-                    self.proc_list[(token, itable)] = iproc
+                for token, itable in list(self.pending_proc_list.keys())[:nproc]:
+                    self.proc_list[(token, itable)] = self.pending_proc_list.pop((token, itable))
                     self.proc_list[(token, itable)].start()
                     self.proc_check_alive_cnt[(token, itable)] = 0
-                self.pending_proc_list = self.pending_proc_list[nproc:]
         else:
             for token, table_name in list(self.proc_list.keys()):
                 if self.proc_list[(token, table_name)] is not None:
@@ -170,7 +169,7 @@ class DataImporter(FileSystemEventHandler):
         
         # 启动导入任务
         for i, itable in enumerate(table_list):
-            if (token, itable) in self.proc_list:
+            if ((token, itable) in self.proc_list) or ((token, itable) in self.pending_proc_list):
                 print(f"任务 {token} 的表 {itable} 已经在导入，无需重复执行!")
                 continue
             if self.concurrent_num <= 0:
@@ -179,7 +178,8 @@ class DataImporter(FileSystemEventHandler):
             else:
                 iproc = Process(target=execute_task, args=({"importer": self.importer, "token": token, "table_name": itable, "del_table": del_table_list[i], "queue": self.queue, "resume": resume},))
                 if len(self.proc_list) > self.concurrent_num:
-                    self.pending_proc_list.append((token, itable, iproc))
+                    print(f"超出最大并发量，任务 {token} 的表 {itable} 的导入暂时挂起")
+                    self.pending_proc_list[(token, itable)] = iproc
                 else:
                     self.proc_list[(token, itable)] = iproc
                     self.proc_list[(token, itable)].start()
@@ -217,7 +217,7 @@ if __name__ == "__main__":
     }
     importer = PostgresImporter(**config)
     interval_seconds = 3
-    concurrent_num = 1
+    concurrent_num = 10
 
     event_handler = DataImporter(target_dir=target_dir, importer=importer, interval_seconds=interval_seconds, concurrent_num=concurrent_num)
     observer = Observer()
