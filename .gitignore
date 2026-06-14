@@ -2,7 +2,7 @@ build/
 dist/
 .idea/
 QSExt.egg-info/
-QSExt/Backup/
+Backup/
 QSExt/Tools/QtGUI/.eric6project/
 __*/
 _eric*/
