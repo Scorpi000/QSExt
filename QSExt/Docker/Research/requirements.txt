@@ -1,4 +1,0 @@
-wheel
-notebook
-jupyter_contrib_nbextensions
-ipywidgets
