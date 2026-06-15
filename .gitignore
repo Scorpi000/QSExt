@@ -20,3 +20,5 @@ TestCoverage.bat
 *.wpu
 *.code-workspace
 *.ttf
+
+CLAUDE.local.md
