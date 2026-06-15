@@ -1,0 +1,15 @@
+{
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "C:\\Users\\hst\\Project\\QuantStudio;C:\\Users\\hst\\Project\\QSExt;C:\\Users\\hst\\Project\\QSAgent"
+            },
+            "cwd": "${fileDirname}"
+        }
+    ]
+}

@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "defaults": {
+      "font": {
+        "face": "Cascadia Code"
+      }
+    }
+  }
+}

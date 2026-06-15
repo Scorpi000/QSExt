@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""测试 ZarrDB 因子库"""
+"""测试 SQLite3DB 因子库"""
 import os
 import datetime as dt
 import tempfile
@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from QSExt.Factor.ZarrDB import ZarrDB
+from QSExt.Factor.SQLite3DB import SQLite3DB
 from QuantStudio.Core.QSObject import Panel
 
 
@@ -25,16 +25,22 @@ def compareDataFrame(df1, df2, dtype="double"):
         return np.maximum(Err.astype("float"), (m1 ^ m2).astype("float"))
 
 
-class TestZarrDB(unittest.TestCase):
-    """ZarrDB 单元测试"""
+class TestSQLite3DB(unittest.TestCase):
+    """SQLite3DB 单元测试"""
 
     @classmethod
     def setUpClass(cls):
         cls.TempDir = tempfile.TemporaryDirectory()
-        cls.FDB = ZarrDB(args={"MainDir": cls.TempDir.name}).connect()
+        cls.DBPath = os.path.join(cls.TempDir.name, "test.db")
+        cls.FDB = SQLite3DB(args={
+            "DBFile": cls.DBPath,
+            "InnerPrefix": "",
+            "TablePrefix": "",
+        }).connect()
 
     @classmethod
     def tearDownClass(cls):
+        cls.FDB.disconnect()
         cls.TempDir.cleanup()
 
     # ==================== 数据读写测试 ====================
@@ -54,7 +60,7 @@ class TestZarrDB(unittest.TestCase):
         # 创建因子表并写入部分数据
         self.FDB.writeData(TargetData.iloc[:, 0:2, 0:1], TestTable)
         FT = self.FDB.getTable(TestTable)
-        self.assertListEqual(sorted([TestFactor1, TestFactor2]), FT.FactorNames)
+        self.assertListEqual(sorted([TestFactor1, TestFactor2]), sorted([f for f in FT.FactorNames if f not in ("datetime", "code")]))
 
         TestData = FT.readData(factor_names=[TestFactor1, TestFactor2], ids=IDs[0:1], dts=DTs[0:2])
         Err = compareDataFrame(TestData.iloc[0], TargetData.iloc[0, 0:2, 0:1], dtype="double")
@@ -92,26 +98,44 @@ class TestZarrDB(unittest.TestCase):
         self.FDB.writeData(Panel({TestFactor: TargetData}), TestTable, data_type={TestFactor: "string"})
         FT = self.FDB.getTable(TestTable)
         TestData = FT.readData(factor_names=[TestFactor], ids=IDs, dts=DTs).iloc[0]
-        # string 类型：None 和 "" 都转为 None
         self.assertEqual(TestData.iloc[0, 0], "A")
         self.assertTrue(pd.isnull(TestData.iloc[1, 1]))
 
-    def test_ObjectDataIO(self):
-        """测试 object 类型因子的读写"""
-        TestTable = "TestTable_ObjectDataIO"
-        TestFactor = "TestFactor_ObjectDataIO"
-        DTs = [dt.datetime(2019, 1, 1), dt.datetime(2019, 1, 2), dt.datetime(2019, 1, 3)]
-        IDs = ["000001.SZ", "600000.SH"]
+    # Note: SQLite3DB 不支持 object 类型因子的原生存储，该类型需通过 JSON 序列化处理
 
-        TargetData = np.full(shape=(3, 2), fill_value=None, dtype="O")
-        TargetData[0, 0] = [1, 2, 3]
-        TargetData[1, 1] = {"测试": {"a": ["数据"]}}
-        TargetData = pd.DataFrame(TargetData, index=DTs, columns=IDs)
-        self.FDB.writeData(Panel({TestFactor: TargetData}), TestTable)
+    def test_MultipleWrite(self):
+        """测试多次写入不重复创建表"""
+        TestTable = "TestTable_MultipleWrite"
+        TestFactor = "TestFactor_MultipleWrite"
+        DTs = [dt.datetime(2019, 1, 1)]
+        IDs = ["000001.SZ"]
+
+        Data = pd.DataFrame(np.ones((1, 1)), index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
+        self.assertIn(TestTable, self.FDB.TableNames)
+        # 再次写入
+        NewData = pd.DataFrame([[2.0]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor: NewData}), TestTable, if_exists="update")
         FT = self.FDB.getTable(TestTable)
         TestData = FT.readData(factor_names=[TestFactor], ids=IDs, dts=DTs).iloc[0]
-        self.assertListEqual(TestData.iloc[0, 0], [1, 2, 3])
-        self.assertDictEqual(TestData.iloc[1, 1], {"测试": {"a": ["数据"]}})
+        self.assertAlmostEqual(TestData.iloc[0, 0], 2.0)
+
+    def test_WriteWithNewFactor(self):
+        """测试写入时自动添加新因子列"""
+        TestTable = "TestTable_WriteNewFactor"
+        TestFactor1 = "TestFactor1_WriteNewFactor"
+        TestFactor2 = "TestFactor2_WriteNewFactor"
+        DTs = [dt.datetime(2019, 1, 1)]
+        IDs = ["000001.SZ"]
+
+        Data1 = pd.DataFrame([[1.0]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor1: Data1}), TestTable)
+        self.assertIn(TestFactor1, self.FDB.getTable(TestTable).FactorNames)
+
+        # 写入新因子
+        Data2 = pd.DataFrame([[2.0]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor1: Data1, TestFactor2: Data2}), TestTable)
+        self.assertIn(TestFactor2, self.FDB.getTable(TestTable).FactorNames)
 
     # ==================== ID / 时点读取测试 ====================
 
@@ -136,7 +160,6 @@ class TestZarrDB(unittest.TestCase):
         Data = pd.DataFrame([[1.0, np.nan], [np.nan, 2.0]], index=DTs, columns=IDs)
         self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
         FT = self.FDB.getTable(TestTable)
-        # 第一个时点只有 000001.SZ 有数据
         IDsWithData = FT.getID(idt=DTs[0])
         self.assertListEqual(IDsWithData, ["000001.SZ"])
 
@@ -178,6 +201,7 @@ class TestZarrDB(unittest.TestCase):
         self.assertTrue(TestFactor in FT.FactorNames)
         NewFactorName = "New_" + TestFactor
         self.FDB.renameFactor(TestTable, TestFactor, NewFactorName)
+        FT = self.FDB.getTable(TestTable)
         self.assertFalse(TestFactor in FT.FactorNames)
         self.assertTrue(NewFactorName in FT.FactorNames)
 
@@ -193,11 +217,12 @@ class TestZarrDB(unittest.TestCase):
         FT = self.FDB.getTable(TestTable)
         self.assertTrue(TestFactor1 in FT.FactorNames)
         self.FDB.deleteFactor(TestTable, [TestFactor1])
+        FT = self.FDB.getTable(TestTable)
         self.assertFalse(TestFactor1 in FT.FactorNames)
         self.assertTrue(TestFactor2 in FT.FactorNames)
-        # 删除所有因子后表也被删除
+        # 删除所有自定义因子后表仍存在（保留 datetime, code 字段）
         self.FDB.deleteFactor(TestTable, [TestFactor2])
-        self.assertFalse(TestTable in self.FDB.TableNames)
+        self.assertTrue(TestTable in self.FDB.TableNames)
 
     # ==================== 表操作测试 ====================
 
@@ -227,164 +252,106 @@ class TestZarrDB(unittest.TestCase):
         self.FDB.deleteTable(table_name=TestTable)
         self.assertFalse(TestTable in self.FDB.TableNames)
 
-    # ==================== 元数据测试 ====================
+    # ==================== 创建和添加因子 ====================
 
-    def test_TableMetaData(self):
-        """测试表元数据读写"""
-        TestTable = "TestTable_MetaData"
-        TestFactor = "TestFactor_MetaData"
+    def test_createTable(self):
+        """测试手动创建表"""
+        TestTable = "TestTable_createTable"
+        self.FDB.createTable(TestTable, {
+            "Factor0": "real",
+            "Factor1": "text",
+        })
+        self.assertIn(TestTable, self.FDB.TableNames)
+        FT = self.FDB.getTable(TestTable)
+        self.assertIn("Factor0", FT.FactorNames)
+        self.assertIn("Factor1", FT.FactorNames)
+
+    def test_addFactor(self):
+        """测试向已有表添加因子"""
+        TestTable = "TestTable_addFactor"
+        TestFactor1 = "TestFactor1_addFactor"
         DTs = [dt.datetime(2019, 1, 1)]
         IDs = ["000001.SZ"]
-        Data = pd.DataFrame(np.ones((1, 1)), index=DTs, columns=IDs)
+        Data = pd.DataFrame([[1.0]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor1: Data}), TestTable)
+
+        NewFactor = "TestFactor2_addFactor"
+        self.FDB.addFactor(TestTable, {NewFactor: "text"})
+        self.assertIn(NewFactor, self.FDB.getTable(TestTable).FactorNames)
+
+    # ==================== deleteData 测试 ====================
+
+    def test_deleteData(self):
+        """测试删除数据"""
+        TestTable = "TestTable_deleteData"
+        TestFactor = "TestFactor_deleteData"
+        DTs = [dt.datetime(2019, 1, 1), dt.datetime(2019, 1, 2), dt.datetime(2019, 1, 3)]
+        IDs = ["000001.SZ", "600000.SH"]
+        Data = pd.DataFrame(np.ones((3, 2)), index=DTs, columns=IDs)
         self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
 
-        # 写入元数据
-        self.FDB.setTableMetaData(TestTable, key="Description", value="测试表")
-        self.FDB.setTableMetaData(TestTable, key="Version", value=1)
+        # 删除指定 ID 的数据
+        self.FDB.deleteData(TestTable, ids=["000001.SZ"])
+        FT = self.FDB.getTable(TestTable)
+        TestIDs = FT.getID()
+        self.assertListEqual(TestIDs, ["600000.SH"])
+
+    # ==================== update_notnull 测试 ====================
+
+    def test_UpdateNotNull(self):
+        """测试 update_notnull 写入方式：新数据非空时覆盖旧值，新数据空时保留旧值"""
+        TestTable = "TestTable_UpdateNotNull"
+        TestFactor = "TestFactor_UpdateNotNull"
+        DTs = [dt.datetime(2019, 1, 1), dt.datetime(2019, 1, 2)]
+        IDs = ["000001.SZ", "600000.SH"]
+
+        Data = pd.DataFrame([[1.0, np.nan], [np.nan, 2.0]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
+
+        # 用 update_notnull 写入，新数据非空则覆盖，新数据为空则保留旧值
+        NewData = pd.DataFrame([[np.nan, 10.0], [10.0, np.nan]], index=DTs, columns=IDs)
+        self.FDB.writeData(Panel({TestFactor: NewData}), TestTable, if_exists="update_notnull")
 
         FT = self.FDB.getTable(TestTable)
-        MetaData = FT.getMetaData()
-        self.assertEqual(MetaData["Description"], "测试表")
-        self.assertEqual(MetaData["Version"], 1)
+        TestData = FT.readData(factor_names=[TestFactor], ids=IDs, dts=DTs).iloc[0]
+        # 原非空值，新数据为空 → 保留
+        self.assertAlmostEqual(TestData.iloc[0, 0], 1.0)
+        self.assertAlmostEqual(TestData.iloc[1, 1], 2.0)
+        # 原空值，新数据非空 → 填充
+        self.assertAlmostEqual(TestData.iloc[0, 1], 10.0)
+        self.assertAlmostEqual(TestData.iloc[1, 0], 10.0)
 
-        # 批量写入
-        self.FDB.setTableMetaData(TestTable, meta_data={"Author": "test", "Tag": "unittest"})
-        MetaData = FT.getMetaData()
-        self.assertEqual(MetaData["Author"], "test")
+    # ==================== 连接与断开 ====================
 
-    def test_FactorMetaData(self):
-        """测试因子元数据读写"""
-        TestTable = "TestTable_FactorMetaData"
-        TestFactor = "TestFactor_FactorMetaData"
+    def test_disconnect(self):
+        """测试断开连接"""
+        TestDB = SQLite3DB(args={
+            "DBFile": ":memory:",
+            "InnerPrefix": "",
+            "TablePrefix": "",
+        }).connect()
+        self.assertIsNotNone(TestDB.Connection)
+        TestDB.disconnect()
+        self.assertIsNone(TestDB.Connection)
+
+    def test_InnerPrefix(self):
+        """测试内部前缀过滤"""
+        DBPath = os.path.join(self.TempDir.name, "test_prefix.db")
+        DB = SQLite3DB(args={
+            "DBFile": DBPath,
+            "InnerPrefix": "qs_",
+            "TablePrefix": "",
+        }).connect()
+        TestTable = "TestTable_Prefix"
+        TestFactor = "TestFactor_Prefix"
         DTs = [dt.datetime(2019, 1, 1)]
         IDs = ["000001.SZ"]
-        Data = pd.DataFrame(np.ones((1, 1)), index=DTs, columns=IDs)
-        self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
-
-        # 写入因子元数据
-        self.FDB.setFactorMetaData(TestTable, TestFactor, key="DataType", value="double")
-
-        FT = self.FDB.getTable(TestTable)
-        DataType = FT.getFactorMetaData(factor_names=[TestFactor], key="DataType")
-        self.assertEqual(DataType[TestFactor], "double")
-
-        # 获取全部元数据
-        AllMeta = FT.getFactorMetaData(factor_names=[TestFactor])
-        self.assertIn("DataType", AllMeta.columns)
-
-    # ==================== 序列化元数据测试 ====================
-
-    def test_TableMetaData_Series(self):
-        """测试表元数据存储 pd.Series"""
-        TestTable = "TestTable_MetaData_Series"
-        TestFactor = "TestFactor_MetaData_Series"
-        DTs = [dt.datetime(2019, 1, 1)]
-        IDs = ["000001.SZ"]
-        Data = pd.DataFrame(np.ones((1, 1)), index=DTs, columns=IDs)
-        self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
-
-        s = pd.Series([1, 2, 3], index=["a", "b", "c"])
-        self.FDB.setTableMetaData(TestTable, key="MySeries", value=s)
-        FT = self.FDB.getTable(TestTable)
-        Restored = FT.getMetaData(key="MySeries")
-        pd.testing.assert_series_equal(Restored, s)
-
-    def test_TableMetaData_DataFrame(self):
-        """测试表元数据存储 pd.DataFrame"""
-        TestTable = "TestTable_MetaData_DataFrame"
-        TestFactor = "TestFactor_MetaData_DataFrame"
-        DTs = [dt.datetime(2019, 1, 1)]
-        IDs = ["000001.SZ"]
-        Data = pd.DataFrame(np.ones((1, 1)), index=DTs, columns=IDs)
-        self.FDB.writeData(Panel({TestFactor: Data}), TestTable)
-
-        df = pd.DataFrame({"x": [1, 2], "y": [3, 4]}, index=["r1", "r2"])
-        self.FDB.setTableMetaData(TestTable, key="MyDF", value=df)
-        FT = self.FDB.getTable(TestTable)
-        Restored = FT.getMetaData(key="MyDF")
-        pd.testing.assert_frame_equal(Restored, df)
-
-
-def generate_demo_data(target_dir):
-    """生成 Demo 数据到指定目录"""
-    TargetDir = target_dir
-    if not os.path.isdir(TargetDir):
-        os.makedirs(TargetDir, exist_ok=True)
-
-    ZDB = ZarrDB(args={"MainDir": TargetDir}).connect()
-
-    np.random.seed(0)
-    nDT, nID = 100, 20
-    IDs = [str(i).zfill(6) + ".SZ" for i in range(1, nID + 1)]
-    DTs = [dt.datetime(2025, 1, 1) + dt.timedelta(i) for i in range(nDT)]
-
-    # stock_cn_day_bar —— 股票日行情
-    Data = {
-        "open": pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTs, columns=IDs),
-        "close": pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTs, columns=IDs),
-        "volume": pd.DataFrame(np.random.rand(nDT, nID) * 100, index=DTs, columns=IDs),
-        "amount": pd.DataFrame(np.random.rand(nDT, nID) * 1000, index=DTs, columns=IDs),
-    }
-    Data["high"] = pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTs, columns=IDs).combine(Data["open"], np.maximum).combine(Data["close"], np.maximum)
-    Data["low"] = pd.DataFrame(np.random.rand(nDT, nID) * 10, index=DTs, columns=IDs).combine(Data["open"], np.minimum).combine(Data["close"], np.minimum)
-    ZDB.writeData(data=Panel(Data), table_name="stock_cn_day_bar", if_exists="update")
-    ZDB.setTableMetaData(table_name="stock_cn_day_bar", meta_data={"Description": "股票日K线"})
-    print("已生成: stock_cn_day_bar")
-
-    # stock_cn_status —— 股票状态
-    Data = {"if_listed": pd.DataFrame(np.ones((nDT, nID)), index=DTs, columns=IDs)}
-    Data["if_listed"].iloc[:, 2] = 0
-    ZDB.writeData(data=Panel(Data), table_name="stock_cn_status", if_exists="update")
-    ZDB.setTableMetaData(table_name="stock_cn_status", meta_data={"Description": "股票状态信息"})
-    print("已生成: stock_cn_status")
-
-    # stock_cn_industry —— 行业分类
-    Data = {
-        "industry": pd.DataFrame(
-            np.repeat(np.random.choice(["Fin", "TMT", "Ind"], size=(1, nID)), axis=0, repeats=nDT),
-            index=DTs, columns=IDs
-        ),
-    }
-    ZDB.writeData(data=Panel(Data), table_name="stock_cn_industry", if_exists="update", data_type={"industry": "string"})
-    print("已生成: stock_cn_industry")
-
-    # stock_cn_factor_value —— 因子值
-    Data = {
-        "ep_ttm": pd.DataFrame(np.random.rand(nDT, nID), index=DTs, columns=IDs),
-        "bp_lr": pd.DataFrame(np.random.rand(nDT, nID), index=DTs, columns=IDs),
-    }
-    ZDB.writeData(data=Panel(Data), table_name="stock_cn_factor_value", if_exists="update")
-    ZDB.setTableMetaData(table_name="stock_cn_factor_value", meta_data={"Description": "股票价值因子"})
-    print("已生成: stock_cn_factor_value")
-
-    # index_cn_day_bar —— 指数日行情
-    IndexIDs = ["000300.SH", "000905.SH", "000852.SH"]
-    nIndexID = len(IndexIDs)
-    Data = {
-        "open": pd.DataFrame(np.random.rand(nDT, nIndexID) * 10, index=DTs, columns=IndexIDs),
-        "close": pd.DataFrame(np.random.rand(nDT, nIndexID) * 10, index=DTs, columns=IndexIDs),
-        "volume": pd.DataFrame(np.random.rand(nDT, nIndexID) * 100, index=DTs, columns=IndexIDs),
-        "amount": pd.DataFrame(np.random.rand(nDT, nIndexID) * 1000, index=DTs, columns=IndexIDs),
-    }
-    Data["high"] = pd.DataFrame(np.random.rand(nDT, nIndexID) * 10, index=DTs, columns=IndexIDs).combine(Data["open"], np.maximum).combine(Data["close"], np.maximum)
-    Data["low"] = pd.DataFrame(np.random.rand(nDT, nIndexID) * 10, index=DTs, columns=IndexIDs).combine(Data["open"], np.minimum).combine(Data["close"], np.minimum)
-    ZDB.writeData(data=Panel(Data), table_name="index_cn_day_bar", if_exists="update")
-    ZDB.setTableMetaData(table_name="index_cn_day_bar", meta_data={"Description": "指数日K线"})
-    print("已生成: index_cn_day_bar")
-
-    # 删除多余的表
-    for iTableName in ZDB.TableNames:
-        if iTableName not in ["stock_cn_day_bar", "stock_cn_industry", "stock_cn_status", "stock_cn_factor_value", "index_cn_day_bar"]:
-            ZDB.deleteTable(iTableName)
-
-    print(f"\n全部 Demo 数据已生成到: {TargetDir}")
-    print(f"表列表: {ZDB.TableNames}")
+        Data = pd.DataFrame([[1.0]], index=DTs, columns=IDs)
+        DB.writeData(Panel({TestFactor: Data}), TestTable)
+        # InnerPrefix 为 qs_，实际表名应为 qs_TestTable_Prefix
+        self.assertIn(TestTable, DB.TableNames)
+        DB.disconnect()
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--gen-data":
-        target_dir = sys.argv[2] if len(sys.argv) > 2 else "C:/Users/hst/Project/Data/ZarrDB"
-        generate_demo_data(target_dir)
-    else:
-        unittest.main()
+    unittest.main()

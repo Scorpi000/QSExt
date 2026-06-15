@@ -4,20 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-QuantStudio 是一个 Python 量化投资框架，提供因子管理、回测、风险建模和组合优化等功能。本仓库 QSExt 是其扩展包，依赖核心库 `QuantStudio`（位于 `D:\Project\QuantStudio`）。
-
-## 运行环境
-
-- Python 环境：conda `QS312`，路径 `D:\miniforge\envs\QS312`
-- 运行测试：`conda run -n QS312 python -m pytest tests/`
-- 运行单个测试：`conda run -n QS312 python -m pytest tests/test_xxx.py`
+QuantStudio 是一个 Python 量化投资框架，提供因子管理、回测、风险建模和组合优化等功能。本仓库 QSExt 是其扩展包，依赖核心库 `QuantStudio`。
 
 ## 核心架构
 
 ### 双仓库结构
 
 - **QSExt**（本仓库）：扩展包，包含额外的因子库适配器、策略、GUI 等
-- **QuantStudio**（`D:\Project\QuantStudio`）：核心框架，提供基础类和引擎
+- **QuantStudio**：核心框架，提供基础类和引擎
 
 QSExt 通过 `from QuantStudio.xxx import yyy` 引用核心库。两个包的 `__init__.py` 都定义了 `__QS_MainPath__` 和 `__QS_ConfigPath__` 路径常量。
 

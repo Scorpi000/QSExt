@@ -14,11 +14,13 @@ TestCoverage.bat
 *.bak
 *.dat
 *.dir
-*.json
 *.hdf5
 *.wpr
 *.wpu
 *.code-workspace
 *.ttf
+*.lnk
 
 CLAUDE.local.md
+.claude/settings.local.json
+.claude/skills/quantstudio
