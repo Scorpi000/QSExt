@@ -34,10 +34,11 @@ def _get_fgdb():
     if neo4j_cfg is None:
         raise RuntimeError("无法加载 Neo4j 配置: ~/QuantStudioConfig/Neo4jDBConfig.json 不存在")
     neo4j_args = {
-        "Neo4jURI": f"bolt://{neo4j_cfg['IPAddr']}:{neo4j_cfg['Port']}",
-        "Neo4jUser": neo4j_cfg["User"],
-        "Neo4jPwd": neo4j_cfg["Pwd"],
-        "Neo4jDB": neo4j_cfg.get("DBName", "neo4j"),
+        "IPAddr": neo4j_cfg["IPAddr"],
+        "Port": neo4j_cfg["Port"],
+        "User": neo4j_cfg["User"],
+        "Pwd": neo4j_cfg["Pwd"],
+        "DBName": neo4j_cfg.get("DBName", "neo4j"),
         "OllamaBaseURL": os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
         "OllamaAPIKey": os.getenv("OLLAMA_API_KEY", "ollama"),
         "EmbeddingModel": os.getenv("FACTOR_EMBEDDING_MODEL", "bge-m3"),
@@ -173,7 +174,7 @@ def get_factor_info(qsid: str) -> dict:
     tags = []
     try:
         tag_results = fgdb._runCypher(
-            "MATCH (f:Factor {QSID: $qsid})-[:TAGGED]->(t:Tag) RETURN t.Name",
+            "MATCH (f:`因子` {QSID: $qsid})-[:`打标签`]->(t:`标签`) RETURN t.Name",
             {"qsid": qsid}
         )
         tags = [t["t.Name"] for t in tag_results]
@@ -259,7 +260,7 @@ def _resolve_def_script_path(fgdb, qsid: str) -> Optional[str]:
     """通过 FactorTable 的 MetaDataJSON 解析 DefScriptPath"""
     ft_results = fgdb._runCypher(
         """
-        MATCH (f:Factor {QSID: $qsid})-[:BELONGS_TO]->(t:FactorTable)
+        MATCH (f:`因子` {QSID: $qsid})-[:`属于因子表`]->(t:`因子表`)
         RETURN t.MetaDataJSON, t.Name
         """,
         {"qsid": qsid}
@@ -268,8 +269,8 @@ def _resolve_def_script_path(fgdb, qsid: str) -> Optional[str]:
         # 尝试通过标签查找关联表
         tag_results = fgdb._runCypher(
             """
-            MATCH (f:Factor {QSID: $qsid})-[:TAGGED]->(tag:Tag)
-            MATCH (t:FactorTable)
+            MATCH (f:`因子` {QSID: $qsid})-[:`打标签`]->(tag:`标签`)
+            MATCH (t:`因子表`)
             WHERE t.Name CONTAINS tag.Name OR tag.Name CONTAINS t.Name
             RETURN DISTINCT t.MetaDataJSON, t.Name
             LIMIT 1
@@ -293,7 +294,7 @@ def _infer_script_path_from_tags(fgdb, qsid: str) -> Optional[str]:
     """通过因子标签推断定义脚本路径（标签名即模块文件名）"""
     try:
         tag_results = fgdb._runCypher(
-            "MATCH (f:Factor {QSID: $qsid})-[:TAGGED]->(t:Tag) RETURN t.Name",
+            "MATCH (f:`因子` {QSID: $qsid})-[:`打标签`]->(t:`标签`) RETURN t.Name",
             {"qsid": qsid}
         )
     except Exception:

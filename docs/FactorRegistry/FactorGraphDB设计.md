@@ -74,7 +74,7 @@ from .FactorRegistry.api import *
 
 - `DataFactor`：叶子节点，持有内联数据（标量、Series、DataFrame），无依赖
 - `DerivativeFactor`：由算子作用于描述子因子计算得到，有依赖
-- `FactorTableFactor`：数据来源于外部因子表（如 HDF5DB、JYDB），通过 `BELONGS_TO` 关系关联
+- `FactorTableFactor`：数据来源于外部因子表（如 HDF5DB、JYDB），通过 `属于因子表` 关系关联
 
 #### FactorOperator 节点
 
@@ -133,48 +133,48 @@ from .FactorRegistry.api import *
 ### 3.2 关系类型
 
 ```
-Factor -[:DEPENDS_ON {order: int}]-> Factor
-Factor -[:USES_OPERATOR]-> FactorOperator
-Factor -[:BELONGS_TO]-> FactorTable
-Factor -[:TAGGED]-> Tag
-FactorTable -[:IN_DATABASE]-> FactorDB
+因子 -[:`依赖` {order: int}]-> 因子
+因子 -[:`使用算子`]-> 算子
+因子 -[:`属于因子表`]-> 因子表
+因子 -[:`打标签`]-> 标签
+因子表 -[:`属于因子库`]-> 因子库
 ```
 
 | 关系 | 方向 | 属性 | 语义 |
 |------|------|------|------|
-| `DEPENDS_ON` | Factor → Factor | `order: int` | 因子依赖（描述子），order 为 0-based 索引，保持 descriptor 顺序 |
-| `USES_OPERATOR` | Factor → FactorOperator | 无 | DerivativeFactor 使用的算子 |
-| `BELONGS_TO` | Factor → FactorTable | 无 | FactorTableFactor 属于某个因子表 |
-| `TAGGED` | Factor → Tag | 无 | 因子被标记了某个标签 |
-| `IN_DATABASE` | FactorTable → FactorDB | 无 | 因子表属于某个因子库 |
+| `依赖` | 因子 → 因子 | `order: int` | 因子依赖（描述子），order 为 0-based 索引，保持 descriptor 顺序 |
+| `使用算子` | 因子 → 算子 | 无 | DerivativeFactor 使用的算子 |
+| `属于因子表` | 因子 → 因子表 | 无 | FactorTableFactor 属于某个因子表 |
+| `打标签` | 因子 → 标签 | 无 | 因子被标记了某个标签 |
+| `属于因子库` | 因子表 → 因子库 | 无 | 因子表属于某个因子库 |
 
 ### 3.3 约束与索引
 
 ```cypher
 -- 唯一性约束
 CREATE CONSTRAINT factor_qsid IF NOT EXISTS
-    FOR (f:Factor) REQUIRE f.QSID IS UNIQUE;
+    FOR (f:`因子`) REQUIRE f.QSID IS UNIQUE;
 CREATE CONSTRAINT operator_qsid IF NOT EXISTS
-    FOR (o:FactorOperator) REQUIRE o.QSID IS UNIQUE;
+    FOR (o:`算子`) REQUIRE o.QSID IS UNIQUE;
 CREATE CONSTRAINT table_qsid IF NOT EXISTS
-    FOR (t:FactorTable) REQUIRE t.QSID IS UNIQUE;
+    FOR (t:`因子表`) REQUIRE t.QSID IS UNIQUE;
 CREATE CONSTRAINT fdb_name IF NOT EXISTS
-    FOR (d:FactorDB) REQUIRE d.Name IS UNIQUE;
+    FOR (d:`因子库`) REQUIRE d.Name IS UNIQUE;
 CREATE CONSTRAINT tag_name IF NOT EXISTS
-    FOR (t:Tag) REQUIRE t.Name IS UNIQUE;
+    FOR (t:`标签`) REQUIRE t.Name IS UNIQUE;
 
 -- 查询索引
-CREATE INDEX factor_name IF NOT EXISTS FOR (f:Factor) ON (f.Name);
-CREATE INDEX factor_class IF NOT EXISTS FOR (f:Factor) ON (f.FactorClass);
-CREATE INDEX factor_op_name IF NOT EXISTS FOR (f:Factor) ON (f.OperatorName);
-CREATE INDEX factor_op_type IF NOT EXISTS FOR (f:Factor) ON (f.OperatorType);
-CREATE INDEX operator_name IF NOT EXISTS FOR (o:FactorOperator) ON (o.Name);
-CREATE INDEX operator_type IF NOT EXISTS FOR (o:FactorOperator) ON (o.OperatorType);
-CREATE INDEX fdb_type IF NOT EXISTS FOR (d:FactorDB) ON (d.DBType);
+CREATE INDEX factor_name IF NOT EXISTS FOR (f:`因子`) ON (f.Name);
+CREATE INDEX factor_class IF NOT EXISTS FOR (f:`因子`) ON (f.FactorClass);
+CREATE INDEX factor_op_name IF NOT EXISTS FOR (f:`因子`) ON (f.OperatorName);
+CREATE INDEX factor_op_type IF NOT EXISTS FOR (f:`因子`) ON (f.OperatorType);
+CREATE INDEX operator_name IF NOT EXISTS FOR (o:`算子`) ON (o.Name);
+CREATE INDEX operator_type IF NOT EXISTS FOR (o:`算子`) ON (o.OperatorType);
+CREATE INDEX fdb_type IF NOT EXISTS FOR (d:`因子库`) ON (d.DBType);
 
 -- 向量索引
 CREATE VECTOR INDEX factor_embedding IF NOT EXISTS
-    FOR (f:Factor) ON (f.Embedding)
+    FOR (f:`因子`) ON (f.Embedding)
     OPTIONS {indexConfig: {`vector.dimensions`: 1024, `vector.similarity_function`: 'cosine'}};
 ```
 
@@ -189,14 +189,14 @@ ClosePrice(DataFactor) ── Log() ── PointOp("log_Close") ── Lag(5) �
 对应的图结构：
 
 ```
-(PointOp:Factor {FactorClass: "DerivativeFactor", Name: "log_Close"})
-    -[:DEPENDS_ON {order: 0}]->
-(ClosePrice:Factor {FactorClass: "DataFactor"})
-PointOp -[:USES_OPERATOR]-> (Log:FactorOperator {Name: "log"})
+(PointOp:`因子` {FactorClass: "DerivativeFactor", Name: "log_Close"})
+    -[:`依赖` {order: 0}]->
+(ClosePrice:`因子` {FactorClass: "DataFactor"})
+PointOp -[:`使用算子`]-> (Log:`算子` {Name: "log"})
 
-(LagOp:Factor {FactorClass: "DerivativeFactor", Name: "lag5_log_Close"})
-    -[:DEPENDS_ON {order: 0}]-> (PointOp)
-LagOp -[:USES_OPERATOR]-> (Lag5:FactorOperator {Name: "lag", Arity: 1})
+(LagOp:`因子` {FactorClass: "DerivativeFactor", Name: "lag5_log_Close"})
+    -[:`依赖` {order: 0}]-> (PointOp)
+LagOp -[:`使用算子`]-> (Lag5:`算子` {Name: "lag", Arity: 1})
 ```
 
 ---
@@ -208,35 +208,28 @@ LagOp -[:USES_OPERATOR]-> (Lag5:FactorOperator {Name: "lag", Arity: 1})
 ```python
 # QuantStudio/FactorRegistry/FactorGraphDB.py
 
-try:
-    import neo4j
-except ImportError:
-    raise ImportError("FactorGraphDB 需要 neo4j 包，请执行: pip install neo4j")
+from QSExt.Tools.Neo4jFun import QSNeo4jObject
 
-class FactorGraphDB(__QS_Object__):
+class FactorGraphDB(QSNeo4jObject):
     """基于 Neo4j 的因子图数据库
 
     因子注册中心的核心存储引擎，存储因子元数据、依赖关系图和数据引用。
     支持因子检索、重建计算、依赖分析和影响范围查询。
 
-    参数通过 ~/QuantStudioConfig/FactorGraphDBConfig.json 配置或显式传入。
+    继承 QSNeo4jObject 复用 Neo4j 连接管理（PID 检测、断线重连、session 管理）。
+    参数通过 ~/QuantStudioConfig/Neo4jDBConfig.json 配置或显式传入。
     """
 
-    class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
+    class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__):
         Name: str = Field(default="FactorGraphDB", frozen=True, title="图数据库名称")
-        Neo4jURI: str = Field(default="bolt://localhost:7687", frozen=True, exclude=True, title="Neo4j 连接 URI")
-        Neo4jUser: str = Field(default="neo4j", frozen=True, exclude=True, title="Neo4j 用户名")
-        Neo4jPwd: str = Field(default="", frozen=True, exclude=True, repr=False, title="Neo4j 密码")
-        Neo4jDB: str = Field(default="neo4j", frozen=True, exclude=True, title="Neo4j 数据库名")
         OllamaBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="Ollama 服务地址")
         OllamaAPIKey: str = Field(default="ollama", frozen=True, exclude=True, repr=False, title="Ollama API Key")
         EmbeddingModel: str = Field(default="", frozen=True, exclude=True, title="嵌入模型名，空字符串表示禁用")
         EmbeddingDim: int = Field(default=0, frozen=True, exclude=True, title="预期嵌入维度，0=自动检测")
-        DataDir: Optional[str] = Field(default=None, frozen=True, exclude=True, title="数据因子内联数据存储目录")
+        DataDir: Optional[str] = Field(default=None, frozen=False, exclude=True, title="数据因子内联数据存储目录")
 
     def __init__(self, args={}, config_file=None, **kwargs):
         super().__init__(args=args, config_file=config_file, **kwargs)
-        self._Driver = None
         self._FactorDBRegistry: Dict[str, "FactorDB"] = {}
         if self._QSArgs.DataDir is None:
             self._QSArgs.DataDir = os.path.join(tempfile.gettempdir(), "QS_FactorGraphDB_Data")
@@ -244,31 +237,25 @@ class FactorGraphDB(__QS_Object__):
 
 **设计要点：**
 
-- 继承 `__QS_Object__`（非 `FactorDB`），因为本类存储的是图元数据而非因子数据
+- 继承 `QSNeo4jObject`（非 `FactorDB`），因为本类存储的是图元数据而非因子数据
+- 复用 QSNeo4jObject 的连接管理（IPAddr/Port/User/Pwd/DBName 参数、PID 检测、断线重连）
+- Neo4j 连接参数通过继承获得，无需重复定义 Neo4jURI/Neo4jUser/Neo4jPwd/Neo4jDB
 - 遵循框架的配置优先级：显式参数 > JSON 配置文件 > 默认值
 - `DataDir` 用于 DataFactor 的内联数据（DataFrame/Series）持久化
 - `_FactorDBRegistry` 维护已注册的 FactorDB 实例，用于重建时查找数据源
-- `connect()` 方法会调用 `_initSchema()` → `_initVectorIndex()`，自动创建约束、索引和向量索引
+- `connect()` 方法调用 `super().connect()` 后再执行 `_initSchema()` → `_initVectorIndex()`，自动创建约束、索引和向量索引
 
 ### 4.2 生命周期
 
 ```python
 def connect(self) -> "FactorGraphDB":
     """连接到 Neo4j 数据库，首次连接自动创建约束和索引"""
-    self._Driver = neo4j.GraphDatabase.driver(
-        self._QSArgs.Neo4jURI,
-        auth=(self._QSArgs.Neo4jUser, self._QSArgs.Neo4jPwd),
-        database=self._QSArgs.Neo4jDB
-    )
+    super().connect()  # QSNeo4jObject._connect() — PID 检测、断线重连
     self._initSchema()
     return self
 
-def disconnect(self) -> int:
-    """断开 Neo4j 连接"""
-    if self._Driver:
-        self._Driver.close()
-        self._Driver = None
-    return 0
+# disconnect() 继承自 QSNeo4jObject，无需覆盖
+# _runCypher() 复用 self.session()，内置 PID 检测和断线重连
 ```
 
 ---
@@ -293,7 +280,7 @@ def disconnect(self) -> int:
 
 #### `storeFactorTable(ft: FactorTable, fdb_name: Optional[str] = None) -> str`
 
-存储因子表节点，并建立 IN_DATABASE 关系。
+存储因子表节点，并建立 `属于因子库` 关系。
 
 **参数：**
 - `ft`: FactorTable 实例
@@ -325,9 +312,9 @@ def disconnect(self) -> int:
 2. 拓扑排序，确保叶子节点（DataFactor、FactorTableFactor）先存储
 3. 对每个节点，调用 `_serializeFactor` 生成属性字典
 4. 使用 MERGE 操作存储节点（幂等，QSID 去重）
-5. 若有算子，存储 FactorOperator 节点 + USES_OPERATOR 关系
-6. 创建 DEPENDS_ON 关系（带 order 属性）
-7. 创建标签 + TAGGED 关系
+5. 若有算子，存储算子节点 + `使用算子` 关系
+6. 创建 `依赖` 关系（带 order 属性）
+7. 创建标签 + `打标签` 关系
 
 ### 5.2 检索（Retrieve）
 
@@ -384,8 +371,8 @@ for r in results:
 
 **参数：**
 - `direction`:
-  - `"down"`: 沿 DEPENDS_ON 向下，获取所有输入因子
-  - `"up"`: 沿 DEPENDS_ON 反向，获取所有下游因子
+  - `"down"`: 沿 `依赖` 向下，获取所有输入因子
+  - `"up"`: 沿 `依赖` 反向，获取所有下游因子
   - `"both"`: 双向
 
 **返回：** `{"root": qsid, "nodes": [...], "edges": [...]}`
@@ -420,11 +407,11 @@ for r in results:
 **重建策略（按 FactorClass 分派）：**
 
 **DerivativeFactor 路径：**
-1. 加载 USES_OPERATOR 关系 → 算子节点
+1. 加载 `使用算子` 关系 → 算子节点
 2. `importlib.import_module(ModulePath).ClassName` 导入算子类
 3. 用存储的 ModelArgs 实例化算子
 4. 若 `IsCustom=true`，从 CalculateRef 恢复 `calculate` 函数
-5. 按 order 加载 DEPENDS_ON 关系中的描述子 QSID
+5. 按 order 加载 `依赖` 关系中的描述子 QSID
 6. 递归重建每个描述子（或从 descriptor_map 获取）
 7. 调用 `operator(*descriptors, factor_args=parsed_qsargs)` 生成 Factor
 
@@ -434,7 +421,7 @@ for r in results:
 3. 构造 `DataFactor(data=data, args=args)`
 
 **FactorTableFactor 路径：**
-1. 加载 BELONGS_TO → FactorTable → IN_DATABASE → FactorDB
+1. 加载 `属于因子表` → 因子表 → `属于因子库` → 因子库
 2. 从 `_FactorDBRegistry` 查找已注册的 FactorDB 实例
 3. `fdb.getTable(table_name).getFactor(factor_name, args=args)`
 
@@ -716,67 +703,67 @@ FactorGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j �
 
 **幂等 upsert 因子节点：**
 ```cypher
-MERGE (f:Factor {QSID: $qsid})
+MERGE (f:`因子` {QSID: $qsid})
 ON CREATE SET f += $props, f.CreatedAt = datetime()
 ON MATCH SET f += $props, f.UpdatedAt = datetime()
 ```
 
 **存储算子并建立关系：**
 ```cypher
-MERGE (o:FactorOperator {QSID: $op_qsid})
+MERGE (o:`算子` {QSID: $op_qsid})
 ON CREATE SET o += $op_props, o.CreatedAt = datetime()
 ON MATCH SET o += $op_props, o.UpdatedAt = datetime()
 WITH o
-MATCH (f:Factor {QSID: $factor_qsid})
-MERGE (f)-[:USES_OPERATOR]->(o)
+MATCH (f:`因子` {QSID: $factor_qsid})
+MERGE (f)-[:`使用算子`]->(o)
 ```
 
 **创建依赖关系：**
 ```cypher
-MATCH (source:Factor {QSID: $source_qsid})
-MATCH (target:Factor {QSID: $target_qsid})
-MERGE (source)-[r:DEPENDS_ON]->(target)
+MATCH (source:`因子` {QSID: $source_qsid})
+MATCH (target:`因子` {QSID: $target_qsid})
+MERGE (source)-[r:`依赖`]->(target)
 SET r.order = $order
 ```
 
 **创建标签：**
 ```cypher
-MERGE (t:Tag {Name: $tag_name})
+MERGE (t:`标签` {Name: $tag_name})
 WITH t
-MATCH (f:Factor {QSID: $factor_qsid})
-MERGE (f)-[:TAGGED]->(t)
+MATCH (f:`因子` {QSID: $factor_qsid})
+MERGE (f)-[:`打标签`]->(t)
 ```
 
 ### 7.2 检索查询
 
 **按名称模糊搜索：**
 ```cypher
-MATCH (f:Factor)
+MATCH (f:`因子`)
 WHERE f.Name CONTAINS $name
 RETURN f ORDER BY f.Name LIMIT $limit
 ```
 
 **按算子类型搜索：**
 ```cypher
-MATCH (f:Factor)
+MATCH (f:`因子`)
 WHERE f.OperatorType = $op_type
 RETURN f ORDER BY f.Name LIMIT $limit
 ```
 
 **按标签搜索：**
 ```cypher
-MATCH (f:Factor)-[:TAGGED]->(t:Tag {Name: $tag_name})
+MATCH (f:`因子`)-[:`打标签`]->(t:`标签` {Name: $tag_name})
 RETURN f ORDER BY f.Name LIMIT $limit
 ```
 
 **多条件组合搜索：**
 ```cypher
-MATCH (f:Factor)
+MATCH (f:`因子`)
 WHERE ($name IS NULL OR f.Name CONTAINS $name)
   AND ($op_type IS NULL OR f.OperatorType = $op_type)
   AND ($op_name IS NULL OR f.OperatorName = $op_name)
   AND ($factor_class IS NULL OR f.FactorClass = $factor_class)
-OPTIONAL MATCH (f)-[:TAGGED]->(t:Tag)
+OPTIONAL MATCH (f)-[:`打标签`]->(t:`标签`)
 WITH f, collect(t.Name) AS tags
 WHERE $tag IS NULL OR $tag IN tags
 RETURN f, tags ORDER BY f.Name LIMIT $limit
@@ -786,7 +773,7 @@ RETURN f, tags ORDER BY f.Name LIMIT $limit
 
 **获取完整依赖 DAG（向下）：**
 ```cypher
-MATCH path = (root:Factor {QSID: $qsid})-[:DEPENDS_ON*]->(leaf:Factor)
+MATCH path = (root:`因子` {QSID: $qsid})-[:`依赖`*]->(leaf:`因子`)
 UNWIND nodes(path) AS n
 WITH DISTINCT n
 RETURN n
@@ -794,13 +781,13 @@ RETURN n
 
 **获取有序直接描述子：**
 ```cypher
-MATCH (f:Factor {QSID: $qsid})-[r:DEPENDS_ON]->(d:Factor)
+MATCH (f:`因子` {QSID: $qsid})-[r:`依赖`]->(d:`因子`)
 RETURN d ORDER BY r.order
 ```
 
 **获取所有下游依赖（传递闭包）：**
 ```cypher
-MATCH (dependent:Factor)-[:DEPENDS_ON*]->(target:Factor {QSID: $qsid})
+MATCH (dependent:`因子`)-[:`依赖`*]->(target:`因子` {QSID: $qsid})
 RETURN DISTINCT dependent
 ```
 
@@ -808,16 +795,16 @@ RETURN DISTINCT dependent
 
 **影响范围分析：**
 ```cypher
-MATCH (impacted:Factor)-[:DEPENDS_ON*1..]->(changed:Factor {QSID: $qsid})
+MATCH (impacted:`因子`)-[:`依赖`*1..]->(changed:`因子` {QSID: $qsid})
 RETURN impacted,
-       length(shortestPath((impacted)-[:DEPENDS_ON*]->(changed))) AS depth
+       length(shortestPath((impacted)-[:`依赖`*]->(changed))) AS depth
 ORDER BY depth
 ```
 
 **查找相似因子：**
 ```cypher
-MATCH (f:Factor {QSID: $qsid})-[:USES_OPERATOR]->(o:FactorOperator)
-MATCH (other:Factor)-[:USES_OPERATOR]->(o2:FactorOperator)
+MATCH (f:`因子` {QSID: $qsid})-[:`使用算子`]->(o:`算子`)
+MATCH (other:`因子`)-[:`使用算子`]->(o2:`算子`)
 WHERE o2.OperatorType = o.OperatorType
   AND o2.Name = o.Name
   AND other.QSID <> $qsid
@@ -826,9 +813,9 @@ RETURN other, o2 LIMIT $limit
 
 **查找孤立因子：**
 ```cypher
-MATCH (f:Factor)
-WHERE NOT (f)<-[:DEPENDS_ON]-()
-  AND NOT (f)-[:BELONGS_TO]->(:FactorTable)
+MATCH (f:`因子`)
+WHERE NOT (f)<-[:`依赖`]-()
+  AND NOT (f)-[:`属于因子表`]->(:`因子表`)
 RETURN f
 ```
 
@@ -855,7 +842,7 @@ from QuantStudio.FactorRegistry.api import FactorGraphDB
 from QuantStudio.Factor.api import HDF5DB, fo
 
 # 连接图数据库
-fgdb = FactorGraphDB(args={"Neo4jURI": "bolt://localhost:7687"})
+fgdb = FactorGraphDB(args={"IPAddr": "127.0.0.1", "Port": 7687})
 fgdb.connect()
 
 # 注册因子库
@@ -904,7 +891,8 @@ from QuantStudio.FactorRegistry.api import FactorGraphDB
 
 # 连接时配置嵌入模型
 fgdb = FactorGraphDB(args={
-    "Neo4jURI": "bolt://localhost:7687",
+    "IPAddr": "127.0.0.1",
+    "Port": 7687,
     "EmbeddingModel": "bge-m3",
     "EmbeddingDim": 1024,
 })
@@ -962,14 +950,15 @@ reconstructed = fgdb.reconstructFactor(norm_factor.QSID)
 
 ### 9.3 配置文件
 
-支持 `~/QuantStudioConfig/FactorGraphDBConfig.json`：
+支持 `~/QuantStudioConfig/Neo4jDBConfig.json`（与 QSNeo4jObject 共用配置）：
 
 ```json
 {
-    "Neo4jURI": "bolt://localhost:7687",
-    "Neo4jUser": "neo4j",
-    "Neo4jPwd": "password",
-    "Neo4jDB": "neo4j",
+    "IPAddr": "127.0.0.1",
+    "Port": 7687,
+    "User": "neo4j",
+    "Pwd": "password",
+    "DBName": "neo4j",
     "DataDir": "/path/to/data",
     "EmbeddingModel": "bge-m3",
     "EmbeddingDim": 1024,
@@ -1241,7 +1230,7 @@ FGDB 为懒加载单例，首次调用时初始化 Neo4j 和 Ollama 连接。
 
 返回定义该因子的 Python 源代码。查找路径：
 
-1. 通过 `BELONGS_TO` → FactorTable → `MetaDataJSON.DefScriptPath`
+1. 通过 `属于因子表` → 因子表 → `MetaDataJSON.DefScriptPath`
 2. 回退：通过因子标签 → `importlib.import_module("QSResearch.FactorDef.JY.{tag}")` → `__file__`
 
 **参数**：

@@ -16,14 +16,10 @@ import pandas as pd
 import requests
 from pydantic import Field
 
-try:
-    import neo4j
-except ImportError:
-    neo4j = None
-
 from QuantStudio import __QS_ConfigPath__
-from QuantStudio.Core import __QS_Object__, __QS_Error__
+from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.FactorDB import FactorDB
+from QSExt.Tools.Neo4jFun import QSNeo4jObject
 from QuantStudio.Factor.FactorTable import FactorTable
 from QuantStudio.Factor.Factor import Factor, DataFactor
 from QuantStudio.Factor.FactorOperation import (
@@ -40,27 +36,27 @@ from QSExt.FactorRegistry._serialization import (
 # region Schema 定义
 
 _SCHEMA_CONSTRAINTS = [
-    "CREATE CONSTRAINT factor_qsid IF NOT EXISTS FOR (f:Factor) REQUIRE f.QSID IS UNIQUE",
-    "CREATE CONSTRAINT operator_qsid IF NOT EXISTS FOR (o:FactorOperator) REQUIRE o.QSID IS UNIQUE",
-    "CREATE CONSTRAINT table_qsid IF NOT EXISTS FOR (t:FactorTable) REQUIRE t.QSID IS UNIQUE",
-    "CREATE CONSTRAINT fdb_name IF NOT EXISTS FOR (d:FactorDB) REQUIRE d.Name IS UNIQUE",
-    "CREATE CONSTRAINT tag_name IF NOT EXISTS FOR (t:Tag) REQUIRE t.Name IS UNIQUE",
+    "CREATE CONSTRAINT factor_qsid IF NOT EXISTS FOR (f:`因子`) REQUIRE f.QSID IS UNIQUE",
+    "CREATE CONSTRAINT operator_qsid IF NOT EXISTS FOR (o:`算子`) REQUIRE o.QSID IS UNIQUE",
+    "CREATE CONSTRAINT table_qsid IF NOT EXISTS FOR (t:`因子表`) REQUIRE t.QSID IS UNIQUE",
+    "CREATE CONSTRAINT fdb_name IF NOT EXISTS FOR (d:`因子库`) REQUIRE d.Name IS UNIQUE",
+    "CREATE CONSTRAINT tag_name IF NOT EXISTS FOR (t:`标签`) REQUIRE t.Name IS UNIQUE",
 ]
 
 _SCHEMA_INDEXES = [
-    "CREATE INDEX factor_name IF NOT EXISTS FOR (f:Factor) ON (f.Name)",
-    "CREATE INDEX factor_class IF NOT EXISTS FOR (f:Factor) ON (f.FactorClass)",
-    "CREATE INDEX factor_op_name IF NOT EXISTS FOR (f:Factor) ON (f.OperatorName)",
-    "CREATE INDEX factor_op_type IF NOT EXISTS FOR (f:Factor) ON (f.OperatorType)",
-    "CREATE INDEX operator_name IF NOT EXISTS FOR (o:FactorOperator) ON (o.Name)",
-    "CREATE INDEX operator_type IF NOT EXISTS FOR (o:FactorOperator) ON (o.OperatorType)",
-    "CREATE INDEX fdb_type IF NOT EXISTS FOR (d:FactorDB) ON (d.DBType)",
+    "CREATE INDEX factor_name IF NOT EXISTS FOR (f:`因子`) ON (f.Name)",
+    "CREATE INDEX factor_class IF NOT EXISTS FOR (f:`因子`) ON (f.FactorClass)",
+    "CREATE INDEX factor_op_name IF NOT EXISTS FOR (f:`因子`) ON (f.OperatorName)",
+    "CREATE INDEX factor_op_type IF NOT EXISTS FOR (f:`因子`) ON (f.OperatorType)",
+    "CREATE INDEX operator_name IF NOT EXISTS FOR (o:`算子`) ON (o.Name)",
+    "CREATE INDEX operator_type IF NOT EXISTS FOR (o:`算子`) ON (o.OperatorType)",
+    "CREATE INDEX fdb_type IF NOT EXISTS FOR (d:`因子库`) ON (d.DBType)",
 ]
 
 # endregion
 
 
-class FactorGraphDB(__QS_Object__):
+class FactorGraphDB(QSNeo4jObject):
     """基于 Neo4j 的因子图数据库
 
     因子注册中心的核心存储引擎，存储因子元数据、依赖关系图和数据引用。
@@ -69,12 +65,8 @@ class FactorGraphDB(__QS_Object__):
     参数通过 ~/QuantStudioConfig/FactorGraphDBConfig.json 配置或显式传入。
     """
 
-    class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
+    class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__):
         Name: str = Field(default="FactorGraphDB", frozen=True, title="图数据库名称")
-        Neo4jURI: str = Field(default="bolt://localhost:7687", frozen=True, exclude=True, title="Neo4j 连接 URI")
-        Neo4jUser: str = Field(default="neo4j", frozen=True, exclude=True, title="Neo4j 用户名")
-        Neo4jPwd: str = Field(default="", frozen=True, exclude=True, repr=False, title="Neo4j 密码")
-        Neo4jDB: str = Field(default="neo4j", frozen=True, exclude=True, title="Neo4j 数据库名")
         OllamaBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="Ollama 服务地址")
         OllamaAPIKey: str = Field(default="ollama", frozen=True, exclude=True, repr=False, title="Ollama API Key")
         EmbeddingModel: str = Field(default="", frozen=True, exclude=True, title="嵌入模型名，空字符串表示禁用")
@@ -82,14 +74,11 @@ class FactorGraphDB(__QS_Object__):
         DataDir: Optional[str] = Field(default=None, frozen=False, exclude=True, title="数据因子内联数据存储目录")
 
     def __init__(self, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        if neo4j is None:
-            raise ImportError("FactorGraphDB 需要 neo4j 包，请执行: pip install neo4j")
         super().__init__(
             args=args,
             config_file=(__QS_ConfigPath__ + os.sep + "FactorGraphDBConfig.json" if config_file is None else config_file),
             **kwargs
         )
-        self._Driver: Optional[neo4j.Driver] = None
         self._FactorDBRegistry: Dict[str, FactorDB] = {}
         if self._QSArgs.DataDir is None:
             self._QSArgs.DataDir = os.path.join(tempfile.gettempdir(), "QS_FactorGraphDB_Data")
@@ -99,28 +88,14 @@ class FactorGraphDB(__QS_Object__):
 
     def connect(self) -> "FactorGraphDB":
         """连接到 Neo4j 数据库，首次连接自动创建约束和索引"""
-        self._Driver = neo4j.GraphDatabase.driver(
-            self._QSArgs.Neo4jURI,
-            auth=(self._QSArgs.Neo4jUser, self._QSArgs.Neo4jPwd),
-            database=self._QSArgs.Neo4jDB
-        )
-        # 验证连接
-        self._Driver.verify_connectivity()
+        super().connect()
         self._initSchema()
-        self._QS_Logger.info(f"FactorGraphDB 已连接到 {self._QSArgs.Neo4jURI}")
+        self._QS_Logger.info(f"FactorGraphDB 已连接到 {self._QSArgs.IPAddr}:{self._QSArgs.Port}")
         return self
-
-    def disconnect(self) -> int:
-        """断开 Neo4j 连接"""
-        if self._Driver:
-            self._Driver.close()
-            self._Driver = None
-            self._QS_Logger.info("FactorGraphDB 已断开连接")
-        return 0
 
     def _initSchema(self):
         """初始化数据库 schema（约束和索引）"""
-        with self._Driver.session() as session:
+        with self.session() as session:
             for stmt in _SCHEMA_CONSTRAINTS + _SCHEMA_INDEXES:
                 session.run(stmt)
         self._initVectorIndex()
@@ -133,7 +108,7 @@ class FactorGraphDB(__QS_Object__):
             self._runCypher(
                 """
                 CREATE VECTOR INDEX factor_embedding IF NOT EXISTS
-                FOR (f:Factor) ON (f.Embedding)
+                FOR (f:`因子`) ON (f.Embedding)
                 OPTIONS {
                   indexConfig: {
                     `vector.dimensions`: $dim,
@@ -157,7 +132,7 @@ class FactorGraphDB(__QS_Object__):
         Returns:
             记录列表（每条记录转为 dict）
         """
-        with self._Driver.session() as session:
+        with self.session() as session:
             result = session.run(query, parameters or {})
             return [record.data() for record in result]
 
@@ -231,7 +206,7 @@ class FactorGraphDB(__QS_Object__):
         }
         self._runCypher(
             """
-            MERGE (d:FactorDB {Name: $name})
+            MERGE (d:`因子库` {Name: $name})
             ON CREATE SET d += $props, d.CreatedAt = $now
             ON MATCH SET d += $props
             """,
@@ -278,7 +253,7 @@ class FactorGraphDB(__QS_Object__):
         }
         self._runCypher(
             """
-            MERGE (o:FactorOperator {QSID: $qsid})
+            MERGE (o:`算子` {QSID: $qsid})
             ON CREATE SET o += $props, o.CreatedAt = $now
             ON MATCH SET o += $props
             """,
@@ -306,20 +281,20 @@ class FactorGraphDB(__QS_Object__):
         }
         self._runCypher(
             """
-            MERGE (t:FactorTable {QSID: $qsid})
+            MERGE (t:`因子表` {QSID: $qsid})
             ON CREATE SET t += $props, t.CreatedAt = $now
             ON MATCH SET t += $props
             """,
             {"qsid": ft.QSID, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
         )
-        # 建立 IN_DATABASE 关系
+        # 建立属于因子库关系
         actual_fdb_name = fdb_name or (ft.FactorDB.Name if ft.FactorDB else None)
         if actual_fdb_name:
             self._runCypher(
                 """
-                MATCH (t:FactorTable {QSID: $t_qsid})
-                MATCH (d:FactorDB {Name: $fdb_name})
-                MERGE (t)-[:IN_DATABASE]->(d)
+                MATCH (t:`因子表` {QSID: $t_qsid})
+                MATCH (d:`因子库` {Name: $fdb_name})
+                MERGE (t)-[:`属于因子库`]->(d)
                 """,
                 {"t_qsid": ft.QSID, "fdb_name": actual_fdb_name}
             )
@@ -350,10 +325,10 @@ class FactorGraphDB(__QS_Object__):
             for tag_name in tags:
                 self._runCypher(
                     """
-                    MERGE (t:Tag {Name: $tag_name})
+                    MERGE (t:`标签` {Name: $tag_name})
                     WITH t
-                    MATCH (f:Factor {QSID: $qsid})
-                    MERGE (f)-[:TAGGED]->(t)
+                    MATCH (f:`因子` {QSID: $qsid})
+                    MERGE (f)-[:`打标签`]->(t)
                     """,
                     {"tag_name": tag_name, "qsid": factor.QSID}
                 )
@@ -426,7 +401,7 @@ class FactorGraphDB(__QS_Object__):
         # 存储因子节点
         self._runCypher(
             """
-            MERGE (f:Factor {QSID: $qsid})
+            MERGE (f:`因子` {QSID: $qsid})
             ON CREATE SET f += $props, f.CreatedAt = $now
             ON MATCH SET f += $props
             """,
@@ -437,9 +412,9 @@ class FactorGraphDB(__QS_Object__):
             self.storeFactorOperator(factor.Operator)
             self._runCypher(
                 """
-                MATCH (f:Factor {QSID: $f_qsid})
-                MATCH (o:FactorOperator {QSID: $o_qsid})
-                MERGE (f)-[:USES_OPERATOR]->(o)
+                MATCH (f:`因子` {QSID: $f_qsid})
+                MATCH (o:`算子` {QSID: $o_qsid})
+                MERGE (f)-[:`使用算子`]->(o)
                 """,
                 {"f_qsid": factor.QSID, "o_qsid": factor.Operator.QSID}
             )
@@ -447,9 +422,9 @@ class FactorGraphDB(__QS_Object__):
         if factor.FactorTable:
             self._runCypher(
                 """
-                MATCH (f:Factor {QSID: $f_qsid})
-                MATCH (t:FactorTable {QSID: $t_qsid})
-                MERGE (f)-[:BELONGS_TO]->(t)
+                MATCH (f:`因子` {QSID: $f_qsid})
+                MATCH (t:`因子表` {QSID: $t_qsid})
+                MERGE (f)-[:`属于因子表`]->(t)
                 """,
                 {"f_qsid": factor.QSID, "t_qsid": factor.FactorTable.QSID}
             )
@@ -458,9 +433,9 @@ class FactorGraphDB(__QS_Object__):
         for i, desc in enumerate(descriptors):
             self._runCypher(
                 """
-                MATCH (source:Factor {QSID: $source_qsid})
-                MATCH (target:Factor {QSID: $target_qsid})
-                MERGE (source)-[r:DEPENDS_ON]->(target)
+                MATCH (source:`因子` {QSID: $source_qsid})
+                MATCH (target:`因子` {QSID: $target_qsid})
+                MERGE (source)-[r:`依赖`]->(target)
                 SET r.order = $order
                 """,
                 {"source_qsid": factor.QSID, "target_qsid": desc.QSID, "order": i}
@@ -544,7 +519,7 @@ class FactorGraphDB(__QS_Object__):
     def getFactorByQSID(self, qsid: str) -> Optional[Dict]:
         """按 QSID 查询因子节点"""
         results = self._runCypher(
-            "MATCH (f:Factor {QSID: $qsid}) RETURN f",
+            "MATCH (f:`因子` {QSID: $qsid}) RETURN f",
             {"qsid": qsid}
         )
         return results[0]["f"] if results else None
@@ -582,14 +557,14 @@ class FactorGraphDB(__QS_Object__):
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         if tag:
             query = f"""
-                MATCH (f:Factor)-[:TAGGED]->(t:Tag {{Name: $tag}})
+                MATCH (f:`因子`)-[:`打标签`]->(t:`标签` {{Name: $tag}})
                 {where_clause}
                 RETURN f ORDER BY f.Name LIMIT $limit
             """
             params["tag"] = tag
         else:
             query = f"""
-                MATCH (f:Factor)
+                MATCH (f:`因子`)
                 {where_clause}
                 RETURN f ORDER BY f.Name LIMIT $limit
             """
@@ -649,7 +624,7 @@ class FactorGraphDB(__QS_Object__):
         if direction in ("down", "both"):
             results = self._runCypher(
                 """
-                MATCH path = (root:Factor {QSID: $qsid})-[:DEPENDS_ON*]->(leaf:Factor)
+                MATCH path = (root:`因子` {QSID: $qsid})-[:`依赖`*]->(leaf:`因子`)
                 UNWIND nodes(path) AS n
                 WITH DISTINCT n
                 RETURN n
@@ -662,7 +637,7 @@ class FactorGraphDB(__QS_Object__):
             # 收集边
             edge_results = self._runCypher(
                 """
-                MATCH (a:Factor)-[r:DEPENDS_ON]->(b:Factor)
+                MATCH (a:`因子`)-[r:`依赖`]->(b:`因子`)
                 WHERE a.QSID = $qsid OR b.QSID = $qsid
                    OR a.QSID IN $node_ids OR b.QSID IN $node_ids
                 RETURN a.QSID AS source, b.QSID AS target, r.order AS order
@@ -673,7 +648,7 @@ class FactorGraphDB(__QS_Object__):
         if direction in ("up", "both"):
             results = self._runCypher(
                 """
-                MATCH (dependent:Factor)-[:DEPENDS_ON*]->(target:Factor {QSID: $qsid})
+                MATCH (dependent:`因子`)-[:`依赖`*]->(target:`因子` {QSID: $qsid})
                 RETURN DISTINCT dependent
                 """,
                 {"qsid": qsid}
@@ -685,7 +660,7 @@ class FactorGraphDB(__QS_Object__):
             if nodes:
                 edge_results = self._runCypher(
                     """
-                    MATCH (a:Factor)-[r:DEPENDS_ON]->(b:Factor)
+                    MATCH (a:`因子`)-[r:`依赖`]->(b:`因子`)
                     WHERE a.QSID IN $node_ids AND b.QSID IN $node_ids
                     RETURN a.QSID AS source, b.QSID AS target, r.order AS order
                     """,
@@ -707,7 +682,7 @@ class FactorGraphDB(__QS_Object__):
         """获取因子的直接依赖因子（有序）"""
         results = self._runCypher(
             """
-            MATCH (f:Factor {QSID: $qsid})-[r:DEPENDS_ON]->(d:Factor)
+            MATCH (f:`因子` {QSID: $qsid})-[r:`依赖`]->(d:`因子`)
             RETURN d, r.order AS order
             ORDER BY r.order
             """,
@@ -728,7 +703,7 @@ class FactorGraphDB(__QS_Object__):
         if transitive:
             results = self._runCypher(
                 """
-                MATCH (dependent:Factor)-[:DEPENDS_ON*]->(target:Factor {QSID: $qsid})
+                MATCH (dependent:`因子`)-[:`依赖`*]->(target:`因子` {QSID: $qsid})
                 RETURN DISTINCT dependent
                 """,
                 {"qsid": qsid}
@@ -736,7 +711,7 @@ class FactorGraphDB(__QS_Object__):
         else:
             results = self._runCypher(
                 """
-                MATCH (dependent:Factor)-[:DEPENDS_ON]->(target:Factor {QSID: $qsid})
+                MATCH (dependent:`因子`)-[:`依赖`]->(target:`因子` {QSID: $qsid})
                 RETURN dependent
                 """,
                 {"qsid": qsid}
@@ -747,9 +722,9 @@ class FactorGraphDB(__QS_Object__):
         """查找无下游依赖且不属于因子表的叶子因子"""
         results = self._runCypher(
             """
-            MATCH (f:Factor)
-            WHERE NOT (f)<-[:DEPENDS_ON]-()
-              AND NOT (f)-[:BELONGS_TO]->(:FactorTable)
+            MATCH (f:`因子`)
+            WHERE NOT (f)<-[:`依赖`]-()
+              AND NOT (f)-[:`属于因子表`]->(:`因子表`)
             RETURN f
             """
         )
@@ -852,7 +827,7 @@ class FactorGraphDB(__QS_Object__):
         # 查找因子表关联的因子库
         fdb_results = self._runCypher(
             """
-            MATCH (t:FactorTable {QSID: $ft_qsid})-[:IN_DATABASE]->(d:FactorDB)
+            MATCH (t:`因子表` {QSID: $ft_qsid})-[:`属于因子库`]->(d:`因子库`)
             RETURN d
             """,
             {"ft_qsid": ft_qsid}
@@ -865,7 +840,7 @@ class FactorGraphDB(__QS_Object__):
         fdb = self._FactorDBRegistry[fdb_name]
         # 获取因子表名称
         ft_data = self._runCypher(
-            "MATCH (t:FactorTable {QSID: $qsid}) RETURN t",
+            "MATCH (t:`因子表` {QSID: $qsid}) RETURN t",
             {"qsid": ft_qsid}
         )
         ft_node = ft_data[0]["t"] if ft_data else {}
@@ -906,7 +881,7 @@ class FactorGraphDB(__QS_Object__):
     def reconstructOperator(self, qsid: str) -> FactorOperator:
         """从图中重建算子对象"""
         results = self._runCypher(
-            "MATCH (o:FactorOperator {QSID: $qsid}) RETURN o",
+            "MATCH (o:`算子` {QSID: $qsid}) RETURN o",
             {"qsid": qsid}
         )
         if not results:
@@ -973,7 +948,7 @@ class FactorGraphDB(__QS_Object__):
                 if len(dependents) == 0 or current == qsid:
                     # 没有其他依赖者，可以删除
                     self._runCypher(
-                        "MATCH (f:Factor {QSID: $qsid}) DETACH DELETE f",
+                        "MATCH (f:`因子` {QSID: $qsid}) DETACH DELETE f",
                         {"qsid": current}
                     )
                     deleted += 1
@@ -986,7 +961,7 @@ class FactorGraphDB(__QS_Object__):
                             to_delete.append(desc_qsid)
         else:
             self._runCypher(
-                "MATCH (f:Factor {QSID: $qsid}) DETACH DELETE f",
+                "MATCH (f:`因子` {QSID: $qsid}) DETACH DELETE f",
                 {"qsid": qsid}
             )
             deleted = 1
@@ -1001,7 +976,7 @@ class FactorGraphDB(__QS_Object__):
         old_meta = _desanitizeFromJSON(old_meta)
         old_meta.update(meta)
         self._runCypher(
-            "MATCH (f:Factor {QSID: $qsid}) SET f.MetaJSON = $meta",
+            "MATCH (f:`因子` {QSID: $qsid}) SET f.MetaJSON = $meta",
             {"qsid": qsid, "meta": json.dumps(_sanitizeForJSON(old_meta), ensure_ascii=False)}
         )
 
@@ -1012,10 +987,10 @@ class FactorGraphDB(__QS_Object__):
             for tag_name in add_tags:
                 self._runCypher(
                     """
-                    MERGE (t:Tag {Name: $tag_name})
+                    MERGE (t:`标签` {Name: $tag_name})
                     WITH t
-                    MATCH (f:Factor {QSID: $qsid})
-                    MERGE (f)-[:TAGGED]->(t)
+                    MATCH (f:`因子` {QSID: $qsid})
+                    MERGE (f)-[:`打标签`]->(t)
                     """,
                     {"tag_name": tag_name, "qsid": qsid}
                 )
@@ -1023,7 +998,7 @@ class FactorGraphDB(__QS_Object__):
             for tag_name in remove_tags:
                 self._runCypher(
                     """
-                    MATCH (f:Factor {QSID: $qsid})-[r:TAGGED]->(t:Tag {Name: $tag_name})
+                    MATCH (f:`因子` {QSID: $qsid})-[r:`打标签`]->(t:`标签` {Name: $tag_name})
                     DELETE r
                     """,
                     {"qsid": qsid, "tag_name": tag_name}
@@ -1032,7 +1007,7 @@ class FactorGraphDB(__QS_Object__):
     def renameFactor(self, qsid: str, new_name: str) -> None:
         """更新因子名称"""
         self._runCypher(
-            "MATCH (f:Factor {QSID: $qsid}) SET f.Name = $name",
+            "MATCH (f:`因子` {QSID: $qsid}) SET f.Name = $name",
             {"qsid": qsid, "name": new_name}
         )
 
@@ -1044,9 +1019,9 @@ class FactorGraphDB(__QS_Object__):
         """影响范围分析，返回所有传递依赖该因子的下游因子"""
         results = self._runCypher(
             """
-            MATCH (impacted:Factor)-[:DEPENDS_ON*1..]->(changed:Factor {QSID: $qsid})
+            MATCH (impacted:`因子`)-[:`依赖`*1..]->(changed:`因子` {QSID: $qsid})
             RETURN impacted,
-                   length(shortestPath((impacted)-[:DEPENDS_ON*]->(changed))) AS depth
+                   length(shortestPath((impacted)-[:`依赖`*]->(changed))) AS depth
             ORDER BY depth
             """,
             {"qsid": qsid}
@@ -1057,8 +1032,8 @@ class FactorGraphDB(__QS_Object__):
         """查找使用相同算子的相似因子"""
         results = self._runCypher(
             """
-            MATCH (f:Factor {QSID: $qsid})-[:USES_OPERATOR]->(o:FactorOperator)
-            MATCH (other:Factor)-[:USES_OPERATOR]->(o2:FactorOperator)
+            MATCH (f:`因子` {QSID: $qsid})-[:`使用算子`]->(o:`算子`)
+            MATCH (other:`因子`)-[:`使用算子`]->(o2:`算子`)
             WHERE o2.OperatorType = o.OperatorType
               AND o2.Name = o.Name
               AND other.QSID <> $qsid
@@ -1071,11 +1046,11 @@ class FactorGraphDB(__QS_Object__):
     def getGraphStats(self) -> Dict[str, int]:
         """返回各类节点和关系的计数统计"""
         stats = {}
-        for label in ["Factor", "FactorOperator", "FactorTable", "FactorDB", "Tag"]:
-            results = self._runCypher(f"MATCH (n:{label}) RETURN count(n) AS cnt")
+        for label in ["因子", "算子", "因子表", "因子库", "标签"]:
+            results = self._runCypher(f"MATCH (n:`{label}`) RETURN count(n) AS cnt")
             stats[label] = results[0]["cnt"] if results else 0
-        for rel in ["DEPENDS_ON", "USES_OPERATOR", "BELONGS_TO", "TAGGED", "IN_DATABASE"]:
-            results = self._runCypher(f"MATCH ()-[r:{rel}]->() RETURN count(r) AS cnt")
+        for rel in ["依赖", "使用算子", "属于因子表", "打标签", "属于因子库"]:
+            results = self._runCypher(f"MATCH ()-[r:`{rel}`]->() RETURN count(r) AS cnt")
             stats[rel] = results[0]["cnt"] if results else 0
         return stats
 
@@ -1124,7 +1099,7 @@ class FactorGraphDB(__QS_Object__):
             if ft_qsids:
                 try:
                     ft_results = self._runCypher(
-                        "MATCH (t:FactorTable) WHERE t.QSID IN $qsids RETURN t.QSID, t.Name",
+                        "MATCH (t:`因子表`) WHERE t.QSID IN $qsids RETURN t.QSID, t.Name",
                         {"qsids": ft_qsids}
                     )
                     ft_name_map = {r["t.QSID"]: r["t.Name"] for r in ft_results}
@@ -1180,10 +1155,10 @@ class FactorGraphDB(__QS_Object__):
 
     def _repr_html_(self) -> str:
         HTML = f"<b>类</b>: FactorGraphDB<br/>"
-        HTML += f"<b>Neo4j URI</b>: {html.escape(self._QSArgs.Neo4jURI)}<br/>"
-        HTML += f"<b>数据库</b>: {html.escape(self._QSArgs.Neo4jDB)}<br/>"
-        HTML += f"<b>连接状态</b>: {'已连接' if self._Driver else '未连接'}<br/>"
-        if self._Driver:
+        HTML += f"<b>Neo4j 地址</b>: {html.escape(self._QSArgs.IPAddr)}:{self._QSArgs.Port}<br/>"
+        HTML += f"<b>数据库</b>: {html.escape(self._QSArgs.DBName)}<br/>"
+        HTML += f"<b>连接状态</b>: {'已连接' if self.isAvailable() else '未连接'}<br/>"
+        if self.isAvailable():
             stats = self.getGraphStats()
             HTML += "<b>图统计</b>:<br/>"
             HTML += "<ul>"

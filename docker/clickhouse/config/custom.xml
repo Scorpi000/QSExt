@@ -1,0 +1,8 @@
+<clickhouse>
+
+    <!-- 允许远程访问（默认只允许 localhost） -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <!-- 设置时区 -->
+    <timezone>Asia/Shanghai</timezone>
+</clickhouse>

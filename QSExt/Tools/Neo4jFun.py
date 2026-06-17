@@ -3,38 +3,37 @@ import os
 import urllib
 import importlib
 import concurrent.futures
+from typing import Optional, Literal
 
-import sympy
 import numpy as np
 import pandas as pd
 import dill as pickle
-from traits.api import Enum, Str, Range, Password, Either, Int
+from pydantic import Field
 
-from QuantStudio import __QS_Object__, __QS_Error__, QSArgs
-from QuantStudio.FactorDataBase.FactorOperation import DerivativeFactor
-from QuantStudio.FactorDataBase.FactorDB import CustomFT
+from QuantStudio.Core import __QS_Object__, __QS_Error__, __QS_Args__
+from QuantStudio.Factor.FactorOperation import DerivativeFactor
 from QuantStudio.Tools.AuxiliaryFun import distributeEqual
 from QuantStudio.Tools.FileFun import genAvailableFile
 
 class QSNeo4jObject(__QS_Object__):
     """基于 Neo4j 的对象"""
     class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
-        DBName = Str("neo4j", arg_type="String", label="数据库名", order=0)
-        IPAddr = Str("127.0.0.1", arg_type="String", label="IP地址", order=1)
-        Port = Range(low=0, high=65535, value=7687, arg_type="Integer", label="端口", order=2)
-        User = Str("neo4j", arg_type="String", label="用户名", order=3)
-        Pwd = Password("", arg_type="String", label="密码", order=4)
-        Connector = Enum("default", "neo4j", arg_type="SingleOption", label="连接器", order=5)
-        CSVImportPath = Either(None, Str("file:///"), arg_type="String", label="CSV导入地址", order=6)
-        CSVExportPath = Either(None, Str(), arg_type="String", label="CSV导出地址", order=7)
-        CSVSep = Str(",", arg_type="String", label="CSV分隔符", order=8)
-        ClearCSV = Enum(False, True, arg_type="Bool", label="清除CSV", order=9)
-        PeriodicSize = Int(-1, arg_type="Integer", label="定期数量", order=10)
-    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        DBName: str = Field(default="neo4j", title="数据库名")
+        IPAddr: str = Field(default="127.0.0.1", title="IP地址")
+        Port: int = Field(default=7687, ge=0, le=65535, title="端口")
+        User: str = Field(default="neo4j", title="用户名")
+        Pwd: str = Field(default="", title="密码", repr=False)
+        Connector: Literal["default", "neo4j"] = Field(default="default", title="连接器")
+        CSVImportPath: Optional[str] = Field(default="file:///", title="CSV导入地址")
+        CSVExportPath: Optional[str] = Field(default=None, title="CSV导出地址")
+        CSVSep: str = Field(default=",", title="CSV分隔符")
+        ClearCSV: bool = Field(default=False, title="清除CSV")
+        PeriodicSize: int = Field(default=-1, title="定期数量")
+    def __init__(self, args={}, config_file=None, **kwargs):
         self._Connection = None# 连接对象
         self._Connector = None# 实际使用的数据库链接器
         self._PID = None# 保存数据库连接创建时的进程号
-        return super().__init__(sys_args=sys_args, config_file=config_file, **kwargs)
+        return super().__init__(args=args, config_file=config_file, **kwargs)
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_Connection"] = (True if self.isAvailable() else False)
@@ -460,22 +459,20 @@ def writeArgs(args, arg_name=None, parent_var=None, var=None, tx=None):
     else:
         if var is None: var = "a"
         CypherStr = f"CREATE ({var}:`参数集`)"
-    if isinstance(args, QSArgs):
+    if isinstance(args, __QS_Args__):
         # Parameters[var] = {"_PickledObject": pickle.dumps(args)}
         args = args.to_dict()
     # else:
     Parameters[var] = {}
-    if isinstance(args, (dict, QSArgs)):
+    if isinstance(args, (dict, __QS_Args__)):
         args = args.copy()
         SubArgs = {}
         # 参数值的特殊处理
         for iArg in sorted(args.keys()):
-            if isinstance(args[iArg], (dict, QSArgs)):
+            if isinstance(args[iArg], (dict, __QS_Args__)):
                 SubArgs[iArg] = args.pop(iArg)
             elif callable(args[iArg]) or isinstance(args[iArg], (list, tuple, pd.Series, pd.DataFrame, np.ndarray)):
                 args[iArg] = pickle.dumps(args[iArg])
-            elif isinstance(args[iArg], (sympy.Function, sympy.Expr)):
-                args.pop(iArg)
         if args:
             CypherStr += f" SET {var} += ${var}"
             Parameters[var].update(args)
@@ -644,7 +641,7 @@ def checkFactorTableExistence(ft, tx=None):
 
 # 获取因子表下面所有因子节点的 id
 def readFactorID(ft, ft_id, tx=None):
-    if isinstance(ft, CustomFT):# 自定义因子表
+    if ft.FactorDB is None:# 自定义因子表
         CypherStr = f"MATCH (ft:`因子表`) - [:`包含因子`] -> (f:`因子`)"
     else:# 非自定义因子表
         CypherStr = f"MATCH (ft:`因子表`) <- [:`属于因子表`] - (f:`因子`)"
@@ -889,7 +886,7 @@ def readFactorDB(labels=["因子库"], properties={}, node_id=None, tx=None, **k
             raise __QS_Error__(f"无法还原因子库({iProperties})对象: {e}")
         else:
             iArgs = readArgs(None, node_id=iRslt[0].id, tx=tx)
-            iFDB = FDBClass(sys_args=iArgs, **kwargs)
+            iFDB = FDBClass(args=iArgs, **kwargs)
         FDBs.append(iFDB)
     if len(FDBs)>1:
         return FDBs
@@ -929,11 +926,7 @@ def readFactorTable(labels=["因子表"], properties={}, node_id=None, tx=None, 
             iFDB = readFactorDB(node_id=iFDBID, tx=tx, **kwargs)
             iFT = iFDB.getTable(iTableName, args=iArgs)
         else:# 自定义因子表
-            CypherStr = f"MATCH (ft:`因子表`) - [:`包含因子`] -> (f:`因子`) WHERE id(ft)={iFTID} RETURN collect(DISTINCT id(f))"
-            iFactorIDs = tx.run(CypherStr).values()[0][0]
-            iFactors = readFactor(node_ids=iFactorIDs, tx=tx, **kwargs)
-            iFT = CustomFT(iTableName, sys_args=iArgs, **kwargs)
-            iFT.addFactors(factor_list=iFactors)
+            raise __QS_Error__(f"readFactorTable: 自定义因子表('{iTableName}')的反序列化在新框架中不再支持(CustomFT 已移除)")
         FTs.append(iFT)
     if len(FTs)>1:
         return FTs
@@ -991,7 +984,7 @@ def readFactor(labels=["因子"], properties={}, node_ids=None, tx=None, id_fdb=
             iClass = iProperties["_Class"].split(".")
             iModule = importlib.import_module('.'.join(iClass[:-1]))
             iFactorClass = getattr(iModule, iClass[-1])            
-            id_factor[iFactorID] = iFactor = iFactorClass(iFactorName, iDescriptors, sys_args=iArgs, **kwargs)
+            id_factor[iFactorID] = iFactor = iFactorClass(iFactorName, iDescriptors, args=iArgs, **kwargs)
         Factors.append(iFactor)
     return Factors
 

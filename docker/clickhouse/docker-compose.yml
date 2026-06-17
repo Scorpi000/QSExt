@@ -1,0 +1,22 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse-server
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native TCP
+      - "9009:9009"   # 健康检查 / inter-server
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse       # 数据持久化
+      - ./config:/etc/clickhouse-server/config.d    # 自定义配置
+      - ./logs:/var/log/clickhouse-server           # 日志
+    environment:
+      CLICKHOUSE_DB: qsdata
+      CLICKHOUSE_USER: maidong
+      CLICKHOUSE_PASSWORD: md123456
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    restart: unless-stopped

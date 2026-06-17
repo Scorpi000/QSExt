@@ -3,18 +3,21 @@
 import os
 import datetime as dt
 import concurrent.futures
+from typing import Dict, List, Optional, Literal
 
 import numpy as np
 import pandas as pd
-from traits.api import Str, Dict, Enum, ListStr
+from pydantic import Field
 
-from QuantStudio import __QS_Error__, __QS_ConfigPath__
-from QuantStudio.FactorDataBase.FactorDB import WritableFactorDB, FactorTable
-from QuantStudio.FactorDataBase.FDBFun import _QS_calcData_WideTable, _QS_calcData_NarrowTable
+from QuantStudio import __QS_ConfigPath__
+from QuantStudio.Core import __QS_Error__
+from QuantStudio.Core.QSObject import Panel
+from QuantStudio.Factor.FactorDB import WritableFactorDB
+from QuantStudio.Factor.FactorTable import FactorTable
+from QuantStudio.Factor.FactorUtils import _QS_calcData_WideTable, _QS_calcData_NarrowTable
 from QuantStudio.Tools.AuxiliaryFun import distributeEqual
 from QuantStudio.Tools.SQLDBFun import genSQLInCondition
 from QSExt.Tools.Neo4jFun import QSNeo4jObject, writeArgs
-from QuantStudio.Tools.api import Panel
 
 def _identifyDataType(factor_data, data_type=None):
     if (data_type is None) or (data_type=="double"):
@@ -28,16 +31,17 @@ def _identifyDataType(factor_data, data_type=None):
 
 class _NarrowTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
-        IDField = Str("ID", arg_type="String", label="ID字段", order=0)
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
+        IDField: str = Field(default="ID", title="ID字段")
+    def __init__(self, name, fdb, args={}, **kwargs):
         self._TableInfo = fdb._TableInfo.loc[name]
         self._FactorInfo = fdb._FactorInfo.loc[name]
         self._QS_IgnoredGroupArgs = ("遍历模式", )
         self._DTFormat = fdb._DTFormat
         self._DTFormat_WithTime = fdb._DTFormat_WithTime
-        if "ID字段" not in sys_args:
-            sys_args["ID字段"] = fdb.IDField
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
+        args["Name"] = name
+        if "IDField" not in args:
+            args["IDField"] = fdb._QSArgs.IDField
+        return super().__init__(fdb=fdb, args=args, **kwargs)
     def __QS_genGroupInfo__(self, factors, operation_mode):
         ConditionGroup = {}
         for iFactor in factors:
@@ -79,19 +83,27 @@ class _NarrowTable(FactorTable):
     @property
     def FactorNames(self):
         return self._FactorInfo[pd.notnull(self._FactorInfo["DataType"])].index.tolist()
+    def _resolveQSIDs(self, factor_names):
+        """将因子名列表映射为 QSID 列表"""
+        fi = self._FactorInfo
+        if "QSID" in fi.columns:
+            return [fi["QSID"].get(fn, fn) for fn in factor_names]
+        return list(factor_names)
     def getID(self, ifactor_name=None, idt=None, args={}):
         CypherStr = f"MATCH (f:`因子`) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{self.Name}'}}) - [:`属于因子库`] -> {self._FactorDB._Node} "
         if ifactor_name is not None:
-            CypherStr += f"WHERE f.Name = '{ifactor_name}' "
+            iQSID = self._resolveQSIDs([ifactor_name])[0]
+            CypherStr += f"WHERE f.QSID = '{iQSID}' "
         CypherStr += "MATCH (s) - [r:`暴露`] -> (f) "
         if idt is not None:
             CypherStr += f"WHERE r.`{idt.strftime(self._DTFormat)}` IS NOT NULL "
-        CypherStr += "RETURN s.ID"
+        CypherStr += "RETURN DISTINCT s.ID"
         return [iRslt[0] for iRslt in self._FactorDB.fetchall(CypherStr)]
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None, args={}):
         CypherStr = f"MATCH (f:`因子`) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{self.Name}'}}) - [:`属于因子库`] -> {self._FactorDB._Node} "
         if ifactor_name is not None:
-            CypherStr += f"WHERE f.Name = '{ifactor_name}' "
+            iQSID = self._resolveQSIDs([ifactor_name])[0]
+            CypherStr += f"WHERE f.QSID = '{iQSID}' "
         CypherStr += "MATCH (s) - [r:`暴露`] -> (f) "
         if iid is not None:
             CypherStr += f"WHERE s.ID = '{iid}' "
@@ -103,9 +115,10 @@ class _NarrowTable(FactorTable):
         if end_dt is not None: end_dt = end_dt.strftime(self._DTFormat)
         return [dt.datetime.strptime(iDT, self._DTFormat) for iDT in Rslt if pd.notnull(iDT) and ((start_dt is None) or (iDT>=start_dt)) and ((end_dt is None) or (iDT<=end_dt))]
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
+        qSIDs = self._resolveQSIDs(factor_names)
         CypherStr = f"""
             MATCH (f:`因子`) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{self.Name}'}}) - [:`属于因子库`] -> {self._FactorDB._Node}
-            WHERE f.Name IN $factors
+            WHERE f.QSID IN $factors
             MATCH (s) - [r:`暴露`] -> (f)
             WHERE s.ID IN $ids
             WITH s, f, r
@@ -114,9 +127,8 @@ class _NarrowTable(FactorTable):
             ORDER BY ID, QS_DT, FactorName
         """
         DTs = [iDT.strftime(self._DTFormat) for iDT in dts]
-        RawData = self._FactorDB.fetchall(CypherStr, parameters={"factors": factor_names, "ids": ids, "dts": DTs})
-        RawData = pd.DataFrame(np.array(RawData, dtype="O"), columns=["ID", "QS_DT", "FactorName", "Value"])
-        #RawData["QS_DT"] = RawData["QS_DT"].apply(lambda x: dt.datetime.strptime(x, self._DTFormat) if pd.notnull(x) else pd.NaT)
+        RawData = self._FactorDB.fetchall(CypherStr, parameters={"factors": qSIDs, "ids": ids, "dts": DTs})
+        RawData = pd.DataFrame(np.array(RawData, dtype="O"), columns=["QS_ID", "QS_DT", "FactorName", "Value"])
         RawData["QS_DT"] = pd.to_datetime(RawData["QS_DT"])
         return RawData
     def __QS_calcData__(self, raw_data, factor_names, ids, dts, args={}):
@@ -129,13 +141,14 @@ class _NarrowTable(FactorTable):
 
 class _EntityFeatureTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
-        EntityLabels = ListStr(["因子库"], arg_type="List", label="实体标签", order=0)
-        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=2)
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
-        if "ID字段" not in sys_args:
-            sys_args["ID字段"] = fdb.IDField
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
+        EntityLabels: List[str] = Field(default=["因子库"], title="实体标签")
+        IDField: str = Field(default="Name", title="ID字段")
+        MultiMapping: bool = Field(default=False, title="多重映射")
+    def __init__(self, name, fdb, args={}, **kwargs):
+        args["Name"] = name
+        if "IDField" not in args:
+            args["IDField"] = fdb._QSArgs.IDField
+        return super().__init__(fdb=fdb, args=args, **kwargs)
     @property
     def FactorNames(self):
         LabelStr = "`:`".join(self._QSArgs.EntityLabels)
@@ -202,18 +215,19 @@ class _EntityFeatureTable(FactorTable):
 
 class _RelationFeatureTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
-        IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
-        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-        OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
-        OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
-        OppField = Str("Name", arg_type="Dict", label="关联字段", order=4)
-        RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
-        Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
-        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=7)
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
-        if "ID字段" not in sys_args:
-            sys_args["ID字段"] = fdb.IDField
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
+        IDEntity: List[str] = Field(default=["因子表"], title="ID实体")
+        IDField: str = Field(default="Name", title="ID字段")
+        OppEntity: List[str] = Field(default=["因子库"], title="关联实体")
+        OppConstraint: dict = Field(default={}, title="关联约束")
+        OppField: str = Field(default="Name", title="关联字段")
+        RelationLabel: str = Field(default="属于因子库", title="关系标签")
+        Direction: Literal["->", "<-"] = Field(default="->", title="关系方向")
+        MultiMapping: bool = Field(default=False, title="多重映射")
+    def __init__(self, name, fdb, args={}, **kwargs):
+        args["Name"] = name
+        if "IDField" not in args:
+            args["IDField"] = fdb._QSArgs.IDField
+        return super().__init__(fdb=fdb, args=args, **kwargs)
     @property
     def FactorNames(self):
         IDNode = f"(n1:`{'`:`'.join(self._QSArgs.IDEntity)}`) "
@@ -322,19 +336,20 @@ class _RelationFeatureTable(FactorTable):
 
 class _RelationFeatureOppFactorTable(FactorTable):
     class __QS_ArgClass__(FactorTable.__QS_ArgClass__):
-        IDEntity = ListStr(["因子表"], arg_type="List", label="ID实体", order=0)
-        IDField = Str("Name", arg_type="String", label="ID字段", order=1)
-        OppEntity = ListStr(["因子库"], arg_type="List", label="关联实体", order=2)
-        OppConstraint = Dict(arg_type="Dict", label="关联约束", order=3)
-        OppField = Str("Name", arg_type="Dict", label="因子名字段", order=4)
-        RelationLabel = Str("属于因子库", arg_type="String", label="关系标签", order=5)
-        Direction = Enum("->", "<-", arg_type="String", label="关系方向", order=6)
-        RelationField = Str(arg_type="String", label="因子值字段", order=7)
-        MultiMapping = Enum(False, True, label="多重映射", arg_type="Bool", order=8)
-    def __init__(self, name, fdb, sys_args={}, **kwargs):
-        if "ID字段" not in sys_args:
-            sys_args["ID字段"] = fdb.IDField
-        return super().__init__(name=name, fdb=fdb, sys_args=sys_args, **kwargs)
+        IDEntity: List[str] = Field(default=["因子表"], title="ID实体")
+        IDField: str = Field(default="Name", title="ID字段")
+        OppEntity: List[str] = Field(default=["因子库"], title="关联实体")
+        OppConstraint: dict = Field(default={}, title="关联约束")
+        OppField: str = Field(default="Name", title="因子名字段")
+        RelationLabel: str = Field(default="属于因子库", title="关系标签")
+        Direction: Literal["->", "<-"] = Field(default="->", title="关系方向")
+        RelationField: str = Field(default="", title="因子值字段")
+        MultiMapping: bool = Field(default=False, title="多重映射")
+    def __init__(self, name, fdb, args={}, **kwargs):
+        args["Name"] = name
+        if "IDField" not in args:
+            args["IDField"] = fdb._QSArgs.IDField
+        return super().__init__(fdb=fdb, args=args, **kwargs)
     @property
     def FactorNames(self):
         IDNode = f"(n1:`{'`:`'.join(self._QSArgs.IDEntity)}`) "
@@ -436,7 +451,7 @@ class _RelationFeatureOppFactorTable(FactorTable):
             if iFactorName in raw_data:
                 iRawData = raw_data[iFactorName].unstack()
                 if DataType[iFactorName]=="double": iRawData = iRawData.astype("float")
-                Data[iFactorName] = iRawData.fillna(method="pad")
+                Data[iFactorName] = iRawData.ffill()
         if not Data: return Panel(items=factor_names, major_axis=dts, minor_axis=ids)
         return Panel(Data, items=factor_names)
     
@@ -444,16 +459,16 @@ class _RelationFeatureOppFactorTable(FactorTable):
 class Neo4jDB(QSNeo4jObject, WritableFactorDB):
     """Neo4jDB"""
     class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__, WritableFactorDB.__QS_ArgClass__):
-        Name = Str("Neo4jDB", arg_type="String", label="名称", order=-100)
-        IDField = Str("ID", arg_type="String", label="ID字段", order=100)
-        FTArgs = Dict(label="因子表参数", arg_type="Dict", order=101)
-        SaveArgs = Dict(label="写入参数", arg_type="Dict", order=102)
-    def __init__(self, sys_args={}, config_file=None, **kwargs):
+        Name: str = Field(default="Neo4jDB", title="名称", frozen=True)
+        IDField: str = Field(default="ID", title="ID字段")
+        FTArgs: dict = Field(default={}, title="因子表参数")
+        SaveArgs: dict = Field(default={}, title="写入参数")
+    def __init__(self, args={}, config_file=None, **kwargs):
         self._DTFormat = "%Y-%m-%d"
         self._DTFormat_WithTime = "%Y-%m-%d %H:%M:%S"
         self._TableInfo = pd.DataFrame()# DataFrame(index=[表名], columns=[Description"])
-        self._FactorInfo = pd.DataFrame()# DataFrame(index=[(表名,因子名)], columns=["DataType", "Description"])
-        return super().__init__(sys_args=sys_args, config_file=(__QS_ConfigPath__+os.sep+"Neo4jDBConfig.json" if config_file is None else config_file), **kwargs)
+        self._FactorInfo = pd.DataFrame()# DataFrame(index=[(表名,因子名)], columns=["QSID", "DataType", "Description"])
+        return super().__init__(args=args, config_file=(__QS_ConfigPath__+os.sep+"Neo4jDBConfig.json" if config_file is None else config_file), **kwargs)
     def connect(self):
         super().connect()
         Class = str(self.__class__)
@@ -469,10 +484,11 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
                 tx.run(CypherStr, parameters=Parameters)
                 CypherStr = f"MATCH (ft:`因子表`) - [:`属于因子库`] -> {self._Node} RETURN DISTINCT ft.Name AS TableName, ft.description AS Description"
                 self._TableInfo = tx.run(CypherStr).values()
-                CypherStr = f"MATCH (f:`因子`) - [:`属于因子表`] -> (ft:`因子表`) - [:`属于因子库`] -> {self._Node} RETURN DISTINCT f.Name AS FactorName, ft.Name AS TableName, f.DataType AS DataType, f.description AS Description"
+                CypherStr = f"MATCH (f:`因子`) - [:`属于因子表`] -> (ft:`因子表`) - [:`属于因子库`] -> {self._Node} RETURN DISTINCT f.QSID AS QSID, f.Name AS FactorName, ft.Name AS TableName, f.DataType AS DataType, f.description AS Description"
                 self._FactorInfo = tx.run(CypherStr).values()
         self._TableInfo = pd.DataFrame(self._TableInfo, columns=["TableName", "Description"]).set_index(["TableName"])
-        self._FactorInfo = pd.DataFrame(self._FactorInfo, columns=["FactorName", "TableName", "DataType", "Description"]).set_index(["TableName", "FactorName"])
+        self._FactorInfo = pd.DataFrame(self._FactorInfo, columns=["QSID", "FactorName", "TableName", "DataType", "Description"]).set_index(["TableName", "FactorName"])
+        self._FactorInfo = self._FactorInfo[~self._FactorInfo.index.duplicated(keep="first")]
         return self
     # ----------------------------因子表操作-----------------------------
     @property
@@ -486,13 +502,13 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         Args = self._QSArgs.FTArgs.copy()
         Args.update(args)
         if table_name=="实体属性":
-            return _EntityFeatureTable(name=table_name, fdb=self, sys_args=Args, logger=self._QS_Logger)
+            return _EntityFeatureTable(name=table_name, fdb=self, args=Args, logger=self._QS_Logger)
         elif table_name=="关系属性(关系字段做因子)":
-            return _RelationFeatureTable(name=table_name, fdb=self, sys_args=Args, logger=self._QS_Logger)
+            return _RelationFeatureTable(name=table_name, fdb=self, args=Args, logger=self._QS_Logger)
         elif table_name=="关系属性(关联实体字段做因子)":
-            return _RelationFeatureOppFactorTable(name=table_name, fdb=self, sys_args=Args, logger=self._QS_Logger)
+            return _RelationFeatureOppFactorTable(name=table_name, fdb=self, args=Args, logger=self._QS_Logger)
         else:
-            return _NarrowTable(name=table_name, fdb=self, sys_args=Args, logger=self._QS_Logger)
+            return _NarrowTable(name=table_name, fdb=self, args=Args, logger=self._QS_Logger)
     def renameTable(self, old_table_name, new_table_name):
         if old_table_name not in self._TableInfo.index:
             Msg = ("因子库 '%s' 调用方法 renameTable 错误: 不存在因子表 '%s'!" % (self.Name, old_table_name))
@@ -526,23 +542,31 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
             Msg = ("因子库 '%s' 调用方法 renameFactor 错误: 新因子名 '%s' 已经存在于因子表 '%s' 中!" % (self.Name, new_factor_name, table_name))
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        CypherStr = f"MATCH (:`因子` {{`Name`: '{old_factor_name}'}}) - [:`属于因子表`] -> (ft:`因子表` {{`Name`: '{table_name}'}}) - [:`属于因子库`] -> {self._Node} SET f.`Name` = '{new_factor_name}'"
+        fi = self._FactorInfo.loc[table_name]
+        iQSID = fi["QSID"].get(old_factor_name, old_factor_name) if "QSID" in fi.columns else old_factor_name
+        CypherStr = f"MATCH (f:`因子` {{QSID: '{iQSID}'}}) - [:`属于因子表`] -> (:`因子表` {{`Name`: '{table_name}'}}) - [:`属于因子库`] -> {self._Node} SET f.`Name` = '{new_factor_name}'"
         self.execute(CypherStr)
         TableNames = self._TableInfo.index.tolist()
         TableNames.remove(table_name)
-        self._FactorInfo = self._FactorInfo.loc[TableNames].append(self._FactorInfo.loc[[table_name]].rename(index={old_factor_name: new_factor_name}, level=1))
+        self._FactorInfo = pd.concat([self._FactorInfo.loc[TableNames], self._FactorInfo.loc[[table_name]].rename(index={old_factor_name: new_factor_name}, level=1)])
         return 0
     def deleteFactor(self, table_name, factor_names):
         if (not factor_names) or (table_name not in self._TableInfo.index): return 0
         FactorIndex = self._FactorInfo.loc[table_name].index.difference(factor_names).tolist()
         if not FactorIndex: return self.deleteTable(table_name)
+        # 将因子名映射为 QSID
+        fi = self._FactorInfo.loc[table_name]
+        qsid_list = [fi["QSID"].get(fn, fn) for fn in factor_names] if "QSID" in fi.columns else list(factor_names)
+        qsid_str = ", ".join(f"'{q}'" for q in qsid_list)
         CypherStr = f"MATCH (f:`因子`) - [:`属于因子表`] -> (:`因子表` {{`Name`: '{table_name}'}}) - [:`属于因子库`] -> {self._Node} "
-        CypherStr += "WHERE "+genSQLInCondition("f.Name", factor_names, is_str=True)+" "
+        CypherStr += f"WHERE f.QSID IN [{qsid_str}] "
         CypherStr += "DETACH DELETE f"
         self.execute(CypherStr)
         TableNames = self._TableInfo.index.tolist()
         TableNames.remove(table_name)
-        self._FactorInfo = self._FactorInfo.loc[TableNames].append(self._FactorInfo.loc[[table_name]].loc[FactorIndex])
+        KeepFactors = self._FactorInfo.loc[table_name].loc[FactorIndex]
+        KeepFactors.index = pd.MultiIndex.from_product([[table_name], FactorIndex], names=["TableName", "FactorName"])
+        self._FactorInfo = pd.concat([self._FactorInfo.loc[TableNames] if TableNames else pd.DataFrame(), KeepFactors])
         return 0
     # ----------------------------数据操作---------------------------------
     # kwargs: 可选参数
@@ -554,9 +578,11 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
         DTs, IDs = data.major_axis.tolist(), data.minor_axis.tolist()
         IDType = kwargs.get("id_type", self._QSArgs.get("写入参数", {}).get("id_type", []))
         IDField = kwargs.get("id_field", self._QSArgs.IDField)
+        factor_qsids = kwargs.get("factor_qsids", {})
         if IDType: IDType = f":`{'`:`'.join(IDType)}`"
+        else: IDType = ""
         WriteCypherStr = f"""
-            MATCH (f:`因子`:`基础因子` {{Name: $ifactor}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}
+            MATCH (f:`因子` {{QSID: $qsid}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}
             UNWIND range(0, size($ids)-1) AS i
             MERGE (s{IDType} {{{IDField}: $ids[i]}})
             MERGE (s) - [r:`暴露`] -> (f)
@@ -576,63 +602,87 @@ class Neo4jDB(QSNeo4jObject, WritableFactorDB):
                 Msg = ("因子库 '%s' 调用方法 writeData 错误: 不支持的写入方式 '%s'!" % (self.Name, str(if_exists)))
                 self._QS_Logger.error(Msg)
                 raise __QS_Error__(Msg)
-        data.major_axis = data.major_axis.strftime(self._DTFormat)
+        data.major_axis = pd.DatetimeIndex(data.major_axis).strftime(self._DTFormat)
         with self.session() as Session:
             with Session.begin_transaction() as tx:
                 for i, iFactor in enumerate(data.items):
                     iData = data.iloc[i]
                     iData = iData.astype("O").where(pd.notnull(iData), None)
                     iData = iData.T.to_dict(orient="records")
-                    #iData = iData.apply(lambda s: s.to_dict(), axis=0, raw=False).tolist()
-                    tx.run(WriteCypherStr, parameters={"data": iData, "ids": IDs, "ifactor": iFactor})
+                    iQSID = factor_qsids.get(iFactor, iFactor)
+                    tx.run(WriteCypherStr, parameters={"data": iData, "ids": IDs, "qsid": iQSID})
         if table_name not in self._TableInfo.index:
             self._TableInfo.loc[table_name] = None
         NewFactorInfo = pd.DataFrame(data_type, index=["DataType"], columns=pd.Index(sorted(data_type.keys()), name="FactorName")).T.reset_index()
         NewFactorInfo["TableName"] = table_name
-        self._FactorInfo = self._FactorInfo.append(NewFactorInfo.set_index(["TableName", "FactorName"])).sort_index()
+        NewFactorInfo["QSID"] = NewFactorInfo["FactorName"].map(lambda fn: factor_qsids.get(fn, fn))
+        Existing = self._FactorInfo.loc[[table_name]] if table_name in self._FactorInfo.index.get_level_values(0) else pd.DataFrame()
+        NewIdx = NewFactorInfo.set_index(["TableName", "FactorName"])
+        if not Existing.empty:
+            OldFactors = Existing.index.get_level_values(1)
+            NewIdx = NewIdx[~NewIdx.index.get_level_values(1).isin(OldFactors)]
+        self._FactorInfo = pd.concat([self._FactorInfo, NewIdx]).sort_index()
         data.major_axis = DTs
         return 0
     def _writeSectionData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
         IDType = kwargs.get("id_type", self._QSArgs.get("写入参数", {}).get("id_type", []))
         IDField = kwargs.get("id_field", self._QSArgs.IDField)
+        factor_qsids = kwargs.get("factor_qsids", {})
         if IDType: IDType = f":`{'`:`'.join(IDType)}`"
+        else: IDType = ""
         WriteCypherStr = f"""
-            MATCH (f:`因子`:`基础因子` {{Name: $ifactor}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}
+            MATCH (f:`因子` {{QSID: $qsid}}) - [:`属于因子表`] -> (ft:`因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> {self._Node}
             UNWIND range(0, size($ids)-1) AS i
             MERGE (s{IDType} {{{IDField}: $ids[i]}})
             MERGE (s) - [r:`暴露`] -> (f)
             ON CREATE SET r = $data[i]
             ON MATCH SET r += $data[i]
         """
-        data.major_axis = data.major_axis.strftime(self._DTFormat)
+        DTs = data.major_axis.tolist()
+        data.major_axis = pd.DatetimeIndex(DTs).strftime(self._DTFormat)
         with self.session() as Session:
             with Session.begin_transaction() as tx:
                 for i, iFactor in enumerate(data.items):
                     iData = data.iloc[i]
                     iData = iData.astype("O").where(pd.notnull(iData), None)
-                    iData = iData.stack().reset_index(level=0).groupby(axis=0, level=0).last()
-                    iData.columns = ["datetime", "value"]
-                    tx.run(WriteCypherStr, parameters={"data": iData.to_dict(orient="records"), "ids": iData.index.tolist(), "ifactor": iFactor})
+                    IDs = iData.columns.tolist()
+                    Records = []
+                    for col in IDs:
+                        Records.append({str(k): v for k, v in iData[col].items()})
+                    iQSID = factor_qsids.get(iFactor, iFactor)
+                    tx.run(WriteCypherStr, parameters={"data": Records, "ids": IDs, "qsid": iQSID})
+        data.major_axis = DTs
         if table_name not in self._TableInfo.index:
             self._TableInfo.loc[table_name] = None
         NewFactorInfo = pd.DataFrame(data_type, index=["DataType"], columns=pd.Index(sorted(data_type.keys()), name="FactorName")).T.reset_index()
         NewFactorInfo["TableName"] = table_name
-        self._FactorInfo = self._FactorInfo.append(NewFactorInfo.set_index(["TableName", "FactorName"])).sort_index()
+        NewFactorInfo["QSID"] = NewFactorInfo["FactorName"].map(lambda fn: factor_qsids.get(fn, fn))
+        Existing = self._FactorInfo.loc[[table_name]] if table_name in self._FactorInfo.index.get_level_values(0) else pd.DataFrame()
+        NewIdx = NewFactorInfo.set_index(["TableName", "FactorName"])
+        if not Existing.empty:
+            OldFactors = Existing.index.get_level_values(1)
+            NewIdx = NewIdx[~NewIdx.index.get_level_values(1).isin(OldFactors)]
+        self._FactorInfo = pd.concat([self._FactorInfo, NewIdx]).sort_index()
         return 0
-    def writeData(self, data, table_name, if_exists="update", data_type={}, **kwargs):
+    def writeData(self, data, table_name, if_exists="update", data_type={}, factor_qsids={}, **kwargs):
         FactorNames = data.items.tolist()
         DataType = data_type.copy()
         for i, iFactorName in enumerate(FactorNames):
             data[iFactorName], DataType[iFactorName] = _identifyDataType(data.iloc[i], data_type.get(iFactorName, None))
+        # 构建 QSID 参数：优先使用传入的 factor_qsids，否则用因子名作为回退
+        QSIDs = {fn: factor_qsids.get(fn, fn) for fn in FactorNames}
         InitCypherStr = f"""
             MATCH {self._Node}
             MERGE (ft:`因子表`:`库因子表` {{Name: '{table_name}'}}) - [:`属于因子库`] -> (fdb)
             WITH ft
             UNWIND $factors AS iFactor
-            MERGE (f:`因子`:`基础因子` {{Name: iFactor, DataType: $data_type[iFactor]}})
+            MERGE (f:`因子`:`基础因子` {{QSID: $qsids[iFactor]}})
+            ON CREATE SET f.Name = iFactor, f.DataType = $data_type[iFactor]
+            ON MATCH SET f.Name = iFactor, f.DataType = $data_type[iFactor]
             MERGE (f) - [:`属于因子表`] -> (ft)
         """
-        self.execute(InitCypherStr, parameters={"factors": FactorNames, "data_type": DataType})
+        self.execute(InitCypherStr, parameters={"factors": FactorNames, "qsids": QSIDs, "data_type": DataType})
+        kwargs["factor_qsids"] = QSIDs
         WriteType = kwargs.get("write_type", self._QSArgs.get("写入参数", {}).get("write_type", ["时序", "截面"]))
         if "时序" in WriteType:
             ThreadNum = kwargs.get("thread_num", self._QSArgs.get("写入参数", {}).get("thread_num", 0))

@@ -18,10 +18,11 @@ content = re.sub(r",\s*([}\]])", r"\1", content)
 neo4j_cfg = json.loads(content)
 
 fgdb_args = {
-    "Neo4jURI": f"bolt://{neo4j_cfg['IPAddr']}:{neo4j_cfg['Port']}",
-    "Neo4jUser": neo4j_cfg["User"],
-    "Neo4jPwd": neo4j_cfg["Pwd"],
-    "Neo4jDB": neo4j_cfg.get("DBName", "neo4j"),
+    "IPAddr": neo4j_cfg["IPAddr"],
+    "Port": neo4j_cfg["Port"],
+    "User": neo4j_cfg["User"],
+    "Pwd": neo4j_cfg["Pwd"],
+    "DBName": neo4j_cfg.get("DBName", "neo4j"),
 }
 
 # ============================================================
@@ -45,7 +46,7 @@ def test_1_connect():
     fgdb = FactorGraphDB(args=fgdb_args)
     fgdb.connect()
     print(f"  [PASS] 连接成功")
-    print(f"  [PASS] URI: {fgdb._QSArgs.Neo4jURI}")
+    print(f"  [PASS] 地址: {fgdb._QSArgs.IPAddr}:{fgdb._QSArgs.Port}")
     fgdb.disconnect()
     print(f"  [PASS] 断开成功")
     return True
@@ -419,7 +420,7 @@ def test_12_custom_operator():
     factor_data = fgdb.getFactorByQSID(qsid)
     op_qsid = factor_data.get("OperatorQSID")
     op_results = fgdb.executeCypher(
-        "MATCH (o:FactorOperator {QSID: $qsid}) RETURN o",
+        "MATCH (o:`算子` {QSID: $qsid}) RETURN o",
         {"qsid": op_qsid}
     )
     if op_results:
@@ -470,7 +471,7 @@ def test_14_cypher_raw():
 
     # 统计各类型因子数量
     results = fgdb.executeCypher(
-        "MATCH (f:Factor) RETURN f.FactorClass AS cls, count(f) AS cnt ORDER BY cnt DESC"
+        "MATCH (f:`因子`) RETURN f.FactorClass AS cls, count(f) AS cnt ORDER BY cnt DESC"
     )
     print("  [PASS] 因子类别统计:")
     for r in results:
@@ -478,9 +479,9 @@ def test_14_cypher_raw():
 
     # 统计关系
     results = fgdb.executeCypher(
-        "MATCH ()-[r:DEPENDS_ON]->() RETURN count(r) AS cnt"
+        "MATCH ()-[r:`依赖`]->() RETURN count(r) AS cnt"
     )
-    print(f"  [PASS] DEPENDS_ON 关系数: {results[0]['cnt']}")
+    print(f"  [PASS] 依赖 关系数: {results[0]['cnt']}")
 
     fgdb.disconnect()
     return True
@@ -555,27 +556,27 @@ def test_16_register_fdb_and_store_table():
     assert fdb_name == "JYDB"
     print(f"  [PASS] registerFactorDB: {fdb_name}")
 
-    # 验证 FactorDB 节点
+    # 验证因子库节点
     fdb_results = fgdb.executeCypher(
-        "MATCH (d:FactorDB {Name: $name}) RETURN d", {"name": "JYDB"}
+        "MATCH (d:`因子库` {Name: $name}) RETURN d", {"name": "JYDB"}
     )
     assert len(fdb_results) == 1
     assert fdb_results[0]["d"]["DBType"] == "JYDB"
-    print(f"  [PASS] FactorDB 节点已创建, DBType={fdb_results[0]['d']['DBType']}")
+    print(f"  [PASS] 因子库节点已创建, DBType={fdb_results[0]['d']['DBType']}")
 
     # 获取并存储因子表
     ft = jydb.getTable("日行情表")
     ft_qsid = fgdb.storeFactorTable(ft, fdb_name="JYDB")
     print(f"  [PASS] storeFactorTable: {ft._QSArgs.Name}, QSID: {ft_qsid[:16]}...")
 
-    # 验证 FactorTable 节点和 IN_DATABASE 关系
+    # 验证因子表节点和属于因子库关系
     ft_results = fgdb.executeCypher(
-        "MATCH (t:FactorTable {QSID: $qsid})-[:IN_DATABASE]->(d:FactorDB) RETURN t, d",
+        "MATCH (t:`因子表` {QSID: $qsid})-[:`属于因子库`]->(d:`因子库`) RETURN t, d",
         {"qsid": ft_qsid}
     )
     assert len(ft_results) == 1
     assert ft_results[0]["d"]["Name"] == "JYDB"
-    print(f"  [PASS] IN_DATABASE 关系已建立 -> JYDB")
+    print(f"  [PASS] 属于因子库 关系已建立 -> JYDB")
 
     # 验证因子名称列表
     ft_node = ft_results[0]["t"]
@@ -622,22 +623,22 @@ def test_17_store_factortable_factor():
     print(f"  [PASS] FactorTableName={factor_data['FactorTableName']}")
     print(f"  [PASS] FactorTableQSID={factor_data['FactorTableQSID'][:16]}...")
 
-    # 验证 BELONGS_TO 关系
+    # 验证属于因子表关系
     bt_results = fgdb.executeCypher(
         """
-        MATCH (f:Factor {QSID: $qsid})-[:BELONGS_TO]->(t:FactorTable)
+        MATCH (f:`因子` {QSID: $qsid})-[:`属于因子表`]->(t:`因子表`)
         RETURN t.Name AS name, t.QSID AS qsid
         """,
         {"qsid": qsid}
     )
     assert len(bt_results) == 1
     assert bt_results[0]["name"] == "日行情表"
-    print(f"  [PASS] BELONGS_TO -> {bt_results[0]['name']}")
+    print(f"  [PASS] 属于因子表 -> {bt_results[0]['name']}")
 
     # 验证标签
     tag_results = fgdb.executeCypher(
         """
-        MATCH (f:Factor {QSID: $qsid})-[:TAGGED]->(t:Tag)
+        MATCH (f:`因子` {QSID: $qsid})-[:`打标签`]->(t:`标签`)
         RETURN collect(t.Name) AS tags
         """,
         {"qsid": qsid}
