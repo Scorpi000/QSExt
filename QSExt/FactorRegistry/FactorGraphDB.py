@@ -30,7 +30,7 @@ from QuantStudio.Factor.FactorOperation import (
     FactorOperator, DerivativeFactor,
     PointOperator, TimeOperator, SectionOperator, PanelOperator
 )
-from QuantStudio.FactorRegistry._serialization import (
+from QSExt.FactorRegistry._serialization import (
     _sanitizeForJSON, _desanitizeFromJSON,
     serializeFactorArgs, serializeOperatorArgs, serializeOperatorCalculateRef,
     _serializeCallable, _deserializeFuncRef
