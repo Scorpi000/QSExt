@@ -459,23 +459,12 @@ class TinySoftDB(FactorDB):
         DBInfoFile: str = Field(default="", title="库信息文件", frozen=True)
         FTArgs: dict = Field(default={}, title="因子表参数", frozen=True)
 
-    # pyTSL 不再需要的旧配置键
-    _LegacyConfigKeys = {"InstallDir"}
-
     def __init__(self, args={}, config_file=None, **kwargs):
+        super().__init__(args=args, config_file=(__QS_ConfigPath__+os.sep+"TinySoftDBConfig.json" if config_file is None else config_file), **kwargs)
         self._Client = None
         self._TableInfo = None
         self._FactorInfo = None
-        # 清除配置文件中的旧键（如 InstallDir）
-        ActualConfigFile = __QS_ConfigPath__+os.sep+"TinySoftDBConfig.json" if config_file is None else config_file
-        if ActualConfigFile and os.path.isfile(ActualConfigFile):
-            with open(ActualConfigFile, "r", encoding="utf-8") as fp:
-                Config = json.load(fp)
-            for k in self._LegacyConfigKeys:
-                Config.pop(k, None)
-            args = Config | args
-        super().__init__(args=args, config_file=None, **kwargs)
-        self._InfoFilePath = __QS_MainPath__+os.sep+"TinySoftDBInfo.hdf5"
+        self._InfoFilePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"TinySoftDBInfo.hdf5"
         if not os.path.isfile(self._QSArgs.DBInfoFile):
             if self._QSArgs.DBInfoFile: self._QS_Logger.warning("找不到指定的库信息文件 : '%s'" % self._QSArgs.DBInfoFile)
             self._InfoResourcePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"TinySoftDBInfo.xlsx"
