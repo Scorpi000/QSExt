@@ -1,38 +1,34 @@
 # -*- coding: utf-8 -*-
 import os
-import re
-import mmap
-import uuid
-from multiprocessing import Queue, Lock
-from collections import OrderedDict
-import pickle
+from typing import Literal
 
-import numpy as np
 import pandas as pd
-from traits.api import Enum, Str, Range, Password, File, Bool, Either
+from pydantic import Field
 
-from QuantStudio import __QS_Error__
-from QuantStudio.Tools.QSObjects import QSSQLObject
-from QuantStudio.Tools.AuxiliaryFun import genAvailableName
+from QuantStudio.Core import __QS_Error__
+from QuantStudio.Core.QSObject import QSSQLObject
 
 
 class QSClickHouseObject(QSSQLObject):
     """ClickHouseDB"""
-    DBType = Enum("ClickHouse", arg_type="SingleOption", label="数据库类型", order=0)
-    Connector = Enum("default", "clickhouse-driver", arg_type="SingleOption", label="连接器", order=7)
+
+    class __QS_ArgClass__(QSSQLObject.__QS_ArgClass__):
+        DBType: Literal["ClickHouse"] = Field(default="ClickHouse", frozen=True, title="数据库类型", exclude=True)
+        Connector: Literal["default", "clickhouse-driver"] = Field(default="default", title="连接器", frozen=True, exclude=True)
+
     def _connect(self):
         self._Connection = None
-        if (self.Connector=="clickhouse-driver") or (self.Connector=="default"):
+        if (self._QSArgs.Connector=="clickhouse-driver") or (self._QSArgs.Connector=="default"):
             try:
                 import clickhouse_driver
-                if self.DSN:
-                    self._Connection = clickhouse_driver.connect(dsn=self.DSN, password=self.Pwd)
+                if self._QSArgs.DSN:
+                    self._Connection = clickhouse_driver.connect(dsn=self._QSArgs.DSN, password=self._QSArgs.Pwd)
                 else:
-                    self._Connection = clickhouse_driver.connect(user=self.User, password=self.Pwd, host=self.IPAddr, port=self.Port, database=self.DBName)
+                    self._Connection = clickhouse_driver.connect(user=self._QSArgs.User, password=self._QSArgs.Pwd, host=self._QSArgs.IPAddr, port=self._QSArgs.Port, database=self._QSArgs.DBName)
             except Exception as e:
-                Msg = ("'%s' 尝试使用 clickhouse-driver 连接(%s@%s:%d)数据库 '%s' 失败: %s" % (self.Name, self.User, self.IPAddr, self.Port, self.DBName, str(e)))
+                Msg = ("'%s' 尝试使用 clickhouse-driver 连接(%s@%s:%d)数据库 '%s' 失败: %s" % (self.Name, self._QSArgs.User, self._QSArgs.IPAddr, self._QSArgs.Port, self._QSArgs.DBName, str(e)))
                 self._QS_Logger.error(Msg)
-                if self.Connector!="default": raise e
+                if self._QSArgs.Connector!="default": raise e
             else:
                 self._Connector = "clickhouse-driver"
         self._PID = os.getpid()
@@ -48,7 +44,7 @@ class QSClickHouseObject(QSSQLObject):
         self._SQLFun = {"toDate": "DATE(%s)"}
         return self
     def renameDBTable(self, old_table_name, new_table_name):
-        SQLStr = "RENAME TABLE "+self.TablePrefix+old_table_name+" TO "+self.TablePrefix+new_table_name
+        SQLStr = "RENAME TABLE "+self._QSArgs.TablePrefix+old_table_name+" TO "+self._QSArgs.TablePrefix+new_table_name
         try:
             self.execute(SQLStr)
         except Exception as e:
@@ -59,7 +55,7 @@ class QSClickHouseObject(QSSQLObject):
             self._QS_Logger.info("'%s' 调用方法 renameDBTable 将表 '%s' 重命名为 '%s'" % (self.Name, old_table_name, new_table_name))
         return 0
     def createDBTable(self, table_name, field_types, primary_keys=[], index_fields=[]):
-        SQLStr = "CREATE TABLE IF NOT EXISTS %s (" % (self.TablePrefix+table_name)
+        SQLStr = "CREATE TABLE IF NOT EXISTS %s (" % (self._QSArgs.TablePrefix+table_name)
         for iField in field_types: SQLStr += "`%s` %s, " % (iField, field_types[iField])
         SQLStr = SQLStr[:-2]+")"
         SQLStr += " ENGINE=MergeTree()"
@@ -76,7 +72,7 @@ class QSClickHouseObject(QSSQLObject):
         return 0
     def getDBTable(self):
         try:
-            SQLStr = "SELECT name FROM system.tables WHERE database='"+self.DBName+"'"
+            SQLStr = "SELECT name FROM system.tables WHERE database='"+self._QSArgs.DBName+"'"
             AllTables = self.fetchall(SQLStr)
         except Exception as e:
             Msg = ("'%s' 调用方法 getDBTable 时错误: %s" % (self.Name, str(e)))
@@ -86,7 +82,7 @@ class QSClickHouseObject(QSSQLObject):
             return [rslt[0] for rslt in AllTables]
     def getFieldDataType(self, table_format=None, ignore_fields=[]):
         try:
-            SQLStr = ("SELECT table, name, type FROM system.columns WHERE database='%s' " % self.DBName)
+            SQLStr = ("SELECT table, name, type FROM system.columns WHERE database='%s' " % self._QSArgs.DBName)
             TableField, ColField = "table", "name"
             if isinstance(table_format, str) and table_format:
                 SQLStr += ("AND %s LIKE '%s' " % (TableField, table_format))
@@ -100,7 +96,7 @@ class QSClickHouseObject(QSSQLObject):
             raise e
         return pd.DataFrame(Rslt, columns=["Table", "Field", "DataType"])
     def addField(self, table_name, field_types):
-        SQLStr = "ALTER TABLE %s " % (self.TablePrefix+table_name)
+        SQLStr = "ALTER TABLE %s " % (self._QSArgs.TablePrefix+table_name)
         SQLStr += "ADD COLUMN %s %s"
         try:
             for iField in field_types:
@@ -110,11 +106,11 @@ class QSClickHouseObject(QSSQLObject):
             self._QS_Logger.error(Msg)
             raise e
         else:
-            self._QS_Logger.info("'%s' 调用方法 addField 为表 '%s' 添加字段 ’%s'" % (self.Name, table_name, str(list(field_types.keys()))))
+            self._QS_Logger.info("'%s' 调用方法 addField 为表 '%s' 添加字段 '%s'" % (self.Name, table_name, str(list(field_types.keys()))))
         return 0
     def renameField(self, table_name, old_field_name, new_field_name):
         try:
-            SQLStr = "ALTER TABLE "+self.TablePrefix+table_name
+            SQLStr = "ALTER TABLE "+self._QSArgs.TablePrefix+table_name
             SQLStr += " RENAME COLUMN `"+old_field_name+"` TO `"+new_field_name+"`"
             self.execute(SQLStr)
         except Exception as e:
@@ -122,12 +118,12 @@ class QSClickHouseObject(QSSQLObject):
             self._QS_Logger.error(Msg)
             raise e
         else:
-            self._QS_Logger.info("'%s' 调用方法 renameField 在将表 '%s' 中的字段 '%s' 重命名为 '%s'" % (self.Name, table_name, old_field_name, new_field_name))
+            self._QS_Logger.info("'%s' 调用方法 renameField 将表 '%s' 中的字段 '%s' 重命名为 '%s'" % (self.Name, table_name, old_field_name, new_field_name))
         return 0
     def deleteField(self, table_name, field_names):
         if not field_names: return 0
         try:
-                SQLStr = "ALTER TABLE "+self.TablePrefix+table_name
+                SQLStr = "ALTER TABLE "+self._QSArgs.TablePrefix+table_name
                 for iField in field_names: SQLStr += " DROP COLUMN `"+iField+"`,"
                 self.execute(SQLStr[:-1])
         except Exception as e:
