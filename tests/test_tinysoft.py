@@ -42,8 +42,17 @@ c.login()
 # print(df.head())
 
 # markettable
+# # 股票
+# code = """SetSysParam(pn_cycle(), cy_trailingseconds(60));
+# return select * from markettable datekey inttodate(20260617) to (inttodate(20260617) + 0.9999) of 'SZ000001' end;
+# """
+# # 期货
+# code = """SetSysParam(pn_cycle(), cy_trailingseconds(60));
+# return select * from markettable datekey inttodate(20260617) to (inttodate(20260617) + 0.9999) of 'IF2607' end;
+# """
+# 期权
 code = """SetSysParam(pn_cycle(), cy_trailingseconds(60));
-return select * from markettable datekey inttodate(20260617) to (inttodate(20260617) + 0.9999) of 'IF2607' end;
+return select * from markettable datekey inttodate(20260617) to (inttodate(20260617) + 0.9999) of 'OP10010295' end;
 """
 r = c.exec(code)
 df = pd.DataFrame(data=r.value(parse_date=['date']))

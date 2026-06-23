@@ -3,7 +3,7 @@
 import os
 import json
 import datetime as dt
-from typing import Union
+from typing import Union, Optional, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -572,29 +572,73 @@ class TinySoftDB(FactorDB):
             return [pyTSL.DoubleToDatetime(x) for x in Data]
 
     def _getAllAStock(self, date=None, is_current=True):
-        if date is None: date = dt.date.today()
-        CodeStr = "return getBK('深证A股;中小企业板;创业板;上证A股');"
+        if date is None: Date = dt.date.today()
+        if is_current:
+            CodeStr = f"""return getAbkbydate('A股',{Date.strftime("%Y%m%d")}T);"""
+        elif date is None:
+            CodeStr = "return getBK('A股;暂停上市;终止上市');"
+        else:
+            raise __QS_Error__("目前不支持提取指定日期的历史 A 股 ID")
         Data = self._exec(CodeStr)
-        IDs = []
-        for iID in Data:
-            IDs.append(iID[2:]+"."+iID[:2])
-        return IDs
+        return sorted(iID[2:]+"."+iID[:2] for iID in Data)
 
-    def getStockID(self, index_id, date=None, is_current=True):
+    def getStockID(self, index_id:str="全体A股", date=None, is_current=True):
         if index_id=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
-        if date is None: date = dt.date.today()
-        CodeStr = "return GetBKByDate('{IndexID}',IntToDate({Date}));"
-        CodeStr = CodeStr.format(IndexID="".join(reversed(index_id.split("."))), Date=date.strftime("%Y%m%d"))
+        if date is None: Date = dt.date.today()
+        IndexID = "".join(reversed(index_id.split(".")))
+        if is_current:
+            CodeStr = f"return GetBKByDate('{IndexID}', {Date.strftime('%Y%m%d')}T);"
+        else:
+            raise __QS_Error__("目前不支持提取历史指数成分股 ID")
         Data = self._exec(CodeStr)
-        IDs = []
-        for iID in Data:
-            IDs.append(iID[2:]+"."+iID[:2])
-        return IDs
+        return sorted(iID[2:]+"."+iID[:2] for iID in Data)
 
-    def getFutureID(self, future_code="IF", date=None, is_current=True):
-        if date is None: date = dt.date.today()
-        if is_current: CodeStr = "EndT:= {Date}T;return GetFuturesID('{FutureID}', EndT);"
-        else: raise __QS_Error__("目前不支持提取历史 ID")
-        CodeStr = CodeStr.format(FutureID="".join(future_code.split(".")), Date=date.strftime("%Y%m%d"))
+    def getFutureID(self, future_code:Optional[str]="IF", date=None, is_current=True):
+        if date is None: Date = dt.date.today()
+        if future_code is not None: future_code = "".join(reversed(future_code.split(".")))
+        if future_code is None:
+            if is_current: CodeStr = f"return GetFuturesID ('', {Date.strftime('%Y%m%d')}T);"
+            else: CodeStr = f"EndT:= {Date.strftime('%Y%m%d')}T;Return getbk('上市期货;退市期货');"
+        else:
+            if is_current:
+                CodeStr = f"""EndT:= {Date.strftime('%Y%m%d')}T;return GetFuturesID('{future_code}',EndT);"""
+            elif date is None:
+                CodeStr = f"""pz:='{future_code}'; return getbkall(spec(base(708003),pz));"""
+            else:
+                raise __QS_Error__("目前不支持提取指定日期的历史期货 ID")
+        Data = self._exec(CodeStr)
+        return Data
+    
+    def _OptionID2InnerCode(self, option_ids:List[str]) -> Dict[str, str]:
+        CodeStr = "Return select ['StockID'], ['合约交易代码'] from infotable 720 where ['合约交易代码'] in ARRAY('"+"','".join(option_ids)+"') end;"
+        Data = pd.DataFrame(self._exec(CodeStr))
+        Data = Data.groupby(["合约交易代码"]).first()
+        return Data["StockID"].to_dict()
+
+    def _OptionInnerCode2ID(self, option_inner_codes:List[str]) -> List[str]:
+        CodeStr = "Return select ['StockID'], ['合约交易代码'] from infotable 720 of ARRAY('"+"','".join(option_inner_codes)+"') end;"
+        Data = pd.DataFrame(self._exec(CodeStr))
+        Data = Data.groupby(["StockID"]).first()
+        return Data["合约交易代码"].to_dict()
+
+    def getOptionID(self, option_code:Optional[str]="510050.SH", date:Optional[dt.datetime]=None, is_current:bool=True) -> List[str]:
+        if date is None: Date = dt.date.today()
+        if option_code is not None: option_code = "".join(reversed(option_code.split(".")))
+        if option_code is None:
+            if is_current:
+                CodeStr = "pzs:=OP_GetUnderlyingSecurity();return OP_GetOptionList(array2str(pzs),{Date}T);"
+                Data = self._exec(CodeStr.format(Date=Date.strftime("%Y%m%d")))
+                return sorted(iID.replace("-", "").upper() for iID in Data)
+            else: CodeStr = "EndT:= {Date}T;Return getbk('上市期权;退市期权');"
+            CodeStr = CodeStr.format(Date=Date.strftime("%Y%m%d"))
+        else:
+            if is_current:
+                CodeStr = """return OP_GetOptionList("{OptionCode}",{Date}T);"""
+                CodeStr = CodeStr.format(OptionCode=option_code, Date=Date.strftime("%Y%m%d"))
+            elif date is None:
+                CodeStr = """pz:='{OptionCode}';name:=spec(base(720003),"OP"+pz);return getbkall(name);"""
+                CodeStr = CodeStr.format(OptionCode=option_code)
+            else:
+                raise __QS_Error__("目前不支持提取指定日期的历史期权 ID")
         Data = self._exec(CodeStr)
         return Data
