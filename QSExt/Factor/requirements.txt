@@ -8,8 +8,6 @@ elasticsearch
 clickhouse-driver
 # Neo4jDB
 neo4j
-# ArcticDB
-arctic
 # AKShareDB
 akshare
 # TuShareDB
