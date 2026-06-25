@@ -21,6 +21,8 @@ TestCoverage.bat
 *.ttf
 *.lnk
 
+.vscode/
+*.code-workspace
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/skills/quantstudio
