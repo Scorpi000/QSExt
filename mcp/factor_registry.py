@@ -17,6 +17,9 @@ from fastmcp import FastMCP
 from QuantStudio.Core import setDefaultLogLevel
 setDefaultLogLevel(logging.WARNING)
 from QuantStudio.Core import __QS_Logger__
+from QSExt.FactorRegistry._serialization import _desanitizeFromJSON
+from QSExt.FactorRegistry.FactorGraphDB import FactorGraphDB
+
 
 mcp = FastMCP("FactorRegistry")
 _FGDB = None
@@ -27,8 +30,7 @@ def _get_fgdb():
     global _FGDB
     if _FGDB is not None:
         return _FGDB
-    from .FactorGraphDB import FactorGraphDB
-
+    
     # 加载 Neo4j 配置
     neo4j_cfg = _load_neo4j_config()
     if neo4j_cfg is None:
@@ -72,7 +74,6 @@ def _parse_meta_json(meta_json_str: Optional[str]) -> dict:
     if not meta_json_str:
         return {}
     try:
-        from ._serialization import _desanitizeFromJSON
         return _desanitizeFromJSON(json.loads(meta_json_str))
     except Exception:
         return {}
