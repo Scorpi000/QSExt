@@ -8,8 +8,12 @@ import base64
 import importlib
 import tempfile
 import datetime as dt
+try:
+    import h5py
+except ImportError:
+    h5py = None
 from typing import Optional, Any, Dict, List, Literal, Union
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import numpy as np
 import pandas as pd
@@ -159,7 +163,7 @@ class FactorGraphDB(QSNeo4jObject):
         merged = " ".join(parts).strip()
         return merged if merged else None
 
-    def _generateEmbedding(self, text: str) -> Optional[List[float]]:
+    def _generateEmbedding(self, text: str, max_retries: int = 2) -> Optional[List[float]]:
         """调用 Ollama API 生成文本嵌入向量
 
         Returns:
@@ -167,21 +171,26 @@ class FactorGraphDB(QSNeo4jObject):
         """
         if not self._QSArgs.EmbeddingModel:
             return None
-        try:
-            url = f"{self._QSArgs.OllamaBaseURL}/api/embeddings"
-            payload = {"model": self._QSArgs.EmbeddingModel, "prompt": text}
-            headers = {"Authorization": f"Bearer {self._QSArgs.OllamaAPIKey}"}
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
-            resp.raise_for_status()
-            embedding = resp.json()["embedding"]
-            if (expected := self._QSArgs.EmbeddingDim) > 0 and len(embedding) != expected:
-                self._QS_Logger.warning(
-                    f"嵌入维度不匹配：预期 {expected}，实际 {len(embedding)}"
-                )
-            return embedding
-        except Exception as e:
-            self._QS_Logger.warning(f"生成嵌入失败: {e}")
-            return None
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                url = f"{self._QSArgs.OllamaBaseURL}/api/embeddings"
+                payload = {"model": self._QSArgs.EmbeddingModel, "prompt": text}
+                headers = {"Authorization": f"Bearer {self._QSArgs.OllamaAPIKey}"}
+                resp = requests.post(url, json=payload, headers=headers, timeout=30)
+                resp.raise_for_status()
+                embedding = resp.json()["embedding"]
+                if (expected := self._QSArgs.EmbeddingDim) > 0 and len(embedding) != expected:
+                    self._QS_Logger.warning(
+                        f"嵌入维度不匹配：预期 {expected}，实际 {len(embedding)}"
+                    )
+                return embedding
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    time.sleep(0.5 * (attempt + 1))  # 递增退避
+        self._QS_Logger.warning(f"生成嵌入失败（已重试 {max_retries} 次）: {last_error}")
+        return None
 
     # endregion
 
@@ -232,32 +241,15 @@ class FactorGraphDB(QSNeo4jObject):
         Returns:
             算子 QSID
         """
-        calc_ref_json, is_custom = serializeOperatorCalculateRef(op)
-        look_back = getattr(op._QSArgs, "LookBack", [])
-        props = {
-            "Name": op._QSArgs.Name,
-            "QSID": op.QSID,
-            "ClassName": op.__class__.__name__,
-            "ModulePath": op.__class__.__module__,
-            "OperatorType": op._QSArgs.OperatorType,
-            "Arity": op._QSArgs.Arity,
-            "DataType": op._QSArgs.DataType,
-            "Description": op._QSArgs.Description,
-            "ModelArgsJSON": serializeOperatorArgs(op),
-            "LookBackJSON": json.dumps(_sanitizeForJSON(look_back), ensure_ascii=False),
-            "DTMode": getattr(op._QSArgs, "DTMode", None),
-            "IDMode": getattr(op._QSArgs, "IDMode", None),
-            "CalculateRef": calc_ref_json,
-            "IsCustom": is_custom,
-            "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        }
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        props = self._serializeOperatorNode(op, now)
         self._runCypher(
             """
             MERGE (o:`算子` {QSID: $qsid})
             ON CREATE SET o += $props, o.CreatedAt = $now
             ON MATCH SET o += $props
             """,
-            {"qsid": op.QSID, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
+            {"qsid": op.QSID, "props": props, "now": now}
         )
         return op.QSID
 
@@ -300,69 +292,200 @@ class FactorGraphDB(QSNeo4jObject):
             )
         return ft.QSID
 
-    def storeFactor(self, factor: Factor, tags: Optional[List[str]] = None) -> str:
-        """递归存储因子及其完整依赖 DAG
+    def storeFactors(self, factors: List[Factor],
+                     tags: Optional[Dict[str, List[str]]] = None) -> List[str]:
+        """批量存储多个因子及其完整依赖 DAG
+
+        与逐个调用 storeFactor 相比，此方法将所有因子节点、算子节点和关系
+        合并为少量 UNWIND 查询，大幅减少网络往返次数，显著提升大批量写入性能。
 
         Args:
-            factor: 根因子
-            tags: 可选标签列表
+            factors: 根因子列表
+            tags: QSID → 标签列表 的映射（仅对根因子打标签）
 
         Returns:
-            因子的 QSID
+            各根因子的 QSID 列表（与输入顺序一致）
         """
-        # 收集完整 DAG
-        dag_nodes = []
-        visited = set()
-        self._collectDAG(factor, dag_nodes, visited)
-        # 拓扑排序
-        sorted_nodes = self._topologicalSort(dag_nodes)
-        # 批量存储
-        now = dt.datetime.now(dt.timezone.utc).isoformat()
-        for node in sorted_nodes:
-            self._storeFactorNode(node, now)
-        # 存储标签
-        if tags:
-            for tag_name in tags:
-                self._runCypher(
-                    """
-                    MERGE (t:`标签` {Name: $tag_name})
-                    WITH t
-                    MATCH (f:`因子` {QSID: $qsid})
-                    MERGE (f)-[:`打标签`]->(t)
-                    """,
-                    {"tag_name": tag_name, "qsid": factor.QSID}
-                )
-        self._QS_Logger.info(f"已存储因子: {factor._QSArgs.Name} (QSID: {factor.QSID[:12]}...)")
-        return factor.QSID
+        if not factors:
+            return []
 
-    def _collectDAG(self, factor: Factor, dag_nodes: list, visited: set):
-        """递归收集因子的依赖 DAG"""
+        # Phase 1: 收集所有 DAG 节点（去重，不立即写入）
+        all_factors = []          # 因子列表（发现顺序）
+        all_operators = {}        # QSID → Operator
+        all_fts = {}              # QSID → (FactorTable, fdb_name_or_None)
+        visited_factors = set()
+        visited_fts = set()
+
+        for factor in factors:
+            self._collectDAGBatch(factor, all_factors, all_operators, all_fts,
+                                  visited_factors, visited_fts)
+
+        if not all_factors:
+            return [f.QSID for f in factors]
+
+        # Phase 2: 注册 FactorDB 并存储 FactorTable（表数量少，逐条写入即可）
+        self._batchStoreFactorTables(all_fts)
+
+        # Phase 3: 拓扑排序因子
+        sorted_factors = self._topologicalSort(all_factors)
+
+        # Phase 4: 批量生成嵌入向量
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        embeddings = {}
+        if self._QSArgs.EmbeddingModel:
+            for factor in sorted_factors:
+                text = self._getFactorEmbeddingText(factor)
+                if text:
+                    emb = self._generateEmbedding(text)
+                    if emb is not None:
+                        embeddings[factor.QSID] = emb
+
+        # Phase 5: 构建因子节点数据并批量 MERGE（1 条查询替代 N 条）
+        factor_nodes = []
+        for factor in sorted_factors:
+            props = self._serializeFactor(factor)
+            if factor.QSID in embeddings:
+                props["Embedding"] = embeddings[factor.QSID]
+                props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
+                props["EmbeddingDim"] = len(embeddings[factor.QSID])
+            factor_nodes.append({"qsid": factor.QSID, "props": props, "now": now})
+
+        if factor_nodes:
+            self._runCypher("""
+                UNWIND $nodes AS node
+                MERGE (f:`因子` {QSID: node.qsid})
+                ON CREATE SET f += node.props, f.CreatedAt = node.now
+                ON MATCH SET f += node.props
+            """, {"nodes": factor_nodes})
+
+        # Phase 6: 批量 MERGE 算子节点（1 条查询替代 N 条）
+        op_nodes = []
+        for op in all_operators.values():
+            op_props = self._serializeOperatorNode(op, now)
+            op_nodes.append({"qsid": op.QSID, "props": op_props, "now": now})
+        if op_nodes:
+            self._runCypher("""
+                UNWIND $ops AS op
+                MERGE (o:`算子` {QSID: op.qsid})
+                ON CREATE SET o += op.props, o.CreatedAt = op.now
+                ON MATCH SET o += op.props
+            """, {"ops": op_nodes})
+
+        # Phase 7: 批量创建关系（3 条查询替代 Σ(Kᵢ) 条）
+        # 7a. (因子)-[:使用算子]->(算子)
+        op_rels = [{"f": f.QSID, "o": f.Operator.QSID}
+                   for f in sorted_factors
+                   if isinstance(f, DerivativeFactor) and f.Operator]
+        if op_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (f:`因子` {QSID: rel.f})
+                MATCH (o:`算子` {QSID: rel.o})
+                MERGE (f)-[:`使用算子`]->(o)
+            """, {"rels": op_rels})
+
+        # 7b. (因子)-[:属于因子表]->(因子表)
+        ft_rels = [{"f": f.QSID, "t": f.FactorTable.QSID}
+                   for f in sorted_factors if f.FactorTable]
+        if ft_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (f:`因子` {QSID: rel.f})
+                MATCH (t:`因子表` {QSID: rel.t})
+                MERGE (f)-[:`属于因子表`]->(t)
+            """, {"rels": ft_rels})
+
+        # 7c. (因子)-[:依赖]->(因子)
+        dep_rels = []
+        for factor in sorted_factors:
+            for i, desc in enumerate(factor.Descriptors):
+                dep_rels.append({"s": factor.QSID, "t": desc.QSID, "order": i})
+        if dep_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (source:`因子` {QSID: rel.s})
+                MATCH (target:`因子` {QSID: rel.t})
+                MERGE (source)-[r:`依赖`]->(target)
+                SET r.order = rel.order
+            """, {"rels": dep_rels})
+
+        # Phase 8: 标签（批量 MERGE + MATCH + MERGE）
+        if tags:
+            tag_rels = []
+            for qsid, tag_list in tags.items():
+                for tag_name in tag_list:
+                    tag_rels.append({"qsid": qsid, "tag": tag_name})
+            if tag_rels:
+                self._runCypher("""
+                    UNWIND $rels AS rel
+                    MERGE (t:`标签` {Name: rel.tag})
+                    WITH t, rel
+                    MATCH (f:`因子` {QSID: rel.qsid})
+                    MERGE (f)-[:`打标签`]->(t)
+                """, {"rels": tag_rels})
+
+        self._QS_Logger.info(
+            f"已批量存储 {len(factors)} 个根因子，"
+            f"共 {len(all_factors)} 个因子节点、{len(all_operators)} 个算子节点"
+        )
+        return [f.QSID for f in factors]
+
+    def _collectDAGBatch(self, factor: Factor, all_factors: list,
+                         all_operators: dict, all_fts: dict,
+                         visited_factors: set, visited_fts: set):
+        """批量模式：收集因子 DAG（不立即写入，统一在 storeFactors 中批量执行）"""
         qsid = factor.QSID
-        if qsid in visited:
+        if qsid in visited_factors:
             return
-        visited.add(qsid)
+        visited_factors.add(qsid)
         # 先收集依赖
         if factor.FactorTable:
-            # FactorTableFactor: 依赖因子表
-            self._collectDAGFromTable(factor.FactorTable, visited)
+            self._collectDAGFromTableBatch(factor.FactorTable, all_fts, visited_fts)
         for desc in factor.Descriptors:
-            self._collectDAG(desc, dag_nodes, visited)
-        dag_nodes.append(factor)
+            self._collectDAGBatch(desc, all_factors, all_operators, all_fts,
+                                  visited_factors, visited_fts)
+        all_factors.append(factor)
+        if isinstance(factor, DerivativeFactor) and factor.Operator:
+            all_operators[factor.Operator.QSID] = factor.Operator
 
-    def _collectDAGFromTable(self, ft: FactorTable, visited: set):
-        """收集因子表及其因子库"""
+    def _collectDAGFromTableBatch(self, ft: FactorTable, all_fts: dict,
+                                   visited_fts: set):
+        """批量模式：收集因子表信息（不立即写入）"""
         ft_qsid = ft.QSID
-        if ft_qsid in visited:
+        if ft_qsid in visited_fts:
             return
-        visited.add(ft_qsid)
-        # 存储因子表
-        if ft.FactorDB:
-            fdb_name = ft.FactorDB.Name
-            if fdb_name not in self._FactorDBRegistry:
+        visited_fts.add(ft_qsid)
+        fdb_name = ft.FactorDB.Name if ft.FactorDB else None
+        all_fts[ft_qsid] = (ft, fdb_name)
+
+    def _batchStoreFactorTables(self, all_fts: dict):
+        """批量写入因子表并注册关联的因子库"""
+        for ft, fdb_name in all_fts.values():
+            if ft.FactorDB and ft.FactorDB.Name not in self._FactorDBRegistry:
                 self.registerFactorDB(ft.FactorDB)
             self.storeFactorTable(ft, fdb_name=fdb_name)
-        else:
-            self.storeFactorTable(ft)
+
+    def _serializeOperatorNode(self, op: FactorOperator, now: str) -> dict:
+        """序列化算子为节点属性字典（供批量写入复用）"""
+        calc_ref_json, is_custom = serializeOperatorCalculateRef(op)
+        look_back = getattr(op._QSArgs, "LookBack", [])
+        return {
+            "Name": op._QSArgs.Name,
+            "QSID": op.QSID,
+            "ClassName": op.__class__.__name__,
+            "ModulePath": op.__class__.__module__,
+            "OperatorType": op._QSArgs.OperatorType,
+            "Arity": op._QSArgs.Arity,
+            "DataType": op._QSArgs.DataType,
+            "Description": op._QSArgs.Description,
+            "ModelArgsJSON": serializeOperatorArgs(op),
+            "LookBackJSON": json.dumps(_sanitizeForJSON(look_back), ensure_ascii=False),
+            "DTMode": getattr(op._QSArgs, "DTMode", None),
+            "IDMode": getattr(op._QSArgs, "IDMode", None),
+            "CalculateRef": calc_ref_json,
+            "IsCustom": is_custom,
+            "UpdatedAt": now,
+        }
 
     def _topologicalSort(self, dag_nodes: list) -> list:
         """拓扑排序（叶子节点在前）"""
@@ -376,70 +499,16 @@ class FactorGraphDB(QSNeo4jObject):
                 if desc.QSID in qsid_to_node:
                     adj[desc.QSID].append(qsid)
                     in_degree[qsid] += 1
-        queue = [q for q, d in in_degree.items() if d == 0]
+        queue = deque(q for q, d in in_degree.items() if d == 0)
         result = []
         while queue:
-            q = queue.pop(0)
+            q = queue.popleft()
             result.append(qsid_to_node[q])
             for neighbor in adj[q]:
                 in_degree[neighbor] -= 1
                 if in_degree[neighbor] == 0:
                     queue.append(neighbor)
         return result
-
-    def _storeFactorNode(self, factor: Factor, now: str):
-        """存储单个因子节点及其关系"""
-        props = self._serializeFactor(factor)
-        # 生成并存储因子描述嵌入向量
-        text = self._getFactorEmbeddingText(factor)
-        if text:
-            embedding = self._generateEmbedding(text)
-            if embedding is not None:
-                props["Embedding"] = embedding
-                props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
-                props["EmbeddingDim"] = len(embedding)
-        # 存储因子节点
-        self._runCypher(
-            """
-            MERGE (f:`因子` {QSID: $qsid})
-            ON CREATE SET f += $props, f.CreatedAt = $now
-            ON MATCH SET f += $props
-            """,
-            {"qsid": factor.QSID, "props": props, "now": now}
-        )
-        # 存储算子关系
-        if isinstance(factor, DerivativeFactor) and factor.Operator:
-            self.storeFactorOperator(factor.Operator)
-            self._runCypher(
-                """
-                MATCH (f:`因子` {QSID: $f_qsid})
-                MATCH (o:`算子` {QSID: $o_qsid})
-                MERGE (f)-[:`使用算子`]->(o)
-                """,
-                {"f_qsid": factor.QSID, "o_qsid": factor.Operator.QSID}
-            )
-        # 存储因子表关系
-        if factor.FactorTable:
-            self._runCypher(
-                """
-                MATCH (f:`因子` {QSID: $f_qsid})
-                MATCH (t:`因子表` {QSID: $t_qsid})
-                MERGE (f)-[:`属于因子表`]->(t)
-                """,
-                {"f_qsid": factor.QSID, "t_qsid": factor.FactorTable.QSID}
-            )
-        # 存储依赖关系
-        descriptors = factor.Descriptors
-        for i, desc in enumerate(descriptors):
-            self._runCypher(
-                """
-                MATCH (source:`因子` {QSID: $source_qsid})
-                MATCH (target:`因子` {QSID: $target_qsid})
-                MERGE (source)-[r:`依赖`]->(target)
-                SET r.order = $order
-                """,
-                {"source_qsid": factor.QSID, "target_qsid": desc.QSID, "order": i}
-            )
 
     def _serializeFactor(self, factor: Factor) -> dict:
         """序列化因子为 Neo4j 节点属性字典"""
@@ -468,7 +537,7 @@ class FactorGraphDB(QSNeo4jObject):
         elif factor.FactorTable:
             props["FactorClass"] = "FactorTableFactor"
             props["FactorTableQSID"] = factor.FactorTable.QSID
-            props["FactorTableName"] = factor._QSArgs.Name
+            props["NameInFT"] = factor._QSArgs.Name
             # 从因子表获取 DataType
             try:
                 meta = factor.getMetaData(key="DataType")
@@ -497,7 +566,8 @@ class FactorGraphDB(QSNeo4jObject):
             subdir = os.path.join(self._QSArgs.DataDir, qsid[:8])
             os.makedirs(subdir, exist_ok=True)
             filepath = os.path.join(subdir, f"{qsid}.hdf5")
-            import h5py
+            if h5py is None:
+                raise ImportError("h5py 未安装，无法序列化 DataFactor 内联数据")
             with h5py.File(filepath, "w") as f:
                 if content == "Factor":
                     f.create_dataset("DateTime", data=[t.timestamp() for t in data.index])
@@ -747,7 +817,11 @@ class FactorGraphDB(QSNeo4jObject):
         if descriptor_map is None:
             descriptor_map = {}
         if qsid in descriptor_map:
+            if descriptor_map[qsid] is None:
+                raise __QS_Error__(f"检测到因子依赖图中存在循环引用: {qsid}")
             return descriptor_map[qsid]
+        # 占位标记，检测循环依赖
+        descriptor_map[qsid] = None
         factor_data = self.getFactorByQSID(qsid)
         if factor_data is None:
             raise __QS_Error__(f"图中不存在 QSID 为 {qsid} 的因子")
@@ -774,7 +848,8 @@ class FactorGraphDB(QSNeo4jObject):
             data = _desanitizeFromJSON(data_ref["value"])
         elif ref_type in ("factor", "datetime", "id"):
             filepath = data_ref["file"]
-            import h5py
+            if h5py is None:
+                raise ImportError("h5py 未安装，无法重建 DataFactor 内联数据")
             with h5py.File(filepath, "r") as f:
                 if ref_type == "factor":
                     dts = [dt.datetime.fromtimestamp(t) for t in f["DateTime"][:]]
@@ -844,12 +919,12 @@ class FactorGraphDB(QSNeo4jObject):
             {"qsid": ft_qsid}
         )
         ft_node = ft_data[0]["t"] if ft_data else {}
-        ft_name = ft_node.get("Name", factor_data["FactorTableName"])
+        ft_name = ft_node.get("Name", "")
         # 使用持久化的 QSArgsJSON 重建 FactorTable，绕过 getTable 的 FTArgs/DefaultArgs 合并
         ft_stored_args = _desanitizeFromJSON(json.loads(ft_node.get("QSArgsJSON", "{}")))
         ft_stored_args["Name"] = ft_name
-        TableClass = ft_stored_args.get("TableType") or fdb._TableInfo.loc[ft_name, "TableClass"]
         try:
+            TableClass = ft_stored_args.get("TableType") or fdb._TableInfo.loc[ft_name, "TableClass"]
             import sys
             jy_module = sys.modules[fdb.__class__.__module__]
             TableCls = getattr(jy_module, f"_{TableClass}")
@@ -871,12 +946,13 @@ class FactorGraphDB(QSNeo4jObject):
                     except Exception:
                         pass
             ft = TableCls(fdb=fdb, args=ft_stored_args, logger=fdb._QS_Logger)
-        except (NameError, AttributeError):
+        except (NameError, AttributeError, KeyError):
             ft = fdb.getTable(ft_name, args=ft_stored_args)
         args = json.loads(factor_data.get("QSArgsJSON", "{}"))
         args = _desanitizeFromJSON(args)
-        args["Name"] = factor_data["FactorTableName"]
-        return ft.getFactor(factor_data["FactorTableName"], args=args)
+        name_in_ft = factor_data.get("NameInFT", "")
+        args["Name"] = name_in_ft
+        return ft.getFactor(name_in_ft, args=args)
 
     def reconstructOperator(self, qsid: str) -> FactorOperator:
         """从图中重建算子对象"""
@@ -940,12 +1016,16 @@ class FactorGraphDB(QSNeo4jObject):
         deleted = 0
         if cascade:
             # 递归删除孤立因子
-            to_delete = [qsid]
+            to_delete = deque([qsid])
+            visited = {qsid}
             while to_delete:
-                current = to_delete.pop(0)
+                current = to_delete.popleft()
                 # 检查是否有其他因子依赖当前因子
                 dependents = self.getDependents(current, transitive=False)
                 if len(dependents) == 0 or current == qsid:
+                    # 在删除前收集描述子（删除后关系丢失无法查询）
+                    descs = self.getDescriptors(current)
+                    desc_qsids = [d["QSID"] for d in descs]
                     # 没有其他依赖者，可以删除
                     self._runCypher(
                         "MATCH (f:`因子` {QSID: $qsid}) DETACH DELETE f",
@@ -953,9 +1033,10 @@ class FactorGraphDB(QSNeo4jObject):
                     )
                     deleted += 1
                     # 检查该因子的描述子是否变为孤立
-                    descs = self.getDescriptors(current)
-                    for desc in descs:
-                        desc_qsid = desc["QSID"]
+                    for desc_qsid in desc_qsids:
+                        if desc_qsid in visited:
+                            continue
+                        visited.add(desc_qsid)
                         remaining = self.getDependents(desc_qsid, transitive=False)
                         if len(remaining) == 0:
                             to_delete.append(desc_qsid)
@@ -1045,13 +1126,27 @@ class FactorGraphDB(QSNeo4jObject):
 
     def getGraphStats(self) -> Dict[str, int]:
         """返回各类节点和关系的计数统计"""
+        results = self._runCypher("""
+            MATCH (n)
+            UNWIND labels(n) AS label
+            RETURN label, count(*) AS cnt
+        """)
         stats = {}
+        for r in results:
+            stats[r["label"]] = r["cnt"]
+        # 补充未出现的标签为 0
         for label in ["因子", "算子", "因子表", "因子库", "标签"]:
-            results = self._runCypher(f"MATCH (n:`{label}`) RETURN count(n) AS cnt")
-            stats[label] = results[0]["cnt"] if results else 0
+            stats.setdefault(label, 0)
+        # 关系计数
+        rel_results = self._runCypher("""
+            MATCH ()-[r]->()
+            UNWIND [type(r)] AS rel_type
+            RETURN rel_type, count(*) AS cnt
+        """)
+        for r in rel_results:
+            stats[r["rel_type"]] = r["cnt"]
         for rel in ["依赖", "使用算子", "属于因子表", "打标签", "属于因子库"]:
-            results = self._runCypher(f"MATCH ()-[r:`{rel}`]->() RETURN count(r) AS cnt")
-            stats[rel] = results[0]["cnt"] if results else 0
+            stats.setdefault(rel, 0)
         return stats
 
     def toMermaid(self, qsid: str | list[str], direction: str = "down") -> str:
@@ -1120,7 +1215,7 @@ class FactorGraphDB(QSNeo4jObject):
             if fclass == "FactorTableFactor" and ftf_name_counts.get(raw_name, 0) > 1:
                 ft_name = ft_name_map.get(n.get("FactorTableQSID", ""), "")
                 if ft_name:
-                    label = f"{label} ({ft_name})"
+                    label = f"{label} ({self._escapeMermaid(ft_name)})"
 
             node_def = f"    {sid}(\"{label}\")"
             lines.append(node_def)
@@ -1142,8 +1237,13 @@ class FactorGraphDB(QSNeo4jObject):
 
     @staticmethod
     def _escapeMermaid(name: str) -> str:
-        """转义 Mermaid 标签中的特殊字符"""
-        return name.replace('"', '\\"')
+        """转义 Mermaid 标签中的特殊字符（引号、括号等）"""
+        return (name
+                .replace('"', '#quot;')
+                .replace('(', '#40;')
+                .replace(')', '#41;')
+                .replace('[', '#91;')
+                .replace(']', '#93;'))
 
     # endregion
 

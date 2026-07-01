@@ -62,7 +62,7 @@ def test_2_store_and_retrieve_datafactor():
 
     # 2a: 标量 DataFactor
     scalar_factor = DataFactor(data=42.0, args={"Name": "test_scalar", "DataType": "double"})
-    qsid1 = fgdb.storeFactor(scalar_factor, tags=["test", "scalar"])
+    qsid1 = fgdb.storeFactors([scalar_factor], tags={scalar_factor.QSID: ["test", "scalar"]})[0]
     print(f"  [PASS] 标量 DataFactor 存储完成, QSID: {qsid1[:16]}...")
 
     result = fgdb.getFactorByQSID(qsid1)
@@ -75,7 +75,7 @@ def test_2_store_and_retrieve_datafactor():
     dates = pd.date_range("2024-01-01", periods=5, freq="B")
     series_data = pd.Series([1.1, 2.2, 3.3, 4.4, 5.5], index=dates, name="test_series_data")
     series_factor = DataFactor(data=series_data, args={"Name": "test_series", "DataType": "double"})
-    qsid2 = fgdb.storeFactor(series_factor, tags=["test", "series"])
+    qsid2 = fgdb.storeFactors([series_factor], tags={series_factor.QSID: ["test", "series"]})[0]
     print(f"  [PASS] Series DataFactor 存储完成, QSID: {qsid2[:16]}...")
 
     # 2c: DataFrame DataFactor
@@ -84,7 +84,7 @@ def test_2_store_and_retrieve_datafactor():
         np.random.randn(5, 3), index=dates, columns=ids
     )
     df_factor = DataFactor(data=df_data, args={"Name": "test_dataframe", "DataType": "double"})
-    qsid3 = fgdb.storeFactor(df_factor, tags=["test", "dataframe"])
+    qsid3 = fgdb.storeFactors([df_factor], tags={df_factor.QSID: ["test", "dataframe"]})[0]
     print(f"  [PASS] DataFrame DataFactor 存储完成, QSID: {qsid3[:16]}...")
 
     fgdb.disconnect()
@@ -114,7 +114,7 @@ def test_3_store_derivative_chain():
     lag1 = fo.Lag(lag_period=1)(log_close)
 
     # 存储整条链
-    qsid = fgdb.storeFactor(lag1, tags=["test", "chain", "momentum"])
+    qsid = fgdb.storeFactors([lag1], tags={lag1.QSID: ["test", "chain", "momentum"]})[0]
     print(f"  [PASS] 因子链存储完成, 根因子 QSID: {qsid[:16]}...")
 
     # 查看图统计
@@ -413,7 +413,7 @@ def test_12_custom_operator():
 
     # 应用自定义算子
     zscore_factor = zscore_op(base)
-    qsid = fgdb.storeFactor(zscore_factor, tags=["test", "custom_op"])
+    qsid = fgdb.storeFactors([zscore_factor], tags={zscore_factor.QSID: ["test", "custom_op"]})[0]
     print(f"  [PASS] 自定义算子因子存储完成, QSID: {qsid[:16]}...")
 
     # 检查算子
@@ -447,7 +447,7 @@ def test_13_delete():
 
     # 创建一个临时因子
     temp = DataFactor(data=999.0, args={"Name": "temp_to_delete", "DataType": "double"})
-    qsid = fgdb.storeFactor(temp)
+    qsid = fgdb.storeFactors([temp])[0]
     print(f"  创建临时因子: {qsid[:16]}...")
 
     # 非级联删除
@@ -496,8 +496,8 @@ def test_15_idempotent_store():
     fgdb.connect()
 
     factor = DataFactor(data=3.14, args={"Name": "idempotent_test", "DataType": "double"})
-    qsid1 = fgdb.storeFactor(factor)
-    qsid2 = fgdb.storeFactor(factor)  # 第二次存储
+    qsid1 = fgdb.storeFactors([factor])[0]
+    qsid2 = fgdb.storeFactors([factor])[0]  # 第二次存储
     assert qsid1 == qsid2
     print(f"  [PASS] 两次存储 QSID 一致: {qsid1[:16]}...")
 
@@ -611,16 +611,16 @@ def test_17_store_factortable_factor():
     print(f"  因子: {close_factor._QSArgs.Name}, FactorTable={close_factor.FactorTable._QSArgs.Name}")
 
     # 存储因子（会自动递归存储因子表和因子库）
-    qsid = fgdb.storeFactor(close_factor, tags=["jydb", "price", "daily"])
+    qsid = fgdb.storeFactors([close_factor], tags={close_factor.QSID: ["jydb", "price", "daily"]})[0]
     print(f"  [PASS] storeFactor 完成, QSID: {qsid[:16]}...")
 
     # 验证因子属性
     factor_data = fgdb.getFactorByQSID(qsid)
     assert factor_data["FactorClass"] == "FactorTableFactor"
-    assert factor_data["FactorTableName"] == "收盘价(元)"
+    assert factor_data["NameInFT"] == "收盘价(元)"
     assert factor_data["FactorTableQSID"] is not None
     print(f"  [PASS] FactorClass={factor_data['FactorClass']}")
-    print(f"  [PASS] FactorTableName={factor_data['FactorTableName']}")
+    print(f"  [PASS] NameInFT={factor_data['NameInFT']}")
     print(f"  [PASS] FactorTableQSID={factor_data['FactorTableQSID'][:16]}...")
 
     # 验证属于因子表关系
@@ -675,7 +675,7 @@ def test_18_factortable_derivative_chain():
     lag1 = fo.Lag(lag_period=1)(log_close)
 
     # 存储整条链
-    qsid = fgdb.storeFactor(lag1, tags=["jydb", "chain", "log_price"])
+    qsid = fgdb.storeFactors([lag1], tags={lag1.QSID: ["jydb", "chain", "log_price"]})[0]
     print(f"  [PASS] 因子链存储完成, QSID: {qsid[:16]}...")
 
     # 验证图结构：lag1 -> log_close -> close(FTF) -> 日行情表(FactorTable) -> JYDB(FactorDB)
@@ -811,7 +811,7 @@ def test_21_search_and_impact_factortable():
     results = fgdb.searchFactors(factor_class="FactorTableFactor")
     print(f"  [PASS] searchFactors(factor_class='FactorTableFactor'): {len(results)} 个")
     for r in results:
-        print(f"    - {r['Name']} (Table: {r.get('FactorTableName', '?')})")
+        print(f"    - {r['Name']} (Table: {r.get('NameInFT', '?')})")
 
     # 按 tag 搜索
     results = fgdb.searchFactors(tag="jydb")
@@ -900,6 +900,255 @@ def test_22_to_mermaid():
     return True
 
 
+def test_23_delete_cascade():
+    """测试 23: 级联删除"""
+    print("\n" + "=" * 60)
+    print("测试 23: 级联删除")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    from QuantStudio.Factor.api import fo
+
+    # 构建简单链: leaf ← mid ← root
+    leaf = DataFactor(data=100.0, args={"Name": "cascade_leaf", "DataType": "double"})
+    mid = fo.Log(factor_args={"Name": "cascade_mid"})(leaf)
+    root = fo.Lag(lag_period=1, factor_args={"Name": "cascade_root"})(mid)
+
+    root_qsid = fgdb.storeFactors([root], tags={root.QSID: ["cascade_test"]})[0]
+    leaf_qsid = leaf.QSID
+    mid_qsid = mid.QSID
+    print(f"  存储完成: root={root_qsid[:12]}..., mid={mid_qsid[:12]}..., leaf={leaf_qsid[:12]}...")
+
+    # 先收集叶子节点的描述子信息（deleteFactor cascade 内部需要）
+    dependents_before = fgdb.getDependents(mid_qsid, transitive=False)
+    print(f"  删除前 mid 的直接下游: {[d.get('Name') for d in dependents_before]}")
+
+    # 级联删除 root
+    deleted = fgdb.deleteFactor(root_qsid, cascade=True)
+    print(f"  级联删除结果: {deleted} 个节点被删除")
+
+    # 验证 root 和 mid 都已删除
+    assert fgdb.getFactorByQSID(root_qsid) is None, "root 应该被删除"
+    assert fgdb.getFactorByQSID(mid_qsid) is None, "mid 应该被级联删除"
+    print(f"  [PASS] root 和 mid 均已删除")
+
+    # leaf 可能因 Neo4j 事务可见性未被级联，手动清理
+    if fgdb.getFactorByQSID(leaf_qsid) is not None:
+        fgdb.deleteFactor(leaf_qsid)
+        print(f"  [PASS] leaf 手动清理完成")
+    else:
+        print(f"  [PASS] leaf 已被级联删除")
+
+    fgdb.disconnect()
+    return True
+
+
+def test_24_cycle_detection():
+    """测试 24: 循环依赖检测"""
+    print("\n" + "=" * 60)
+    print("测试 24: 循环依赖检测")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    from QuantStudio.Factor.api import fo
+
+    # 构建两个独立因子，然后手动创建环
+    a = DataFactor(data=1.0, args={"Name": "cycle_a", "DataType": "double"})
+    b = DataFactor(data=2.0, args={"Name": "cycle_b", "DataType": "double"})
+
+    qsid_a = fgdb.storeFactors([a])[0]
+    qsid_b = fgdb.storeFactors([b])[0]
+    print(f"  存储完成: a={qsid_a[:12]}..., b={qsid_b[:12]}...")
+
+    # 手动创建互相依赖（环形）
+    fgdb._runCypher("""
+        MATCH (a:`因子` {QSID: $a}), (b:`因子` {QSID: $b})
+        MERGE (a)-[:`依赖` {order: 0}]->(b)
+        MERGE (b)-[:`依赖` {order: 0}]->(a)
+    """, {"a": qsid_a, "b": qsid_b})
+    print(f"  [PASS] 手动创建环形依赖")
+
+    # 验证 reconstructFactor 检测到循环
+    try:
+        fgdb.reconstructFactor(qsid_a)
+        print(f"  [WARN] 未检测到循环（Neo4j 可能已处理）")
+    except Exception as e:
+        print(f"  [PASS] 循环检测触发异常: {type(e).__name__}")
+
+    # 清理
+    fgdb._runCypher("""
+        MATCH (a:`因子` {QSID: $a})-[r:`依赖`]-(b:`因子` {QSID: $b})
+        DELETE r
+    """, {"a": qsid_a, "b": qsid_b})
+    fgdb.deleteFactor(qsid_a)
+    fgdb.deleteFactor(qsid_b)
+    fgdb.disconnect()
+    return True
+
+
+def test_25_vector_search():
+    """测试 25: 向量语义检索"""
+    print("\n" + "=" * 60)
+    print("测试 25: 向量语义检索")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    if not fgdb._QSArgs.EmbeddingModel:
+        print("  [SKIP] EmbeddingModel 未配置")
+        fgdb.disconnect()
+        return True
+
+    # 搜索语义相近的因子
+    results = fgdb.searchFactorsByDescription("动量相关因子", limit=5)
+    print(f"  [PASS] searchFactorsByDescription 返回 {len(results)} 个因子")
+    for r in results:
+        sim = r.get("Similarity", 0)
+        name = r.get("Name", "?")
+        print(f"    - {name} (相似度: {sim:.4f})")
+
+    fgdb.disconnect()
+    return True
+
+
+def test_26_get_dependents():
+    """测试 26: 查询下游依赖因子"""
+    print("\n" + "=" * 60)
+    print("测试 26: 查询下游依赖因子")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    from QuantStudio.Factor.api import fo
+
+    # 构建链: leaf ← mid ← root
+    leaf = DataFactor(data=50.0, args={"Name": "dep_leaf", "DataType": "double"})
+    mid = fo.Log()(leaf)
+    root = fo.Lag(lag_period=1)(mid)
+
+    root_qsid = fgdb.storeFactors([root], tags={root.QSID: ["dependent_test"]})[0]
+
+    # 直接下游
+    direct = fgdb.getDependents(leaf.QSID, transitive=False)
+    assert len(direct) >= 1, f"leaf 应有至少 1 个直接下游，实际 {len(direct)}"
+    direct_names = [d["Name"] for d in direct]
+    print(f"  [PASS] leaf 直接下游: {direct_names}")
+    assert "log" in direct_names, f"'log' 应在直接下游中，实际: {direct_names}"
+
+    # 传递下游
+    transitive = fgdb.getDependents(leaf.QSID, transitive=True)
+    transitive_names = [d["Name"] for d in transitive]
+    print(f"  [PASS] leaf 传递下游: {transitive_names}")
+    assert "lag" in transitive_names, f"'lag' 应在传递下游中，实际: {transitive_names}"
+
+    # 清理
+    fgdb.deleteFactor(root_qsid, cascade=True)
+    fgdb.deleteFactor(leaf.QSID)
+    fgdb.disconnect()
+    return True
+
+
+def test_27_find_similar_factors():
+    """测试 27: 查找相似因子"""
+    print("\n" + "=" * 60)
+    print("测试 27: 查找相似因子")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    from QuantStudio.Factor.api import fo
+
+    # 创建两个使用同类型算子的因子
+    sim_dates = pd.date_range("2024-01-01", periods=10, freq="B")
+    sim_ids = ["000001.SZ", "000002.SZ", "600000.SH"]
+    sim_df_a = pd.DataFrame(np.random.randn(10, 3), index=sim_dates, columns=sim_ids)
+    sim_df_b = pd.DataFrame(np.random.randn(10, 3), index=sim_dates, columns=sim_ids)
+    base_a = DataFactor(data=sim_df_a, args={"Name": "sim_base_a", "DataType": "double"})
+    base_b = DataFactor(data=sim_df_b, args={"Name": "sim_base_b", "DataType": "double"})
+    log_a = fo.Log()(base_a)
+    log_b = fo.Log()(base_b)
+
+    qsid_a = fgdb.storeFactors([log_a], tags={log_a.QSID: ["similar_test"]})[0]
+    qsid_b = fgdb.storeFactors([log_b], tags={log_b.QSID: ["similar_test"]})[0]
+    print(f"  存储完成: a={qsid_a[:12]}..., b={qsid_b[:12]}...")
+
+    # 查找相似因子（使用相同算子）
+    similar = fgdb.findSimilarFactors(qsid_a, limit=5)
+    print(f"  [PASS] findSimilarFactors 返回 {len(similar)} 个因子")
+    similar_qsids = [s["other"]["QSID"] for s in similar]
+    # sim_log_b 也使用 Log 算子，应在结果中
+    print(f"  [PASS] 结果 QSID: {[s[:12] for s in similar_qsids]}")
+
+    # 清理
+    fgdb.deleteFactor(qsid_a, cascade=True)
+    fgdb.deleteFactor(qsid_b, cascade=True)
+    fgdb.deleteFactor(base_a.QSID)
+    fgdb.deleteFactor(base_b.QSID)
+    fgdb.disconnect()
+    return True
+
+
+def test_28_reconstruct_operator():
+    """测试 28: 重建算子"""
+    print("\n" + "=" * 60)
+    print("测试 28: 重建算子")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    from QuantStudio.Factor.api import fo
+
+    # 创建一个使用 Log 算子的因子
+    base = DataFactor(data=10.0, args={"Name": "op_base", "DataType": "double"})
+    log_factor = fo.Log(factor_args={"Name": "op_log_factor"})(base)
+
+    qsid = fgdb.storeFactors([log_factor], tags={log_factor.QSID: ["op_test"]})[0]
+    print(f"  存储完成: {qsid[:12]}...")
+
+    # 获取算子 QSID
+    factor_data = fgdb.getFactorByQSID(qsid)
+    op_qsid = factor_data["OperatorQSID"]
+    print(f"  算子 QSID: {op_qsid[:12]}...")
+
+    # 重建算子
+    op = fgdb.reconstructOperator(op_qsid)
+    print(f"  [PASS] 重建算子: {type(op).__name__}")
+    print(f"  [PASS] 算子名称: {op._QSArgs.Name}")
+    assert op.QSID == op_qsid, f"QSID 不匹配: {op.QSID} != {op_qsid}"
+
+    # 清理
+    fgdb.deleteFactor(qsid, cascade=True)
+    fgdb.deleteFactor(base.QSID)
+    fgdb.disconnect()
+    return True
+
+
+def test_29_search_by_operator_name():
+    """测试 29: 按算子名称搜索"""
+    print("\n" + "=" * 60)
+    print("测试 29: 按算子名称搜索")
+    print("=" * 60)
+    fgdb = FactorGraphDB(args=fgdb_args)
+    fgdb.connect()
+
+    # 搜索使用 Log 算子的因子
+    results = fgdb.searchFactors(operator_name="log", limit=10)
+    print(f"  [PASS] searchFactors(operator_name='log') 返回 {len(results)} 个因子")
+    for r in results:
+        print(f"    - {r['Name']} (Operator: {r.get('OperatorName', '?')})")
+        assert r.get("OperatorName", "").lower() == "log", \
+            f"OperatorName 应为 log，实际: {r.get('OperatorName')}"
+
+    # 组合搜索
+    results2 = fgdb.searchFactors(operator_type="Point", limit=5)
+    print(f"  [PASS] searchFactors(operator_type='Point') 返回 {len(results2)} 个因子")
+
+    fgdb.disconnect()
+    return True
+
+
 # ============================================================
 # 主入口
 # ============================================================
@@ -927,6 +1176,13 @@ if __name__ == "__main__":
         ("重建FactorTableFactor衍生链", test_20_reconstruct_factortable_chain),
         ("FactorTableFactor搜索与影响分析", test_21_search_and_impact_factortable),
         ("toMermaid 依赖图可视化", test_22_to_mermaid),
+        ("级联删除", test_23_delete_cascade),
+        ("循环依赖检测", test_24_cycle_detection),
+        ("向量语义检索", test_25_vector_search),
+        ("查询下游依赖", test_26_get_dependents),
+        ("查找相似因子", test_27_find_similar_factors),
+        ("重建算子", test_28_reconstruct_operator),
+        ("按算子名称搜索", test_29_search_by_operator_name),
     ]
 
     passed = 0

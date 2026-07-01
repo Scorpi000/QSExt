@@ -65,7 +65,7 @@ from .FactorRegistry.api import *
 | `MetaJSON` | string | JSON 编码的用户元信息字典 |
 | `DataRef` | string | DataFactor 的数据引用（JSON） |
 | `FactorTableQSID` | string | 所属因子表 QSID（仅 FactorTableFactor） |
-| `FactorTableName` | string | 在因子表中的因子名称（仅 FactorTableFactor） |
+| `NameInFT` | string | 在因子表中的因子名称（仅 FactorTableFactor） |
 | `Embedding` | List[float] | 因子描述文本的嵌入向量（由 Ollama 生成） |
 | `EmbeddingModel` | string | 生成 Embedding 所使用的模型名称 |
 | `EmbeddingDim` | int | 嵌入向量的维度 |
@@ -299,24 +299,27 @@ def connect(self) -> "FactorGraphDB":
 
 **返回：** 算子的 QSID
 
-#### `storeFactor(factor: Factor, tags: Optional[List[str]] = None) -> str`
+#### `storeFactors(factors: List[Factor], tags: Optional[Dict[str, List[str]]] = None) -> List[str]`
 
-**核心方法**。递归存储因子及其完整依赖 DAG。
+**核心方法**。批量存储多个因子及其完整依赖 DAG。
 
 **参数：**
-- `factor`: 根因子
-- `tags`: 可选标签列表
+- `factors`: 根因子列表（共享的依赖因子自动去重）
+- `tags`: QSID → 标签列表 的映射（仅对根因子打标签）
 
-**返回：** 因子的 QSID
+**返回：** 各根因子的 QSID 列表（与输入顺序一致）
 
-**算法：**
-1. 递归遍历 `factor.Descriptors`、`factor.FactorTable`、`factor._ExtraDeps`，收集完整 DAG
-2. 拓扑排序，确保叶子节点（DataFactor、FactorTableFactor）先存储
-3. 对每个节点，调用 `_serializeFactor` 生成属性字典
-4. 使用 MERGE 操作存储节点（幂等，QSID 去重）
-5. 若有算子，存储算子节点 + `使用算子` 关系
-6. 创建 `依赖` 关系（带 order 属性）
-7. 创建标签 + `打标签` 关系
+**算法（8 个阶段）：**
+1. 遍历所有根因子的 DAG，收集因子、算子、因子表（去重，不立即写入）
+2. 注册 FactorDB 并逐条存储 FactorTable（表数量少，逐条写入即可）
+3. 拓扑排序因子，确保叶子节点先序列化
+4. 批量生成嵌入向量（若配置了 EmbeddingModel）
+5. 单条 UNWIND 查询 MERGE 所有因子节点
+6. 单条 UNWIND 查询 MERGE 所有算子节点
+7. 3 条 UNWIND 查询分别创建 `使用算子`、`属于因子表`、`依赖` 关系
+8. 单条 UNWIND 查询创建标签关系
+
+**性能对比：** 对于包含 N 个因子的 DAG（平均 K 个描述子），旧方案产生 N×(K+3) 条 Cypher 查询，新方案固定 6 条（不含 FactorTable 的逐条写入）。
 
 ### 5.2 检索（Retrieve）
 
@@ -484,6 +487,8 @@ for r in results:
 | DerivativeFactor | 圆角矩形 | 浅蓝 `#e1f5fe` |
 | FactorTableFactor | 圆角矩形 | 浅橙 `#fff3e0` |
 
+> 因子名称中的特殊字符（`"`、`(`、`)`、`[`、`]`）通过 Mermaid HTML 实体（`#quot;`、`#40;`、`#41;` 等）转义，确保 Mermaid 语法正确。
+
 **重名区分：** 当多个 FactorTableFactor 同名时，自动附加所属因子表名称（如 `换手率(%) (股票行情表现)`、`换手率(%) (科创板行情表现)`），通过批量查询 FactorTable 节点实现。
 
 **示例输出：**
@@ -491,9 +496,9 @@ for r in results:
 flowchart LR
     6e36e315("turnover")
     style 6e36e315 fill:#f9f,stroke:#333,stroke-width:2px
-    84b907cd("换手率(%) (股票行情表现)")
+    84b907cd("换手率#40;%#41; (股票行情表现)")
     style 84b907cd fill:#fff3e0,stroke:#f57c00
-    f38ccaf7("换手率(%) (科创板行情表现)")
+    f38ccaf7("换手率#40;%#41; (科创板行情表现)")
     style f38ccaf7 fill:#fff3e0,stroke:#f57c00
     a89cc8f5("notnull")
     style a89cc8f5 fill:#e1f5fe,stroke:#0288d1
@@ -513,7 +518,7 @@ flowchart LR
 
 #### 概述
 
-FactorGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j 中，利用 Neo4j 原生向量索引实现基于语义的因子检索。当配置了 `EmbeddingModel` 后，`storeFactor` 会在存储因子时自动生成嵌入向量。
+FactorGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j 中，利用 Neo4j 原生向量索引实现基于语义的因子检索。当配置了 `EmbeddingModel` 后，`storeFactors` 会在存储因子时自动生成嵌入向量。
 
 **架构流程：**
 
@@ -645,13 +650,13 @@ FactorGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j �
 {
     "FactorClass": "FactorTableFactor",
     "FactorTableQSID": factor.FactorTable.QSID,
-    "FactorTableName": factor._QSArgs.Name
+    "NameInFT": factor._QSArgs.Name
 }
 ```
 
-**嵌入向量生成（在 `_storeFactorNode` 中）：**
+**嵌入向量生成（在 `storeFactors` 阶段 4 中）：**
 
-在因子序列化后、Cypher MERGE 之前，`_storeFactorNode` 会：
+在因子序列化后、Cypher MERGE 之前：
 1. 调用 `_getFactorEmbeddingText` 组装描述文本（Name + Meta.Description + Operator.Description）
 2. 调用 `_generateEmbedding` 调用 Ollama API 生成嵌入向量
 3. 将 `Embedding`、`EmbeddingModel`、`EmbeddingDim` 加入 props 字典
@@ -862,7 +867,7 @@ log_close = fo.log()(close)           # PointOperation
 lag5 = fo.lag(5)(log_close)           # TimeOperation
 
 # 存储到图数据库（递归存储整条链）
-fgdb.storeFactor(lag5, tags=["momentum", "price"])
+fgdb.storeFactors([lag5], tags={lag5.QSID: ["momentum", "price"]})[0]
 ```
 
 ### 8.2 检索与重建
@@ -901,7 +906,7 @@ fgdb = FactorGraphDB(args={
 fgdb.connect()
 
 # 存储因子时自动生成嵌入向量
-fgdb.storeFactor(lag5, tags=["momentum", "price"])
+fgdb.storeFactors([lag5], tags={lag5.QSID: ["momentum", "price"]})[0]
 
 # 自然语言搜索
 results = fgdb.searchFactorsByDescription("动量因子", limit=10)
@@ -922,7 +927,7 @@ def normalize(f, idt, iid, x, args):
     return (x[0] - np.nanmean(x[0])) / np.nanstd(x[0])
 
 norm_factor = normalize()(close)
-fgdb.storeFactor(norm_factor, tags=["normalization"])
+fgdb.storeFactors([norm_factor], tags={norm_factor.QSID: ["normalization"]})[0]
 
 # 重建时自动恢复 calculate 函数
 reconstructed = fgdb.reconstructFactor(norm_factor.QSID)
@@ -1002,7 +1007,7 @@ reconstructed = fgdb.reconstructFactor(norm_factor.QSID)
 
 ### 11.1 问题概述
 
-通过 `storeFactor` 将因子注册到图数据库后，在其他 session 中调用 `reconstructFactor` 重建因子对象，发现部分因子的 QSID 与存储值不一致。经分析，根因分三层。
+通过 `storeFactors` 将因子注册到图数据库后，在其他 session 中调用 `reconstructFactor` 重建因子对象，发现部分因子的 QSID 与存储值不一致。经分析，根因分三层。
 
 ### 11.2 根因分析
 
@@ -1137,7 +1142,7 @@ ft = TableCls(fdb=fdb, args=ft_stored_args,
 
 #### 方案 C：消除 FactorTable 重复节点
 
-**文件**：`FactorGraphDB.py`，`_collectDAGFromTable` / `storeFactorTable`
+**文件**：`FactorGraphDB.py`，`_collectDAGFromTableBatch` / `storeFactorTable`
 
 在存储 FactorTable 时，使用表的**规范形式**（`fdb.getTable(name)` 不带额外视图参数）生成 QSID 和存储节点，确保同一物理表只有一个节点。
 

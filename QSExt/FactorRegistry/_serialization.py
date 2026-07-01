@@ -37,7 +37,7 @@ def _sanitizeForJSON(value: Any) -> Any:
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
-        return {"__number__": "int", "value": value}
+        return value
     if isinstance(value, float):
         if value != value:  # NaN
             return {"__nan__": True}
@@ -45,7 +45,7 @@ def _sanitizeForJSON(value: Any) -> Any:
             return {"__inf__": True, "sign": 1}
         if value == float("-inf"):
             return {"__inf__": True, "sign": -1}
-        return {"__number__": "float", "value": value}
+        return value
     if isinstance(value, str):
         return value
     if isinstance(value, np.ndarray):
@@ -55,9 +55,12 @@ def _sanitizeForJSON(value: Any) -> Any:
     if isinstance(value, pd.Timestamp):
         return {"__datetime__": True, "value": value.isoformat()}
     if isinstance(value, pd.Series):
-        return {"__pd_series__": True, "data": _sanitizeForJSON(value.to_dict()), "dtype": str(value.dtype), "name": value.name}
+        return {"__pd_series__": True, "data": _sanitizeForJSON(value.to_dict()),
+                "dtype": str(value.dtype), "name": _sanitizeForJSON(value.name)}
     if isinstance(value, pd.DataFrame):
-        return {"__pd_dataframe__": True, "data": _sanitizeForJSON(value.to_dict()), "columns": list(value.columns), "index": list(value.index)}
+        return {"__pd_dataframe__": True, "data": _sanitizeForJSON(value.to_dict()),
+                "columns": _sanitizeForJSON(list(value.columns)),
+                "index": _sanitizeForJSON(list(value.index))}
     if isinstance(value, (list, tuple)):
         return {"__tuple__": True, "data": [_sanitizeForJSON(v) for v in value]} if isinstance(value, tuple) else [_sanitizeForJSON(v) for v in value]
     if isinstance(value, dict):
@@ -84,12 +87,6 @@ def _desanitizeFromJSON(value: Any) -> Any:
         if isinstance(value, (int, float)):
             return value
         return value
-    # __number__ 标签：恢复精确的 int/float 类型
-    if "__number__" in value:
-        if value["__number__"] == "int":
-            return int(value["value"])
-        elif value["__number__"] == "float":
-            return float(value["value"])
     # numpy 标量类型标记
     if "__numpy_scalar__" in value:
         dtype_str = value.get("dtype", "int64")
@@ -106,19 +103,34 @@ def _desanitizeFromJSON(value: Any) -> Any:
             return np.bool_(value.get("value", False))
     # 特殊类型标记
     if "__nan__" in value:
-        return np.nan
+        return float("nan")
     if "__inf__" in value:
-        return np.inf if value["sign"] > 0 else -np.inf
+        return float("inf") if value["sign"] > 0 else float("-inf")
     if "__numpy__" in value:
         return np.array(value["data"], dtype=value["dtype"])
     if "__datetime__" in value:
         return pd.Timestamp(value["value"])
     if "__pd_series__" in value:
         data = _desanitizeFromJSON(value["data"])
-        return pd.Series(data)
+        name = _desanitizeFromJSON(value.get("name"))
+        dtype = value.get("dtype")
+        s = pd.Series(data, name=name)
+        if dtype:
+            try:
+                s = s.astype(dtype)
+            except (ValueError, TypeError):
+                pass
+        return s
     if "__pd_dataframe__" in value:
         data = _desanitizeFromJSON(value["data"])
-        return pd.DataFrame(data)
+        columns = _desanitizeFromJSON(value.get("columns"))
+        index = _desanitizeFromJSON(value.get("index"))
+        df = pd.DataFrame(data)
+        if columns is not None:
+            df.columns = columns
+        if index is not None:
+            df.index = index
+        return df
     if "__tuple__" in value:
         return tuple(_desanitizeFromJSON(v) for v in value["data"])
     if "__func_ref__" in value:
