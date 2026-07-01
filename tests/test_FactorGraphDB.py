@@ -28,7 +28,7 @@ fgdb_args = {
 # ============================================================
 # 导入 QuantStudio
 # ============================================================
-from QuantStudio.FactorRegistry.api import FactorGraphDB
+from QSExt.FactorRegistry.api import FactorGraphDB
 from QuantStudio.Factor.Factor import DataFactor
 from QuantStudio.Factor.FactorOperation import (
     PointOperator, TimeOperator, makeFactorOperator

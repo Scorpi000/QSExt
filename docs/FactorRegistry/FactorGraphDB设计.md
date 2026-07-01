@@ -9,19 +9,21 @@ QuantStudio 的因子系统以计算图（DAG）为核心：每个 `Factor` 是�
 - **依赖关系不可追溯**：无法回答"哪些因子依赖于 Close 价格"之类的拓扑查询
 - **影响分析困难**：修改一个底层因子时，无法快速确定受影响的下游因子
 
-本方案建立 `QuantStudio.FactorRegistry` 模块作为**因子注册中心**，当前版本以 Neo4j 图数据库为存储引擎，实现因子的存储、检索、重建计算和依赖分析。未来可扩展为因子生命周期管理、版本控制、共享协作等能力的统一入口。
+本方案建立 `QSExt.FactorRegistry` 模块作为**因子注册中心**，当前版本以 Neo4j 图数据库为存储引擎，实现因子的存储、检索、重建计算和依赖分析。未来可扩展为因子生命周期管理、版本控制、共享协作等能力的统一入口。
 
 ---
 
 ## 2. 模块结构
 
 ```
-QuantStudio/FactorRegistry/
+QSExt/FactorRegistry/
 ├── __init__.py              # 包初始化，模块级日志
 ├── api.py                   # 对外 API 导出
 ├── FactorGraphDB.py         # Neo4j 图数据库实现（主文件）
-├── _serialization.py        # 序列化/反序列化辅助函数
-└── mcp_server.py            # MCP Server（3 个工具，stdio 模式）
+└── _serialization.py        # 序列化/反序列化辅助函数
+
+mcp/
+└── factor_registry.py       # MCP Server（3 个工具，stdio 模式）
 ```
 
 ### `api.py` 导出内容
@@ -32,7 +34,7 @@ from .FactorGraphDB import FactorGraphDB
 
 ### 顶层包集成
 
-`QuantStudio/api.py` 中增加：
+`QSExt/api.py` 中增加：
 
 ```python
 from .FactorRegistry.api import *
@@ -206,7 +208,7 @@ LagOp -[:`使用算子`]-> (Lag5:`算子` {Name: "lag", Arity: 1})
 ### 4.1 类定义
 
 ```python
-# QuantStudio/FactorRegistry/FactorGraphDB.py
+# QSExt/FactorRegistry/FactorGraphDB.py
 
 from QSExt.Tools.Neo4jFun import QSNeo4jObject
 
@@ -328,7 +330,7 @@ def connect(self) -> "FactorGraphDB":
 
 **示例：**
 ```python
-from QuantStudio.FactorRegistry.api import FactorGraphDB
+from QSExt.FactorRegistry.api import FactorGraphDB
 
 fgdb = FactorGraphDB()
 fgdb.connect()
@@ -838,7 +840,7 @@ ORDER BY score DESC
 ### 8.1 基本流程
 
 ```python
-from QuantStudio.FactorRegistry.api import FactorGraphDB
+from QSExt.FactorRegistry.api import FactorGraphDB
 from QuantStudio.Factor.api import HDF5DB, fo
 
 # 连接图数据库
@@ -887,7 +889,7 @@ impacted = fgdb.impactAnalysis(close.QSID)
 ### 8.3 向量语义检索
 
 ```python
-from QuantStudio.FactorRegistry.api import FactorGraphDB
+from QSExt.FactorRegistry.api import FactorGraphDB
 
 # 连接时配置嵌入模型
 fgdb = FactorGraphDB(args={
@@ -1157,7 +1159,7 @@ ft = TableCls(fdb=fdb, args=ft_stored_args,
 
 基于 FastMCP 3.x 构建的本地 stdio MCP Server，将 FactorGraphDB 的核心能力暴露给 Claude Code 等 MCP 客户端。部署为本地 stdio 模式，因为需要访问本地 Neo4j、Ollama 和文件系统。
 
-**文件位置**：`QuantStudio/FactorRegistry/mcp_server.py`
+**文件位置**：`mcp/factor_registry.py`
 
 ### 12.2 架构
 
@@ -1247,9 +1249,9 @@ FGDB 为懒加载单例，首次调用时初始化 Neo4j 和 Ollama 连接。
   "mcpServers": {
     "factor-registry": {
       "command": "D:/miniforge/envs/QS312/python.exe",
-      "args": ["-m", "QuantStudio.FactorRegistry.mcp_server"],
+      "args": ["D:/HST/QSExt/mcp/factor_registry.py"],
       "env": {
-        "PYTHONPATH": "D:/HST/Project/QuantStudio;D:/HST/QSResearch",
+        "PYTHONPATH": "D:/HST/Project/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch",
         "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
         "OLLAMA_API_KEY": "ollama",
         "FACTOR_EMBEDDING_MODEL": "bge-m3"
@@ -1263,7 +1265,7 @@ FGDB 为懒加载单例，首次调用时初始化 Neo4j 和 Ollama 连接。
 
 **Python 直接调用**：
 ```python
-from QuantStudio.FactorRegistry.mcp_server import search_factors, get_factor_info, get_factor_code
+from mcp.factor_registry import search_factors, get_factor_info, get_factor_code
 results = search_factors("动量因子", limit=5)
 info = get_factor_info(results[0]["qsid"])
 code = get_factor_code(results[0]["qsid"])
@@ -1271,11 +1273,11 @@ code = get_factor_code(results[0]["qsid"])
 
 **MCP Inspector**（FastMCP 3.x）：
 ```powershell
-$env:PYTHONPATH = "D:/HST/Project/QuantStudio;D:/HST/QSResearch"
-D:/miniforge/envs/QS312/Scripts/fastmcp.exe dev inspector -m QuantStudio.FactorRegistry.mcp_server
+$env:PYTHONPATH = "D:/HST/Project/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch"
+D:/miniforge/envs/QS312/Scripts/fastmcp.exe dev inspector D:/HST/QSExt/mcp/factor_registry.py
 ```
 
-**注意**：Inspector 调试时必须使用 `-m` 模块模式运行，否则 `mcp_server.py` 中的相对导入会失败。
+**注意**：Inspector 调试时必须传入脚本文件路径直接运行，否则 `mcp/factor_registry.py` 中的相对导入会失败。
 
 ### 12.7 依赖
 
