@@ -27,3 +27,4 @@ CLAUDE.local.md
 .claude/settings.local.json
 .claude/skills/quantstudio
 .mcp.json
+output/

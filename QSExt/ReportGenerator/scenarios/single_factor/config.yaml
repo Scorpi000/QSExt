@@ -1,0 +1,169 @@
+# ============================================================
+# 单因子全面测试报告配置
+# ============================================================
+scenario:
+  name: "单因子全面测试"
+  version: "1.0"
+
+# ============================================================
+# 回测模块参数
+# ============================================================
+modules:
+  ic:
+    lookback: 31
+    period_lookback: 1
+    corr_method: "spearman"
+    rolling_avg_period: 12
+
+  ic_decay:
+    periods: [1, 2, 3, 6, 12]
+
+  quantile_portfolio:
+    group_num: 5
+    ascending: false
+    long_short_pairs: [[0, -1]]
+
+  factor_turnover:
+    lookback: 31
+    period_lookback: 1
+
+# ============================================================
+# 报告布局
+# ============================================================
+report:
+  theme: default
+  page_title: "{factor_name} — 单因子测试报告"
+
+  # ---- 数据源映射：BTNode 名称 → 报告 source key ----
+  data_sources:
+    - node_pattern: "Rank IC"
+      source_key: "0-Rank IC 分析"
+    - node_pattern: "IC 衰减"
+      source_key: "1-IC 衰减分析"
+      normalize:
+        flatten_factor_nested: true
+        rename:
+          "IC": "IC衰减"
+    - node_pattern: "分位数组合"
+      source_key: "2-分位数组合"
+      merge: true
+      merge_by_factor: true
+    - node_pattern: "换手率"
+      source_key: "3-因子换手率"
+      normalize:
+        rename_keys:
+          "因子换手率": "换手率"
+
+  # ---- 页眉 ----
+  header:
+    component: section
+    params:
+      layout: single
+    children:
+      - component: factor_summary
+        data:
+          source: meta
+          key: factor_info
+
+  # ---- 报告章节 ----
+  sections:
+    # 第一章：IC 分析
+    - id: ic_analysis
+      title: "一、Rank IC 分析"
+      params:
+        layout: two_column
+      children:
+        - component: chart
+          span: left
+          data:
+            source: 0-Rank IC 分析
+            key: IC
+          params:
+            type: ic_bar
+            title: "IC 序列"
+
+        - component: data_table
+          span: right
+          data:
+            source: 0-Rank IC 分析
+            key: 统计数据
+          params:
+            precision: 4
+            transpose: true
+
+    # 第二章：IC 衰减
+    - id: ic_decay
+      title: "二、IC 衰减分析"
+      params:
+        layout: two_column
+      children:
+        - component: chart
+          span: left
+          data:
+            source: 1-IC 衰减分析
+            key: 统计数据
+          params:
+            type: ic_decay_bar
+            title: "不同调仓周期的 IC 均值"
+
+        - component: data_table
+          span: right
+          data:
+            source: 1-IC 衰减分析
+            key: 统计数据
+          params:
+            precision: 4
+
+    # 第三章：分位数组合
+    - id: quantile_portfolio
+      title: "三、分位数组合分析"
+      params:
+        layout: single
+      children:
+        - component: section
+          params:
+            layout: two_column
+          children:
+            - component: chart
+              span: left
+              data:
+                source: 2-分位数组合
+                key: 超额净值
+              params:
+                type: long_excess_nav
+                title: "多头超额净值"
+
+            - component: chart
+              span: right
+              data:
+                source: 2-分位数组合
+                key: 净值
+              params:
+                type: long_short_nav
+                title: "多空净值"
+
+        # - component: stat_grid
+        #   data:
+        #     source: 2-分位数组合
+        #     key: 统计数据
+        #   params:
+        #     title: "分位数组合绩效指标"
+        #     columns: 4
+        #     metrics:
+        #       - {label: "年化收益", field: "年化收益率", format: ".2%"}
+        #       - {label: "夏普比率", field: "Sharpe比率", format: ".2f"}
+        #       - {label: "最大回撤", field: "最大回撤率", format: ".2%"}
+        #       - {label: "月胜率",   field: "胜率",   format: ".1%"}
+
+        - component: data_table
+          data:
+            source: 2-分位数组合
+            key: 统计数据
+          params:
+            precision: 4
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  formats: ["html", "markdown"]

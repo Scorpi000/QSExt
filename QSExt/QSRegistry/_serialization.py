@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""因子注册中心序列化/反序列化辅助函数"""
+"""计算图注册中心序列化/反序列化辅助函数"""
 import json
 import datetime as dt
 import importlib

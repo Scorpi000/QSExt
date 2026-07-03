@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""基于 Neo4j 的因子图数据库 — 因子注册中心核心存储引擎"""
+"""基于 Neo4j 的量化计算图数据库 — QuantStudio 计算图注册中心核心存储引擎"""
 import os
 import json
 import html
+import hashlib
 import time
 import base64
 import importlib
@@ -22,15 +23,16 @@ from pydantic import Field
 
 from QuantStudio import __QS_ConfigPath__
 from QuantStudio.Core import __QS_Error__
-from QuantStudio.Factor.FactorDB import FactorDB
+from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
 from QSExt.Tools.Neo4jFun import QSNeo4jObject
 from QuantStudio.Factor.FactorTable import FactorTable
 from QuantStudio.Factor.Factor import Factor, DataFactor
+from QuantStudio.Factor.FactorStorer import FactorStorer
 from QuantStudio.Factor.FactorOperation import (
     FactorOperator, DerivativeFactor,
     PointOperator, TimeOperator, SectionOperator, PanelOperator
 )
-from QSExt.FactorRegistry._serialization import (
+from QSExt.QSRegistry._serialization import (
     _sanitizeForJSON, _desanitizeFromJSON,
     serializeFactorArgs, serializeOperatorArgs, serializeOperatorCalculateRef,
     _serializeCallable, _deserializeFuncRef
@@ -44,7 +46,14 @@ _SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT operator_qsid IF NOT EXISTS FOR (o:`算子`) REQUIRE o.QSID IS UNIQUE",
     "CREATE CONSTRAINT table_qsid IF NOT EXISTS FOR (t:`因子表`) REQUIRE t.QSID IS UNIQUE",
     "CREATE CONSTRAINT fdb_name IF NOT EXISTS FOR (d:`因子库`) REQUIRE d.Name IS UNIQUE",
+    "CREATE CONSTRAINT riskdb_name IF NOT EXISTS FOR (d:`风险库`) REQUIRE d.Name IS UNIQUE",
+    "CREATE CONSTRAINT risktable_qsid IF NOT EXISTS FOR (t:`风险表`) REQUIRE t.QSID IS UNIQUE",
+    "CREATE CONSTRAINT optimizer_qsid IF NOT EXISTS FOR (o:`组合优化器`) REQUIRE o.QSID IS UNIQUE",
     "CREATE CONSTRAINT tag_name IF NOT EXISTS FOR (t:`标签`) REQUIRE t.Name IS UNIQUE",
+    "CREATE CONSTRAINT backtest_qsid IF NOT EXISTS FOR (b:`回测`) REQUIRE b.QSID IS UNIQUE",
+    "CREATE CONSTRAINT backtest_result_id IF NOT EXISTS FOR (r:`回测结果`) REQUIRE r.ResultID IS UNIQUE",
+    "CREATE CONSTRAINT report_id IF NOT EXISTS FOR (r:`报告`) REQUIRE r.ReportID IS UNIQUE",
+    "CREATE CONSTRAINT storer_qsid IF NOT EXISTS FOR (s:`因子存储器`) REQUIRE s.QSID IS UNIQUE",
 ]
 
 _SCHEMA_INDEXES = [
@@ -55,22 +64,35 @@ _SCHEMA_INDEXES = [
     "CREATE INDEX operator_name IF NOT EXISTS FOR (o:`算子`) ON (o.Name)",
     "CREATE INDEX operator_type IF NOT EXISTS FOR (o:`算子`) ON (o.OperatorType)",
     "CREATE INDEX fdb_type IF NOT EXISTS FOR (d:`因子库`) ON (d.DBType)",
+    "CREATE INDEX riskdb_type IF NOT EXISTS FOR (d:`风险库`) ON (d.DBType)",
+    "CREATE INDEX risktable_name IF NOT EXISTS FOR (t:`风险表`) ON (t.Name)",
+    "CREATE INDEX optimizer_type IF NOT EXISTS FOR (o:`组合优化器`) ON (o.OptimizerType)",
+    "CREATE INDEX backtest_name IF NOT EXISTS FOR (b:`回测`) ON (b.Name)",
+    "CREATE INDEX backtest_category IF NOT EXISTS FOR (b:`回测`) ON (b.BacktestCategory)",
+    "CREATE INDEX backtest_class IF NOT EXISTS FOR (b:`回测`) ON (b.ClassName)",
+    "CREATE INDEX backtest_result_key IF NOT EXISTS FOR (r:`回测结果`) ON (r.Key)",
+    "CREATE INDEX report_name IF NOT EXISTS FOR (r:`报告`) ON (r.Name)",
+    "CREATE INDEX report_scenario IF NOT EXISTS FOR (r:`报告`) ON (r.ScenarioName)",
+    "CREATE INDEX report_format IF NOT EXISTS FOR (r:`报告`) ON (r.Format)",
+    "CREATE INDEX storer_name IF NOT EXISTS FOR (s:`因子存储器`) ON (s.Name)",
+    "CREATE INDEX storer_target_table IF NOT EXISTS FOR (s:`因子存储器`) ON (s.TargetTable)",
 ]
 
 # endregion
 
 
-class FactorGraphDB(QSNeo4jObject):
-    """基于 Neo4j 的因子图数据库
+class QSGraphDB(QSNeo4jObject):
+    """基于 Neo4j 的 QuantStudio 计算图注册中心
 
-    因子注册中心的核心存储引擎，存储因子元数据、依赖关系图和数据引用。
-    支持因子检索、重建计算、依赖分析和影响范围查询。
+    QuantStudio 计算图的核心存储引擎，存储因子、回测、风险模型等计算节点的元数据、
+    依赖关系图和数据引用，以及算子、因子表、风险库等支撑节点的注册信息。
+    支持检索、重建计算、依赖分析和影响范围查询。
 
-    参数通过 ~/QuantStudioConfig/FactorGraphDBConfig.json 配置或显式传入。
+    参数通过 ~/QuantStudioConfig/QSGraphDBConfig.json 配置或显式传入。
     """
 
     class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__):
-        Name: str = Field(default="FactorGraphDB", frozen=True, title="图数据库名称")
+        Name: str = Field(default="QSGraphDB", frozen=True, title="图数据库名称")
         OllamaBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="Ollama 服务地址")
         OllamaAPIKey: str = Field(default="ollama", frozen=True, exclude=True, repr=False, title="Ollama API Key")
         EmbeddingModel: str = Field(default="", frozen=True, exclude=True, title="嵌入模型名，空字符串表示禁用")
@@ -80,21 +102,21 @@ class FactorGraphDB(QSNeo4jObject):
     def __init__(self, args: dict = {}, config_file: Optional[str] = None, **kwargs):
         super().__init__(
             args=args,
-            config_file=(__QS_ConfigPath__ + os.sep + "FactorGraphDBConfig.json" if config_file is None else config_file),
+            config_file=(__QS_ConfigPath__ + os.sep + "QSGraphDBConfig.json" if config_file is None else config_file),
             **kwargs
         )
         self._FactorDBRegistry: Dict[str, FactorDB] = {}
         if self._QSArgs.DataDir is None:
-            self._QSArgs.DataDir = os.path.join(tempfile.gettempdir(), "QS_FactorGraphDB_Data")
+            self._QSArgs.DataDir = os.path.join(tempfile.gettempdir(), "QS_QSGraphDB_Data")
         os.makedirs(self._QSArgs.DataDir, exist_ok=True)
 
     # region 生命周期
 
-    def connect(self) -> "FactorGraphDB":
+    def connect(self) -> "QSGraphDB":
         """连接到 Neo4j 数据库，首次连接自动创建约束和索引"""
         super().connect()
         self._initSchema()
-        self._QS_Logger.info(f"FactorGraphDB 已连接到 {self._QSArgs.IPAddr}:{self._QSArgs.Port}")
+        self._QS_Logger.info(f"QSGraphDB 已连接到 {self._QSArgs.IPAddr}:{self._QSArgs.Port}")
         return self
 
     def _initSchema(self):
@@ -584,6 +606,476 @@ class FactorGraphDB(QSNeo4jObject):
 
     # endregion
 
+    # region 因子存储器存储（FactorStorer Store）
+
+    @staticmethod
+    def _collectActualFactors(storer: FactorStorer) -> list:
+        """从 FactorStorer.Deps 中递归提取所有非 FactorStorer 的 Factor 节点
+
+        处理 split=True 场景：当 FactorStorer 被分割时，其 Deps 是子 FactorStorer，
+        需要递归遍历获取实际的 Factor 实例。
+
+        Args:
+            storer: FactorStorer 实例
+
+        Returns:
+            实际的 Factor 列表
+        """
+        factors = []
+        queue = list(storer.Deps)
+        while queue:
+            dep = queue.pop(0)
+            if isinstance(dep, FactorStorer):
+                queue.extend(dep.Deps)
+            elif isinstance(dep, Factor):
+                factors.append(dep)
+        return factors
+
+    def storeFactorStorer(self, storer: FactorStorer, tags: Optional[List[str]] = None) -> str:
+        """存储因子存储器节点
+
+        FactorStorer 是计算图中负责将因子数据写入目标因子库/表的节点。
+        入图后建立与依赖因子、目标因子库、目标因子表的关系。
+
+        Args:
+            storer: FactorStorer 实例
+            tags: 可选的标签列表
+
+        Returns:
+            FactorStorer 的 QSID
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        target_fdb = storer._QSArgs.TargetFDB
+        target_table = storer._QSArgs.TargetTable
+        if target_fdb is None:
+            raise __QS_Error__("FactorStorer.TargetFDB 不能为 None，请先连接目标因子库")
+
+        # 序列化 QSArgs（排除不可序列化的 TargetFDB 实例）
+        qsargs_dict = storer._QSArgs.model_dump()
+        qsargs_serializable = {}
+        for k, v in qsargs_dict.items():
+            if k == "TargetFDB":
+                qsargs_serializable[k] = {
+                    "__type__": target_fdb.__class__.__name__,
+                    "__module__": target_fdb.__class__.__module__,
+                    "Name": getattr(target_fdb, 'Name', str(target_fdb)),
+                }
+            else:
+                qsargs_serializable[k] = _sanitizeForJSON(v)
+
+        fdb_name = getattr(target_fdb, 'Name', str(target_fdb))
+        props = {
+            "Name": storer._QSArgs.Name,
+            "QSID": storer.QSID,
+            "ClassName": storer.__class__.__name__,
+            "ModulePath": storer.__class__.__module__,
+            "TargetFDBName": fdb_name,
+            "TargetFDBType": target_fdb.__class__.__name__,
+            "TargetTable": target_table,
+            "IfExists": storer._QSArgs.IfExists,
+            "QSArgsJSON": json.dumps(qsargs_serializable, ensure_ascii=False),
+            "UpdatedAt": now,
+        }
+        self._runCypher(
+            """
+            MERGE (s:`因子存储器` {QSID: $qsid})
+            ON CREATE SET s += $props, s.CreatedAt = $now
+            ON MATCH SET s += $props
+            """,
+            {"qsid": storer.QSID, "props": props, "now": now}
+        )
+
+        # 建立与依赖因子的关系
+        # 处理 split=True 场景：storer.Deps 可能包含子 FactorStorer，
+        # 需要递归遍历获取实际的 Factor 节点
+        actual_factors = self._collectActualFactors(storer)
+        if actual_factors:
+            self._runCypher(
+                """
+                UNWIND $rels AS rel
+                MATCH (s:`因子存储器` {QSID: $storer_qsid})
+                MATCH (f:`因子` {QSID: rel.factor_qsid})
+                MERGE (s)-[:`依赖`]->(f)
+                """,
+                {"storer_qsid": storer.QSID,
+                 "rels": [{"factor_qsid": f.QSID} for f in actual_factors]}
+            )
+
+        # 建立与目标因子表的关系
+        # 1) 先在图库中查找目标因子表是否已注册
+        # 2) 若未注册但目标因子库中存在该表，则自动注册
+        # 3) 注册后建立 [写入因子表] 和 [存入因子表] 关系
+        if target_table:
+            ft_qsid = None
+            ft_result = self._runCypher(
+                """
+                MATCH (t:`因子表`)-[:`属于因子库`]->(d:`因子库` {Name: $fdb_name})
+                WHERE t.Name = $table_name
+                RETURN t.QSID AS qsid LIMIT 1
+                """,
+                {"fdb_name": fdb_name, "table_name": target_table}
+            )
+            if ft_result:
+                ft_qsid = ft_result[0]["qsid"]
+            elif target_table in target_fdb.TableNames:
+                # 目标表在因子库中存在但图库中未注册，自动注册
+                ft = target_fdb.getTable(target_table)
+                self.storeFactorTable(ft, fdb_name=fdb_name)
+                ft_qsid = ft.QSID
+                self._QS_Logger.info(
+                    f"自动注册目标因子表: {fdb_name}/{target_table} (QSID: {ft_qsid[:16]}...)"
+                )
+
+            if ft_qsid:
+                self._runCypher(
+                    """
+                    MATCH (s:`因子存储器` {QSID: $storer_qsid})
+                    MATCH (t:`因子表` {QSID: $ft_qsid})
+                    MERGE (s)-[:`写入因子表`]->(t)
+                    """,
+                    {"storer_qsid": storer.QSID, "ft_qsid": ft_qsid}
+                )
+                # 建立存储的因子到目标因子表的关系
+                if actual_factors:
+                    self._runCypher(
+                        """
+                        UNWIND $rels AS rel
+                        MATCH (f:`因子` {QSID: rel.factor_qsid})
+                        MATCH (t:`因子表` {QSID: $ft_qsid})
+                        MERGE (f)-[:`存入因子表`]->(t)
+                        """,
+                        {"ft_qsid": ft_qsid,
+                         "rels": [{"factor_qsid": f.QSID} for f in actual_factors]}
+                    )
+
+        # 标签
+        if tags:
+            self._runCypher(
+                """
+                UNWIND $rels AS rel
+                MERGE (t:`标签` {Name: rel.tag})
+                WITH t, rel
+                MATCH (s:`因子存储器` {QSID: rel.qsid})
+                MERGE (s)-[:`打标签`]->(t)
+                """,
+                {"rels": [{"qsid": storer.QSID, "tag": t} for t in tags]}
+            )
+
+        self._QS_Logger.info(
+            f"已存储因子存储器: {storer._QSArgs.Name} → "
+            f"{fdb_name}/{target_table} (QSID: {storer.QSID})"
+        )
+        return storer.QSID
+
+    def getFactorStorerByQSID(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询因子存储器节点"""
+        results = self._runCypher(
+            "MATCH (s:`因子存储器` {QSID: $qsid}) RETURN s",
+            {"qsid": qsid}
+        )
+        return results[0]["s"] if results else None
+
+    def searchFactorStorers(self, target_table: Optional[str] = None,
+                            target_fdb: Optional[str] = None,
+                            factor_qsid: Optional[str] = None,
+                            limit: int = 100) -> List[Dict]:
+        """搜索因子存储器
+
+        Args:
+            target_table: 目标因子表名称（模糊匹配）
+            target_fdb: 目标因子库名称
+            factor_qsid: 依赖的因子 QSID
+            limit: 返回数量上限
+        """
+        conditions = []
+        params = {"limit": limit}
+        if target_table:
+            conditions.append("s.TargetTable CONTAINS $table")
+            params["table"] = target_table
+        if target_fdb:
+            conditions.append("s.TargetFDBName CONTAINS $fdb")
+            params["fdb"] = target_fdb
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        if factor_qsid:
+            # 按依赖因子检索
+            results = self._runCypher(
+                f"""
+                MATCH (s:`因子存储器`)-[:`依赖`]->(f:`因子` {{QSID: $factor_qsid}})
+                {where_clause}
+                RETURN s ORDER BY s.Name LIMIT $limit
+                """,
+                {**params, "factor_qsid": factor_qsid}
+            )
+        else:
+            results = self._runCypher(
+                f"""
+                MATCH (s:`因子存储器`)
+                {where_clause}
+                RETURN s ORDER BY s.Name LIMIT $limit
+                """,
+                params
+            )
+        return [r["s"] for r in results]
+
+    def deleteFactorStorer(self, qsid: str) -> None:
+        """删除因子存储器节点
+
+        Args:
+            qsid: FactorStorer 的 QSID
+        """
+        self._runCypher(
+            "MATCH (s:`因子存储器` {QSID: $qsid}) DETACH DELETE s",
+            {"qsid": qsid}
+        )
+        self._QS_Logger.info(f"已删除因子存储器: {qsid}")
+
+    # endregion
+
+    # region 回测存储（Backtest Store）
+
+    def _determineBacktestCategory(self, bt_node) -> str:
+        """根据 BTNode 的模块路径判定回测类别"""
+        module = bt_node.__class__.__module__
+        if "SectionFactor" in module:
+            return "SectionFactor"
+        elif ".Strategy" in module:
+            return "Strategy"
+        elif "Risk" in module:
+            return "Risk"
+        elif "TimeSeriesFactor" in module:
+            return "TimeSeriesFactor"
+        elif "PerformanceAnalysis" in module:
+            return "PerformanceAnalysis"
+        elif "Event" in module:
+            return "Event"
+        else:
+            return "Other"
+
+    def _collectFactorQSIDs(self, deps: list) -> list:
+        """从 BTNode.Deps 中提取所有 Factor 的 QSID（仅一层，不递归）"""
+        factor_qsids = []
+        for dep in deps:
+            if hasattr(dep, "FactorTable"):
+                factor_qsids.append(dep.QSID)
+        return factor_qsids
+
+    def _collectBTNodeQSIDs(self, deps: list) -> list:
+        """从 BTNode.Deps 中提取所有 BTNode 子节点的 QSID（用于 BTReport 场景）"""
+        bt_qsids = []
+        for dep in deps:
+            if hasattr(dep, "genReport") and not hasattr(dep, "FactorTable"):
+                bt_qsids.append(dep.QSID)
+        return bt_qsids
+
+    def storeBacktest(self, bt_node, tags: Optional[List[str]] = None,
+                      dtrange: Optional[tuple] = None) -> str:
+        """存储回测节点及其依赖关系
+
+        Args:
+            bt_node: BTNode 实例（IC, QuantilePortfolio, Strategy 等）
+            tags: 可选的标签名称列表
+            dtrange: 可选的时点范围 (start_dt, end_dt)，用于信息记录
+
+        Returns:
+            回测节点 QSID
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        category = self._determineBacktestCategory(bt_node)
+        props = {
+            "Name": bt_node._QSArgs.Name,
+            "QSID": bt_node.QSID,
+            "ClassName": bt_node.__class__.__name__,
+            "ModulePath": bt_node.__class__.__module__,
+            "BacktestCategory": category,
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(bt_node._QSArgs.model_dump()), ensure_ascii=False),
+            "UpdatedAt": now,
+        }
+        if dtrange:
+            props["DTRangeJSON"] = json.dumps(
+                {"start": dtrange[0].isoformat(), "end": dtrange[1].isoformat()},
+                ensure_ascii=False
+            )
+
+        self._runCypher(
+            """
+            MERGE (b:`回测` {QSID: $qsid})
+            ON CREATE SET b += $props, b.CreatedAt = $now
+            ON MATCH SET b += $props
+            """,
+            {"qsid": bt_node.QSID, "props": props, "now": now}
+        )
+
+        # 建立与 Factor 的依赖关系
+        factor_qsids = self._collectFactorQSIDs(bt_node.Deps)
+        if factor_qsids:
+            self._runCypher(
+                """
+                UNWIND $factor_qsids AS f_qsid
+                MATCH (b:`回测` {QSID: $bt_qsid})
+                MATCH (f:`因子` {QSID: f_qsid})
+                MERGE (b)-[:`依赖`]->(f)
+                """,
+                {"bt_qsid": bt_node.QSID, "factor_qsids": factor_qsids}
+            )
+
+        # 建立与子 BTNode 的依赖关系（BTReport 场景）
+        bt_qsids = self._collectBTNodeQSIDs(bt_node.Deps)
+        if bt_qsids:
+            self._runCypher(
+                """
+                UNWIND $bt_qsids AS dep_qsid
+                MATCH (b:`回测` {QSID: $bt_qsid})
+                MATCH (dep:`回测` {QSID: dep_qsid})
+                MERGE (b)-[:`依赖`]->(dep)
+                """,
+                {"bt_qsid": bt_node.QSID, "bt_qsids": bt_qsids}
+            )
+
+        # 标签
+        if tags:
+            self._runCypher(
+                """
+                UNWIND $rels AS rel
+                MERGE (t:`标签` {Name: rel.tag})
+                WITH t, rel
+                MATCH (b:`回测` {QSID: rel.qsid})
+                MERGE (b)-[:`打标签`]->(t)
+                """,
+                {"rels": [{"qsid": bt_node.QSID, "tag": t} for t in tags]}
+            )
+
+        self._QS_Logger.info(
+            f"已存储回测: {bt_node.Name} (QSID: {bt_node.QSID}, "
+            f"类别: {category}, 依赖因子: {len(factor_qsids)})"
+        )
+        return bt_node.QSID
+
+    def storeBacktestResults(self, bt_qsid: str, output: dict,
+                             dtrange: tuple) -> List[str]:
+        """存储回测结果，将 output dict 中的各项挂载到回测节点上
+
+        Args:
+            bt_qsid: 回测节点 QSID
+            output: BTNode.backward_compute() 返回的 dict
+            dtrange: (start_dt, end_dt) 时点范围
+
+        Returns:
+            各 ResultID 列表
+        """
+        # 确保回测节点存在
+        bt_node = self.getBacktestByQSID(bt_qsid)
+        if bt_node is None:
+            raise __QS_Error__(f"回测节点 {bt_qsid} 不存在，请先调用 storeBacktest")
+
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        result_ids = []
+
+        for key, value in output.items():
+            result_id = self._generateResultID(bt_qsid, key, dtrange)
+            result_ids.append(result_id)
+
+            summary = self._generateResultSummary(key, value)
+            data_type = summary.get("type", "unknown")
+
+            props = {
+                "ResultID": result_id,
+                "Key": key,
+                "DataType": data_type,
+                "SummaryJSON": json.dumps(_sanitizeForJSON(summary), ensure_ascii=False),
+                "DTRangeJSON": json.dumps(
+                    {"start": dtrange[0].isoformat(), "end": dtrange[1].isoformat()},
+                    ensure_ascii=False
+                ),
+                "UpdatedAt": now,
+            }
+
+            # 非标量/空数据存 HDF5，使用框架的 writeNestedDict2HDF5（pickle 序列化）
+            needs_file = not isinstance(value, (int, float, np.integer, np.floating, bool))
+            if isinstance(value, (pd.DataFrame, pd.Series)):
+                needs_file = len(value) > 0
+            if needs_file:
+                filepath = self._saveResultToHDF5File(result_id, value)
+                props["DataRef"] = filepath
+
+            self._runCypher(
+                """
+                MERGE (r:`回测结果` {ResultID: $result_id})
+                ON CREATE SET r += $props, r.CreatedAt = $now
+                ON MATCH SET r += $props
+                """,
+                {"result_id": result_id, "props": props, "now": now}
+            )
+
+            # 建立关系
+            self._runCypher(
+                """
+                MATCH (b:`回测` {QSID: $bt_qsid})
+                MATCH (r:`回测结果` {ResultID: $result_id})
+                MERGE (b)-[:`产生结果`]->(r)
+                """,
+                {"bt_qsid": bt_qsid, "result_id": result_id}
+            )
+
+        self._QS_Logger.info(
+            f"已存储回测 {bt_qsid} 的 {len(result_ids)} 个结果项"
+        )
+        return result_ids
+
+    def _generateResultID(self, bt_qsid: str, key: str, dtrange: tuple) -> str:
+        """为回测结果生成确定性唯一 ID"""
+        raw = json.dumps(
+            [bt_qsid, key, dtrange[0].isoformat(), dtrange[1].isoformat()],
+            sort_keys=True, ensure_ascii=False
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+    def _generateResultSummary(self, key: str, value) -> dict:
+        """生成回测结果的轻量摘要"""
+        summary = {"key": key}
+        if isinstance(value, pd.DataFrame):
+            summary.update({
+                "type": "DataFrame",
+                "shape": list(value.shape),
+                "columns": _sanitizeForJSON(list(value.columns)[:50]),
+            })
+            if len(value.index) > 0:
+                summary["index_start"] = str(value.index[0])
+                summary["index_end"] = str(value.index[-1])
+        elif isinstance(value, pd.Series):
+            summary.update({
+                "type": "Series",
+                "length": len(value),
+                "name": str(value.name) if value.name is not None else None,
+            })
+            if len(value.index) > 0:
+                summary["index_start"] = str(value.index[0])
+                summary["index_end"] = str(value.index[-1])
+        elif isinstance(value, (int, float, np.integer, np.floating)):
+            summary.update({"type": "scalar", "value": _sanitizeForJSON(value)})
+        elif isinstance(value, str):
+            summary.update({"type": "str", "length": len(value)})
+        elif isinstance(value, dict):
+            summary.update({"type": "dict", "keys": list(value.keys())})
+        else:
+            summary.update({"type": type(value).__name__, "repr": str(value)[:200]})
+        return summary
+
+    def _saveResultToHDF5File(self, result_id: str, value) -> str:
+        """将回测结果值写入 HDF5 文件（使用 pickle 序列化，兼容任意类型），返回文件路径
+
+        使用框架 writeNestedDict2HDF5，以 pickle 序列化后存储为 np.uint8 字节数组，
+        避免手动处理 dtype 兼容问题（中文列名、Unicode、混合类型等）。
+        """
+        from QuantStudio.Tools.DataTypeFun import writeNestedDict2HDF5
+        subdir = os.path.join(self._QSArgs.DataDir, result_id[:8])
+        os.makedirs(subdir, exist_ok=True)
+        filepath = os.path.join(subdir, f"{result_id}.hdf5")
+        writeNestedDict2HDF5(value, filepath, ref="data", mode="w")
+        return filepath
+
+    # endregion
+
     # region 检索（Retrieve）
 
     def getFactorByQSID(self, qsid: str) -> Optional[Dict]:
@@ -799,6 +1291,174 @@ class FactorGraphDB(QSNeo4jObject):
             """
         )
         return [r["f"] for r in results]
+
+    # endregion
+
+    # region 回测检索（Backtest Retrieve）
+
+    def getBacktestByQSID(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询回测节点"""
+        results = self._runCypher(
+            "MATCH (b:`回测` {QSID: $qsid}) RETURN b",
+            {"qsid": qsid}
+        )
+        return results[0]["b"] if results else None
+
+    def searchBacktests(self, name: Optional[str] = None,
+                        category: Optional[str] = None,
+                        factor_qsid: Optional[str] = None,
+                        limit: int = 100) -> List[Dict]:
+        """多条件组合搜索回测
+
+        Args:
+            name: 回测名称（模糊匹配）
+            category: 回测类别（SectionFactor/Strategy/Risk/...）
+            factor_qsid: 依赖的因子 QSID（查找使用了该因子的回测）
+            limit: 返回数量上限
+
+        Returns:
+            回测属性字典列表
+        """
+        if factor_qsid:
+            query = """
+                MATCH (b:`回测`)-[:`依赖`]->(f:`因子` {QSID: $factor_qsid})
+            """
+            params = {"factor_qsid": factor_qsid, "limit": limit}
+            conditions = []
+            if name:
+                conditions.append("b.Name CONTAINS $name")
+                params["name"] = name
+            if category:
+                conditions.append("b.BacktestCategory = $category")
+                params["category"] = category
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query += f"""
+                {where_clause}
+                RETURN DISTINCT b ORDER BY b.Name LIMIT $limit
+            """
+        else:
+            conditions = []
+            params = {"limit": limit}
+            if name:
+                conditions.append("b.Name CONTAINS $name")
+                params["name"] = name
+            if category:
+                conditions.append("b.BacktestCategory = $category")
+                params["category"] = category
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query = f"""
+                MATCH (b:`回测`)
+                {where_clause}
+                RETURN b ORDER BY b.Name LIMIT $limit
+            """
+        return [r["b"] for r in self._runCypher(query, params)]
+
+    def getBacktestResults(self, bt_qsid: str) -> List[Dict]:
+        """获取某个回测的所有结果节点
+
+        Args:
+            bt_qsid: 回测节点 QSID
+
+        Returns:
+            回测结果属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (b:`回测` {QSID: $bt_qsid})-[:`产生结果`]->(r:`回测结果`)
+            RETURN r ORDER BY r.Key
+            """,
+            {"bt_qsid": bt_qsid}
+        )
+        return [r["r"] for r in results]
+
+    def getBacktestResult(self, result_id: str) -> Optional[Dict]:
+        """按 ResultID 查询单个回测结果节点"""
+        results = self._runCypher(
+            "MATCH (r:`回测结果` {ResultID: $result_id}) RETURN r",
+            {"result_id": result_id}
+        )
+        return results[0]["r"] if results else None
+
+    def getBacktestDependencyGraph(self, bt_qsid: str,
+                                   direction: str = "down") -> Dict:
+        """获取回测的依赖子图，包含因子和子回测
+
+        Args:
+            bt_qsid: 回测节点 QSID
+            direction: "down"（依赖的因子/子回测）/ "up"（谁依赖此回测）
+
+        Returns:
+            {"root": bt_qsid, "nodes": [...], "edges": [...]}
+        """
+        all_nodes = {}
+        all_edges = []
+
+        if direction in ("down", "both"):
+            # 获取依赖的因子
+            factor_results = self._runCypher(
+                """
+                MATCH (b:`回测` {QSID: $qsid})-[:`依赖`]->(f:`因子`)
+                RETURN f
+                """,
+                {"qsid": bt_qsid}
+            )
+            for r in factor_results:
+                n = r["f"]
+                all_nodes[n["QSID"]] = n
+                all_edges.append({"source": bt_qsid, "target": n["QSID"], "type": "依赖"})
+
+            # 获取依赖的子回测
+            bt_results = self._runCypher(
+                """
+                MATCH (b:`回测` {QSID: $qsid})-[:`依赖`]->(dep:`回测`)
+                RETURN dep
+                """,
+                {"qsid": bt_qsid}
+            )
+            for r in bt_results:
+                n = r["dep"]
+                all_nodes[n["QSID"]] = n
+                all_edges.append({"source": bt_qsid, "target": n["QSID"], "type": "依赖"})
+
+        if direction in ("up", "both"):
+            # 获取哪些回测依赖此回测
+            upstream = self._runCypher(
+                """
+                MATCH (upstream:`回测`)-[:`依赖`]->(b:`回测` {QSID: $qsid})
+                RETURN upstream
+                """,
+                {"qsid": bt_qsid}
+            )
+            for r in upstream:
+                n = r["upstream"]
+                all_nodes[n["QSID"]] = n
+                all_edges.append({"source": n["QSID"], "target": bt_qsid, "type": "依赖"})
+
+        # 确保根节点在 nodes 中
+        if bt_qsid not in all_nodes:
+            root = self.getBacktestByQSID(bt_qsid)
+            if root:
+                all_nodes[bt_qsid] = root
+
+        return {"root": bt_qsid, "nodes": list(all_nodes.values()), "edges": all_edges}
+
+    def getFactorBacktests(self, factor_qsid: str) -> List[Dict]:
+        """查询某个因子被哪些回测使用过
+
+        Args:
+            factor_qsid: 因子 QSID
+
+        Returns:
+            回测属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (b:`回测`)-[:`依赖`]->(f:`因子` {QSID: $factor_qsid})
+            RETURN b ORDER BY b.Name
+            """,
+            {"factor_qsid": factor_qsid}
+        )
+        return [r["b"] for r in results]
 
     # endregion
 
@@ -1094,6 +1754,517 @@ class FactorGraphDB(QSNeo4jObject):
 
     # endregion
 
+    # region 回测管理（Backtest Manage）
+
+    def deleteBacktest(self, qsid: str, delete_results: bool = True) -> int:
+        """删除回测节点及其关系，可选删除关联结果
+
+        Args:
+            qsid: 回测 QSID
+            delete_results: 是否同时删除关联的回测结果节点
+
+        Returns:
+            删除的节点总数
+        """
+        deleted = 0
+
+        if delete_results:
+            # 先获取关联的结果节点，清理 HDF5 文件
+            result_nodes = self.getBacktestResults(qsid)
+            for r in result_nodes:
+                data_ref = r.get("DataRef")
+                if data_ref and os.path.exists(data_ref):
+                    try:
+                        os.remove(data_ref)
+                    except OSError:
+                        pass
+            # 删除结果节点
+            self._runCypher(
+                """
+                MATCH (b:`回测` {QSID: $qsid})-[:`产生结果`]->(r:`回测结果`)
+                DETACH DELETE r
+                """,
+                {"qsid": qsid}
+            )
+            deleted += len(result_nodes)
+
+        # 删除回测节点本身
+        self._runCypher(
+            "MATCH (b:`回测` {QSID: $qsid}) DETACH DELETE b",
+            {"qsid": qsid}
+        )
+        deleted += 1
+
+        self._QS_Logger.info(f"已删除回测 {qsid} 及其 {len(result_nodes) if delete_results else 0} 个结果节点")
+        return deleted
+
+    # endregion
+
+    # region 报告存储（Report Store）
+
+    def storeReport(self, report_path: str, factor_qsids: List[str],
+                    bt_qsid: Optional[str] = None,
+                    scenario_name: Optional[str] = None,
+                    name: Optional[str] = None) -> str:
+        """将本地报告文件注册到图数据库。
+
+        Args:
+            report_path: 报告文件的本地绝对路径
+            factor_qsids: 报告涉及的因子 QSID 列表
+            bt_qsid: 产生此报告的回测 QSID（可选）
+            scenario_name: 场景名称（如 "single_factor"）
+            name: 报告名称，默认使用文件名
+
+        Returns:
+            ReportID
+        """
+        if not os.path.exists(report_path):
+            raise __QS_Error__(f"报告文件不存在: {report_path}")
+
+        report_path = os.path.abspath(report_path)
+        filename = os.path.basename(report_path)
+        _, ext = os.path.splitext(filename)
+        fmt = ext.lstrip(".").lower()
+        if fmt not in ("html", "md", "markdown", "pdf"):
+            fmt = "unknown"
+
+        file_size = os.path.getsize(report_path)
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        mtime = dt.datetime.fromtimestamp(
+            os.path.getmtime(report_path), tz=dt.timezone.utc
+        ).isoformat()
+
+        # 生成确定性 ReportID
+        raw = json.dumps(
+            [report_path, str(file_size), mtime],
+            sort_keys=True, ensure_ascii=False
+        )
+        report_id = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+        props = {
+            "ReportID": report_id,
+            "Name": name or filename,
+            "FilePath": report_path,
+            "Format": fmt,
+            "FileSize": file_size,
+            "ScenarioName": scenario_name or "",
+            "FactorNames": json.dumps(factor_qsids, ensure_ascii=False),
+            "FileMtime": mtime,
+            "UpdatedAt": now,
+        }
+
+        self._runCypher(
+            """
+            MERGE (r:`报告` {ReportID: $report_id})
+            ON CREATE SET r += $props, r.CreatedAt = $now
+            ON MATCH SET r += $props
+            """,
+            {"report_id": report_id, "props": props, "now": now}
+        )
+
+        # 关联因子
+        if factor_qsids:
+            self._runCypher(
+                """
+                UNWIND $qsids AS qsid
+                MATCH (r:`报告` {ReportID: $report_id})
+                MATCH (f:`因子` {QSID: qsid})
+                MERGE (f)-[:`有报告`]->(r)
+                """,
+                {"report_id": report_id, "qsids": factor_qsids}
+            )
+
+        # 关联回测
+        if bt_qsid:
+            bt = self.getBacktestByQSID(bt_qsid)
+            if bt:
+                self._runCypher(
+                    """
+                    MATCH (r:`报告` {ReportID: $report_id})
+                    MATCH (b:`回测` {QSID: $bt_qsid})
+                    MERGE (b)-[:`产生报告`]->(r)
+                    """,
+                    {"report_id": report_id, "bt_qsid": bt_qsid}
+                )
+
+        self._QS_Logger.info(
+            f"已注册报告: {props['Name']} (ReportID: {report_id}, "
+            f"格式: {fmt}, 大小: {file_size}B, 因子: {len(factor_qsids)}个)"
+        )
+        return report_id
+
+    def getReport(self, report_id: str) -> Optional[Dict]:
+        """按 ReportID 查询报告节点"""
+        results = self._runCypher(
+            "MATCH (r:`报告` {ReportID: $report_id}) RETURN r",
+            {"report_id": report_id}
+        )
+        return results[0]["r"] if results else None
+
+    def getFactorReports(self, factor_qsid: str) -> List[Dict]:
+        """获取某个因子的所有报告
+
+        Args:
+            factor_qsid: 因子 QSID
+
+        Returns:
+            报告节点属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (f:`因子` {QSID: $qsid})-[:`有报告`]->(r:`报告`)
+            RETURN r ORDER BY r.FileMtime DESC
+            """,
+            {"qsid": factor_qsid}
+        )
+        return [r["r"] for r in results]
+
+    def getBacktestReports(self, bt_qsid: str) -> List[Dict]:
+        """获取某个回测产生的所有报告
+
+        Args:
+            bt_qsid: 回测 QSID
+
+        Returns:
+            报告节点属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (b:`回测` {QSID: $qsid})-[:`产生报告`]->(r:`报告`)
+            RETURN r ORDER BY r.FileMtime DESC
+            """,
+            {"qsid": bt_qsid}
+        )
+        return [r["r"] for r in results]
+
+    def searchReports(self, name: Optional[str] = None,
+                      scenario_name: Optional[str] = None,
+                      factor_qsid: Optional[str] = None,
+                      fmt: Optional[str] = None,
+                      limit: int = 100) -> List[Dict]:
+        """搜索报告
+
+        Args:
+            name: 报告名称（模糊匹配）
+            scenario_name: 场景名称
+            factor_qsid: 关联的因子 QSID
+            fmt: 格式 (html/markdown/pdf)
+            limit: 返回数量上限
+
+        Returns:
+            报告节点属性字典列表
+        """
+        if factor_qsid:
+            query = """
+                MATCH (f:`因子` {QSID: $factor_qsid})-[:`有报告`]->(r:`报告`)
+            """
+            params = {"factor_qsid": factor_qsid, "limit": limit}
+            conditions = []
+            if name:
+                conditions.append("r.Name CONTAINS $name")
+                params["name"] = name
+            if scenario_name:
+                conditions.append("r.ScenarioName = $scenario_name")
+                params["scenario_name"] = scenario_name
+            if fmt:
+                conditions.append("r.Format = $fmt")
+                params["fmt"] = fmt
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query += f"""
+                {where_clause}
+                RETURN DISTINCT r ORDER BY r.FileMtime DESC LIMIT $limit
+            """
+        else:
+            conditions = []
+            params = {"limit": limit}
+            if name:
+                conditions.append("r.Name CONTAINS $name")
+                params["name"] = name
+            if scenario_name:
+                conditions.append("r.ScenarioName = $scenario_name")
+                params["scenario_name"] = scenario_name
+            if fmt:
+                conditions.append("r.Format = $fmt")
+                params["fmt"] = fmt
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query = f"""
+                MATCH (r:`报告`)
+                {where_clause}
+                RETURN r ORDER BY r.FileMtime DESC LIMIT $limit
+            """
+        return [r["r"] for r in self._runCypher(query, params)]
+
+    def deleteReport(self, report_id: str, delete_file: bool = False) -> bool:
+        """删除报告节点，可选删除本地文件
+
+        Args:
+            report_id: ReportID
+            delete_file: 是否同时删除本地文件
+
+        Returns:
+            是否成功
+        """
+        report = self.getReport(report_id)
+        if not report:
+            return False
+
+        # 删除本地文件
+        if delete_file:
+            filepath = report.get("FilePath")
+            if filepath and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except OSError as e:
+                    self._QS_Logger.warning(f"删除报告文件失败: {filepath}, {e}")
+
+        # 删除节点
+        self._runCypher(
+            "MATCH (r:`报告` {ReportID: $report_id}) DETACH DELETE r",
+            {"report_id": report_id}
+        )
+
+        self._QS_Logger.info(
+            f"已删除报告: {report.get('Name', report_id)} "
+            f"(ReportID: {report_id}, 删除文件: {delete_file})"
+        )
+        return True
+
+    # endregion
+
+    # region 风险库存储（RiskDB Store）
+
+    def registerRiskDB(self, risk_db) -> str:
+        """注册风险库到图数据库
+
+        Args:
+            risk_db: QuantStudio RiskDB 实例
+
+        Returns:
+            风险库名称
+        """
+        props = {
+            "Name": risk_db.Name,
+            "DBType": risk_db.__class__.__name__,
+            "ClassName": risk_db.__class__.__name__,
+            "ModulePath": risk_db.__class__.__module__,
+            "ConnectionJSON": json.dumps({"type": risk_db.__class__.__name__}, ensure_ascii=False),
+            "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
+        self._runCypher(
+            """
+            MERGE (d:`风险库` {Name: $name})
+            ON CREATE SET d += $props, d.CreatedAt = $now
+            ON MATCH SET d += $props
+            """,
+            {"name": risk_db.Name, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
+        )
+        self._QS_Logger.info(f"已注册风险库: {risk_db.Name}")
+        return risk_db.Name
+
+    def storeRiskTable(self, rt, risk_db_name: Optional[str] = None) -> str:
+        """存储风险表节点
+
+        Args:
+            rt: RiskTable 实例
+            risk_db_name: 关联的风险库名称
+
+        Returns:
+            风险表 QSID
+        """
+        props = {
+            "Name": rt._QSArgs.Name,
+            "QSID": rt.QSID,
+            "ClassName": rt.__class__.__name__,
+            "ModulePath": rt.__class__.__module__,
+            "MetaDataJSON": json.dumps(_sanitizeForJSON(rt.getMetaData(key=None).to_dict()) if hasattr(rt.getMetaData(key=None), 'to_dict') else {}, ensure_ascii=False),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(rt._QSArgs.model_dump()), ensure_ascii=False),
+            "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
+        self._runCypher(
+            """
+            MERGE (t:`风险表` {QSID: $qsid})
+            ON CREATE SET t += $props, t.CreatedAt = $now
+            ON MATCH SET t += $props
+            """,
+            {"qsid": rt.QSID, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
+        )
+        actual_rdb_name = risk_db_name or (rt.RiskDB.Name if hasattr(rt, 'RiskDB') and rt.RiskDB else None)
+        if actual_rdb_name:
+            self._runCypher(
+                """
+                MATCH (t:`风险表` {QSID: $t_qsid})
+                MATCH (d:`风险库` {Name: $rdb_name})
+                MERGE (t)-[:`属于风险库`]->(d)
+                """,
+                {"t_qsid": rt.QSID, "rdb_name": actual_rdb_name}
+            )
+        return rt.QSID
+
+    def linkBacktestRiskTable(self, bt_qsid: str, rt_qsid: str) -> None:
+        """建立回测节点与风险表的依赖关系
+
+        Args:
+            bt_qsid: 回测节点 QSID
+            rt_qsid: 风险表 QSID
+        """
+        self._runCypher(
+            """
+            MATCH (b:`回测` {QSID: $bt_qsid})
+            MATCH (rt:`风险表` {QSID: $rt_qsid})
+            MERGE (b)-[:`依赖风险表`]->(rt)
+            """,
+            {"bt_qsid": bt_qsid, "rt_qsid": rt_qsid}
+        )
+
+    def getRiskTableByQSID(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询风险表节点"""
+        results = self._runCypher(
+            "MATCH (rt:`风险表` {QSID: $qsid}) RETURN rt",
+            {"qsid": qsid}
+        )
+        return results[0]["rt"] if results else None
+
+    def searchRiskTables(self, name: Optional[str] = None,
+                         limit: int = 100) -> List[Dict]:
+        """搜索风险表
+
+        Args:
+            name: 风险表名称（模糊匹配）
+            limit: 返回数量上限
+        """
+        if name:
+            results = self._runCypher(
+                """
+                MATCH (rt:`风险表`)
+                WHERE rt.Name CONTAINS $name
+                RETURN rt ORDER BY rt.Name LIMIT $limit
+                """,
+                {"name": name, "limit": limit}
+            )
+        else:
+            results = self._runCypher(
+                """
+                MATCH (rt:`风险表`)
+                RETURN rt ORDER BY rt.Name LIMIT $limit
+                """,
+                {"limit": limit}
+            )
+        return [r["rt"] for r in results]
+
+    # endregion
+
+    # region 组合优化器存储（Optimizer Store）
+
+    def storeOptimizer(self, pc, tags: Optional[List[str]] = None) -> str:
+        """存储组合优化器节点
+
+        Args:
+            pc: BasePC 实例（CVXPC、MatlabPC 等）
+            tags: 可选的标签列表
+
+        Returns:
+            优化器 QSID
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        props = {
+            "Name": pc._QSArgs.Name,
+            "QSID": pc.QSID,
+            "ClassName": pc.__class__.__name__,
+            "ModulePath": pc.__class__.__module__,
+            "OptimizerType": pc.__class__.__name__,
+            "Description": getattr(pc._QSArgs, 'Description', ''),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(pc._QSArgs.model_dump()), ensure_ascii=False),
+            "UpdatedAt": now,
+        }
+        self._runCypher(
+            """
+            MERGE (o:`组合优化器` {QSID: $qsid})
+            ON CREATE SET o += $props, o.CreatedAt = $now
+            ON MATCH SET o += $props
+            """,
+            {"qsid": pc.QSID, "props": props, "now": now}
+        )
+        if tags:
+            self._runCypher(
+                """
+                UNWIND $rels AS rel
+                MERGE (t:`标签` {Name: rel.tag})
+                WITH t, rel
+                MATCH (o:`组合优化器` {QSID: rel.qsid})
+                MERGE (o)-[:`打标签`]->(t)
+                """,
+                {"rels": [{"qsid": pc.QSID, "tag": t} for t in tags]}
+            )
+        self._QS_Logger.info(f"已存储组合优化器: {pc._QSArgs.Name} (QSID: {pc.QSID})")
+        return pc.QSID
+
+    def linkBacktestOptimizer(self, bt_qsid: str, pc_qsid: str) -> None:
+        """建立回测（策略）节点与组合优化器的使用关系
+
+        Args:
+            bt_qsid: 回测（策略）节点 QSID
+            pc_qsid: 组合优化器 QSID
+        """
+        self._runCypher(
+            """
+            MATCH (b:`回测` {QSID: $bt_qsid})
+            MATCH (o:`组合优化器` {QSID: $pc_qsid})
+            MERGE (b)-[:`使用优化器`]->(o)
+            """,
+            {"bt_qsid": bt_qsid, "pc_qsid": pc_qsid}
+        )
+
+    def getOptimizerByQSID(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询组合优化器节点"""
+        results = self._runCypher(
+            "MATCH (o:`组合优化器` {QSID: $qsid}) RETURN o",
+            {"qsid": qsid}
+        )
+        return results[0]["o"] if results else None
+
+    def searchOptimizers(self, name: Optional[str] = None,
+                         optimizer_type: Optional[str] = None,
+                         limit: int = 100) -> List[Dict]:
+        """搜索组合优化器
+
+        Args:
+            name: 优化器名称（模糊匹配）
+            optimizer_type: 优化器类型（CVXPC / MatlabPC / BasePC）
+            limit: 返回数量上限
+        """
+        conditions = []
+        params = {"limit": limit}
+        if name:
+            conditions.append("o.Name CONTAINS $name")
+            params["name"] = name
+        if optimizer_type:
+            conditions.append("o.OptimizerType = $op_type")
+            params["op_type"] = optimizer_type
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        results = self._runCypher(
+            f"""
+            MATCH (o:`组合优化器`)
+            {where_clause}
+            RETURN o ORDER BY o.Name LIMIT $limit
+            """,
+            params
+        )
+        return [r["o"] for r in results]
+
+    def deleteOptimizer(self, qsid: str) -> None:
+        """删除组合优化器节点
+
+        Args:
+            qsid: 优化器 QSID
+        """
+        self._runCypher(
+            "MATCH (o:`组合优化器` {QSID: $qsid}) DETACH DELETE o",
+            {"qsid": qsid}
+        )
+        self._QS_Logger.info(f"已删除组合优化器: {qsid}")
+
+    # endregion
+
     # region 分析（Analyze）
 
     def impactAnalysis(self, qsid: str) -> List[Dict]:
@@ -1135,7 +2306,7 @@ class FactorGraphDB(QSNeo4jObject):
         for r in results:
             stats[r["label"]] = r["cnt"]
         # 补充未出现的标签为 0
-        for label in ["因子", "算子", "因子表", "因子库", "标签"]:
+        for label in ["因子", "算子", "因子表", "因子库", "风险库", "风险表", "组合优化器", "标签", "回测", "回测结果", "报告", "因子存储器"]:
             stats.setdefault(label, 0)
         # 关系计数
         rel_results = self._runCypher("""
@@ -1145,7 +2316,7 @@ class FactorGraphDB(QSNeo4jObject):
         """)
         for r in rel_results:
             stats[r["rel_type"]] = r["cnt"]
-        for rel in ["依赖", "使用算子", "属于因子表", "打标签", "属于因子库"]:
+        for rel in ["依赖", "使用算子", "属于因子表", "属于因子库", "属于风险库", "使用优化器", "依赖风险表", "打标签", "产生结果", "产生报告", "有报告", "写入因子表", "存入因子表"]:
             stats.setdefault(rel, 0)
         return stats
 
@@ -1254,7 +2425,7 @@ class FactorGraphDB(QSNeo4jObject):
         return self._runCypher(query, parameters)
 
     def _repr_html_(self) -> str:
-        HTML = f"<b>类</b>: FactorGraphDB<br/>"
+        HTML = f"<b>类</b>: QSGraphDB<br/>"
         HTML += f"<b>Neo4j 地址</b>: {html.escape(self._QSArgs.IPAddr)}:{self._QSArgs.Port}<br/>"
         HTML += f"<b>数据库</b>: {html.escape(self._QSArgs.DBName)}<br/>"
         HTML += f"<b>连接状态</b>: {'已连接' if self.isAvailable() else '未连接'}<br/>"

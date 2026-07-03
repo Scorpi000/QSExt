@@ -114,11 +114,11 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 - **Notebook**：基于 ipywidgets 的 Jupyter 交互界面
 - **QtGUI**：基于 PyQt 的桌面 GUI
 
-### FactorRegistry（MCP 服务）
+### QSRegistry（MCP 服务）
 
-`QSExt/FactorRegistry/` 提供因子注册中心，基于 Neo4j 图数据库存储因子元数据和依赖关系。
-- `FactorGraphDB`：图数据库操作封装
-- `mcp/factor_registry.py`：MCP 服务端点，提供 `search_factors`、`get_factor_info`、`get_factor_code` 三个工具
+`QSExt/QSRegistry/` 提供 QuantStudio 计算图注册中心，基于 Neo4j 图数据库存储因子、回测、风险模型等计算节点的元数据和依赖关系，以及算子、因子表、风险库、组合优化器等支撑节点的注册信息。
+- `QSGraphDB`：图数据库操作封装
+- `mcp/qs_registry.py`：MCP 服务端点，提供 `search_factors`、`get_factor_info`、`get_factor_code`、`search_backtests`、`get_backtest_info`、`get_backtest_result`、`search_risk_tables`、`search_optimizers` 等工具
 
 ## 配置文件
 
