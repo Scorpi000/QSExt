@@ -35,7 +35,8 @@ from QSExt.ReportGenerator.components.stat_grid import StatGrid
 from QSExt.ReportGenerator.components.factor_summary import FactorSummary
 from QSExt.ReportGenerator.components.section import Section
 from QSExt.ReportGenerator.layout import LayoutRenderer
-from QSExt.ReportGenerator.node import ReportGeneratorNode
+from QSExt.ReportGenerator import ReportGenerator
+from QSExt.ReportGenerator.scenarios.single_factor import SingleFactorReport
 from QuantStudio.Core.Node import Context
 
 
@@ -674,8 +675,8 @@ class _MockBTNode:
         pass
 
 
-class TestReportGeneratorNode(unittest.TestCase):
-    """ReportGeneratorNode 单元测试"""
+class TestSingleFactorReport(unittest.TestCase):
+    """SingleFactorReport 单元测试"""
 
     def setUp(self):
         self.output = _make_mock_output(["test_factor"])
@@ -683,62 +684,33 @@ class TestReportGeneratorNode(unittest.TestCase):
     def test_node_creation(self):
         """Node 创建和参数设置"""
         mock_bt = _MockBTNode("IC", {"IC": pd.DataFrame({"x": [1]})})
-        node = ReportGeneratorNode(
-            bt_nodes=[mock_bt],
+        node = SingleFactorReport(
+            data_nodes=[mock_bt],
             factor_names=["test"],
-            report_config={"page_title": "Test"},
+            config_file=None,
         )
         self.assertEqual(len(node.Deps), 1)
         self.assertEqual(node.Deps[0].QSID, "IC")
         self.assertEqual(node._factor_names, ["test"])
-        self.assertEqual(node._report_config, {"page_title": "Test"})
 
-    def test_backward_compute_aggregation(self):
-        """backward_compute 聚合子节点输出"""
+    def test_backward_compute(self):
+        """backward_compute 输出报告"""
         mock_ic = _MockBTNode("Rank IC 分析", self.output["0-Rank IC 分析"])
         mock_decay = _MockBTNode("IC 衰减分析",
                                  self.output["1-IC 衰减分析"])
 
-        node = ReportGeneratorNode(
-            bt_nodes=[mock_ic, mock_decay],
+        node = SingleFactorReport(
+            data_nodes=[mock_ic, mock_decay],
             factor_names=["test_factor"],
-            report_config={
-                "page_title": "{factor_name} 测试",
-                "data_sources": [
-                    {"node_pattern": "Rank IC", "source_key": "0-Rank IC 分析"},
-                    {"node_pattern": "IC 衰减", "source_key": "1-IC 衰减分析"},
-                ],
-                "sections": [
-                    {
-                        "title": "IC",
-                        "component": "section",
-                        "params": {"layout": "single"},
-                        "children": [
-                            {
-                                "component": "data_table",
-                                "data": {"source": "0-Rank IC 分析",
-                                         "key": "统计数据"},
-                                "params": {"precision": 4}
-                            }
-                        ]
-                    }
-                ]
-            },
             args={"OutputFormats": ["html"]},
         )
 
-        # 直接调用 backward_compute（模拟 Engine 在 DAG 遍历结束后调用）
         bwd_data = [mock_ic.backward_compute([], [], None),
                      mock_decay.backward_compute([], [], None)]
         result = node.backward_compute([], bwd_data, Context())
 
-        # 聚合后的原始输出
-        self.assertIn("0-Rank IC 分析", result)
-        self.assertIn("1-IC 衰减分析", result)
-        # 渲染产物
-        self.assertIn("_reports", result)
-        self.assertIn("test_factor", result["_reports"])
-        html = result["_reports"]["test_factor"]["html"]
+        self.assertIn("test_factor", result)
+        html = result["test_factor"]["html"]
         self.assertIn("<!DOCTYPE html>", html)
         self.assertIn("test_factor", html)
 
@@ -746,97 +718,46 @@ class TestReportGeneratorNode(unittest.TestCase):
         """Markdown 格式输出"""
         mock_ic = _MockBTNode("Rank IC 分析", self.output["0-Rank IC 分析"])
 
-        node = ReportGeneratorNode(
-            bt_nodes=[mock_ic],
+        node = SingleFactorReport(
+            data_nodes=[mock_ic],
             factor_names=["f1"],
-            report_config={
-                "page_title": "{factor_name}",
-                "data_sources": [
-                    {"node_pattern": "Rank IC", "source_key": "0-Rank IC 分析"},
-                ],
-                "sections": [
-                    {
-                        "title": "数据",
-                        "component": "section",
-                        "params": {"layout": "single"},
-                        "children": [
-                            {
-                                "component": "data_table",
-                                "data": {"source": "0-Rank IC 分析",
-                                         "key": "统计数据"},
-                                "params": {"precision": 2}
-                            }
-                        ]
-                    }
-                ]
-            },
             args={"OutputFormats": ["markdown"]},
         )
 
         bwd_data = [mock_ic.backward_compute([], [], None)]
         result = node.backward_compute([], bwd_data, Context())
 
-        md = result["_reports"]["f1"]["markdown"]
+        md = result["f1"]["markdown"]
         self.assertIn("# f1", md)
-        self.assertIn("## 数据", md)
 
     def test_merge_result(self):
         """merge_result 返回第一个元素"""
-        node = ReportGeneratorNode(bt_nodes=[], args={})
+        node = SingleFactorReport(data_nodes=[], factor_names=[])
         merged = node.merge_result([{"a": 1}, {"b": 2}], Context())
         self.assertEqual(merged, {"a": 1})
 
 
-class TestReportGeneratorNodeIntegration(unittest.TestCase):
-    """验证 ReportGeneratorNode 与 Scenario.render() 等效的渲染结果"""
+class TestSingleFactorReportIntegration(unittest.TestCase):
+    """验证 SingleFactorReport 与 LayoutRenderer 等效的渲染结果"""
 
     def setUp(self):
-        # 构造一个最小 Scenario，只包含 IC 模块
         self.output = _make_mock_output(["test_factor"])
 
-    def test_use_node_output_structure(self):
-        """use_node=True 产生的 ScenarioResult 结构正确"""
-        # 直接用 Node 模拟完整流程
+    def test_node_output_structure(self):
+        """Node 产生的输出结构正确"""
         mock_ic = _MockBTNode("Rank IC 分析", self.output["0-Rank IC 分析"])
         mock_decay = _MockBTNode("IC 衰减分析",
                                  self.output["1-IC 衰减分析"])
 
-        report_config = {
-            "page_title": "{factor_name} 测试报告",
-            "data_sources": [
-                {"node_pattern": "Rank IC", "source_key": "0-Rank IC 分析"},
-                {"node_pattern": "IC 衰减", "source_key": "1-IC 衰减分析"},
-            ],
-            "sections": [
-                {
-                    "title": "IC 分析",
-                    "component": "section",
-                    "params": {"layout": "single"},
-                    "children": [
-                        {
-                            "component": "data_table",
-                            "data": {"source": "0-Rank IC 分析",
-                                     "key": "统计数据"},
-                            "params": {"precision": 4}
-                        }
-                    ]
-                }
-            ]
-        }
-
-        node = ReportGeneratorNode(
-            bt_nodes=[mock_ic, mock_decay],
+        node = SingleFactorReport(
+            data_nodes=[mock_ic, mock_decay],
             factor_names=["test_factor"],
-            report_config=report_config,
             args={"OutputFormats": ["html"]},
         )
 
         bwd_data = [mock_ic.backward_compute([], [], None),
                      mock_decay.backward_compute([], [], None)]
-        result = node.backward_compute([], bwd_data, Context())
-
-        # 验证 ScenarioResult 兼容格式
-        reports = result.get("_reports", {})
+        reports = node.backward_compute([], bwd_data, Context())
 
         self.assertIn("test_factor", reports)
         self.assertIn("html", reports["test_factor"])

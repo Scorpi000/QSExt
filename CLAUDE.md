@@ -70,7 +70,7 @@ QSExt 通过 `from QuantStudio.xxx import yyy` 引用核心库。两个包的 `_
 ### 计算图引擎（Core）
 
 QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
-- `Node`：计算图节点基类，支持 `__QS_start__`、`__QS_move__`、`__QS_end__` 生命周期
+- `Node`：计算图节点基类
 - `CalcEngine` / `TreeEngine`：驱动计算图的执行
 - `ParallelEngine`：多进程并行执行
 - `PregelEngine`（QSExt）：基于 Pregel 模型的图计算引擎，用于大规模图并行计算
@@ -82,43 +82,83 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 - **DerivativeFactor**：衍生因子，由算子（Operator）作用于其他因子产生
 
 关键组件：
-- **FactorDB**：因子数据库，连接和管理因子表。QSExt 支持 HDF5、SQLite3、ClickHouse、MongoDB、ElasticSearch、Neo4j、Tushare、AKShare、BaoStock 等多种后端
+- **FactorDB**：因子数据库，连接和管理因子表。QSExt 支持 SQLite3、ClickHouse、MongoDB、ElasticSearch、Neo4j、DuckDB、Zarr、QLib、TinySoft、AKShare 等多种后端
 - **FactorTable**：因子表，包含多个因子，提供 `readData(factor_names, dts, ids)` 读取接口
 - **FactorOperator**：算子，定义因子的计算逻辑（时序运算、截面运算等）
-- **CustomFT**：自定义因子表，通过 `addFactors` 组合因子
 
 数据流：`FactorDB.connect() -> getTable() -> readData() -> DataFrame (Panel-like, index=[datetime, code])`
 
-### 回测框架（BackTest）
+### 数据同步（DataSync）
 
-- **SectionFactor**：截面因子回测（IC 分析、分位数组合、收益分解）
-- **Strategy**：策略回测（`PortfolioStrategy`、`OptimizerStrategy`、`TimingStrategy`）
-- **PerformanceAnalysis**：业绩归因（Brinson 模型、FMP 模型、收益分解模型）
-- **TimeSeriesFactor**：时序因子分析（相关性、价差、择时）
+`QSExt/DataSync/` 提供异构数据库之间的数据传输工具：
+- `DataSender`：从源数据库读取并发送数据
+- `DataReceiver`：接收数据并写入目标数据库
+- `DataImporter`：批量导入数据到目标数据库
+- `PostgresExporter` / `PostgresImporter`：PostgreSQL 专用导入导出
+- `SQLServerExporter`：SQL Server 导出
+- `CmdExecutor`：命令行执行器
 
-回测引擎驱动 Node 的生命周期：`__QS_start__` -> 多次 `__QS_move__`（逐时点推进）-> `__QS_end__`
+### 工具集（Tools）
 
-### 风险模型（Risk）
+`QSExt/Tools/` 提供各类辅助工具函数：
+- `Neo4jFun` / `GremlinFun`：图数据库查询函数
+- `ClickHouseFun` / `PostgresFun` / `ODPSFun`：各类数据库辅助函数
+- `Option`：期权相关工具
+- `Markdown` / `HTML`：文档格式处理
+- `PortfolioModel` / `PortfolioManagementTools`：组合管理工具
+- `StrategyTest`：策略测试工具
+- `TechnicalIndicatorFun`：技术指标
+- `Visualization`：可视化工具
+- `TraceBack`：回溯追踪
+- `GPLearn`：遗传编程学习
 
-- **RiskDB** / **RiskTable**：风险数据存储，支持协方差矩阵、因子暴露、特异性风险等
-- **BarraModel**：Barra 多因子风险模型
+### 估值表（ValuationTable）
 
-### 组合优化（PortfolioConstructor）
+`QSExt/ValuationTable/` 提供估值表解析功能：
+- `Parser`：估值表解析器核心
+- `ExcelParser`：Excel 格式估值表解析
+- `utils`：估值计算工具函数
 
-- **BasePC**：组合优化器基类
-- **CVXPC**：基于 cvxpy 的凸规划优化器
-- **MatlabPC**：Matlab 优化器接口
+### ReportGenerator
+
+`QSExt/ReportGenerator/` 提供基于 YAML 配置 + 组件库的报告生成框架：
+- `__init__.py`：`ReportGenerator` 基类（通用报告生成计算图节点），定义 `create_nodes()` 和 `generate_report()` 抽象接口
+- `node.py`：渲染辅助函数（`render_report`、`output_list_to_dict` 等通用工具）
+- `layout.py`：报告布局管理
+- `core.py`：`DataContext` 数据上下文、结果拆分、报告注册等核心工具
+- `components/`：可复用报告组件（图表、数据表、因子摘要、统计网格等）
+- `renderers/`：渲染器（HTML、Markdown）
+- `scenarios/`：报告场景（如 `single_factor` 单因子分析），每个场景是 `ReportGenerator` 的子类
+- `themes/`：报告主题样式
+
+### QSRegistry（计算图注册中心）
+
+`QSExt/QSRegistry/` 基于 Neo4j 图数据库存储因子、回测、风险模型、组合优化器等计算节点的元数据和依赖关系，以及算子、因子表、风险库等支撑节点的注册信息。
+- `QSGraphDB`：图数据库操作封装（~2400 行），提供因子/算子/因子表/因子库/回测/回测结果/风险表/风险库/优化器/报告的完整 CRUD，支持基于 Ollama 的语义向量检索、DAG 重建（从图元数据还原 Factor 对象）、影响分析、Mermaid 依赖图可视化、拓扑排序批量写入
+- `_serialization`：numpy 类型、pandas DataFrame/Series、callable（dill/base64）、datetime 等的 JSON 序列化/反序列化
+
+### MCP 服务
+
+`mcp/qs_registry.py`：基于 FastMCP 的 MCP 服务端点，提供以下工具组（可通过 `QS_TOOLS` 环境变量按组启用/禁用）：
+
+| 工具组 | 工具 |
+|--------|------|
+| `factor` | `search_factors`、`get_factor_info`、`get_factor_code` |
+| `backtest` | `search_backtests`、`get_backtest_info`、`get_backtest_result` |
+| `report` | `register_report`、`search_reports`、`get_report_info` |
+| `risk_table` | `search_risk_tables`、`get_risk_table_info` |
+| `optimizer` | `search_optimizers`、`get_optimizer_info` |
+
+`QS_TOOLS` 环境变量格式：`"factor,backtest"` 仅启用指定组；`"-report"` 排除指定组；`"all"` 或空启用全部。
 
 ### GUI
 
-- **Notebook**：基于 ipywidgets 的 Jupyter 交互界面
+- **Notebook**：基于 ipywidgets 的 Jupyter 交互界面，包含 FactorGraphDlg（cytoscape 因子 DAG 可视化）、FactorDBDlg、BacktestDlg 等
 - **QtGUI**：基于 PyQt 的桌面 GUI
 
-### QSRegistry（MCP 服务）
+### 重要架构说明
 
-`QSExt/QSRegistry/` 提供 QuantStudio 计算图注册中心，基于 Neo4j 图数据库存储因子、回测、风险模型等计算节点的元数据和依赖关系，以及算子、因子表、风险库、组合优化器等支撑节点的注册信息。
-- `QSGraphDB`：图数据库操作封装
-- `mcp/qs_registry.py`：MCP 服务端点，提供 `search_factors`、`get_factor_info`、`get_factor_code`、`search_backtests`、`get_backtest_info`、`get_backtest_result`、`search_risk_tables`、`search_optimizers` 等工具
+- **Neo4j 双重用途**：`QSExt/Factor/Neo4jDB.py` 用于存储因子**数据**（因子值），`QSExt/QSRegistry/QSGraphDB.py` 用于存储计算图**元数据**（因子/回测/风险表的注册信息和依赖关系），两者使用不同的 Neo4j 数据库和 Schema
 
 ## 配置文件
 
@@ -126,6 +166,8 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 - `JYDBConfig.json`：聚源数据库（PostgreSQL）
 - `Neo4jDBConfig.json`：Neo4j 图数据库
 - 其他数据库配置文件
+
+MCP 服务配置文件：`.mcp.json.example`（项目根目录），用于配置 MCP 客户端连接 QSRegistry 服务。
 
 ## 约定
 

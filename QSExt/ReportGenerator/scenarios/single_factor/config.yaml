@@ -34,26 +34,6 @@ report:
   theme: default
   page_title: "{factor_name} — 单因子测试报告"
 
-  # ---- 数据源映射：BTNode 名称 → 报告 source key ----
-  data_sources:
-    - node_pattern: "Rank IC"
-      source_key: "0-Rank IC 分析"
-    - node_pattern: "IC 衰减"
-      source_key: "1-IC 衰减分析"
-      normalize:
-        flatten_factor_nested: true
-        rename:
-          "IC": "IC衰减"
-    - node_pattern: "分位数组合"
-      source_key: "2-分位数组合"
-      merge: true
-      merge_by_factor: true
-    - node_pattern: "换手率"
-      source_key: "3-因子换手率"
-      normalize:
-        rename_keys:
-          "因子换手率": "换手率"
-
   # ---- 页眉 ----
   header:
     component: section

@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""回测报告生成系统核心
+"""报告生成系统核心工具
 
 提供：
-- Scenario: 报告场景（从回测结果 dict 生成结构化报告）
 - DataContext: 组件数据上下文（解耦组件和数据来源）
-- ScenarioResult: 渲染结果容器
-- 结果拆分工具函数
+- split_output_for_factor: 按因子名拆分 output dict
+- register_reports_to_db: 报告写入文件并注册到图数据库
 """
 
 import os
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -190,15 +188,8 @@ def _normalize_module_key(module_key: str, factor_name: str) -> str:
 # ScenarioResult
 # ============================================================
 
-@dataclass
-class ScenarioResult:
-    """一次 render() 的返回结果"""
-    output: dict = field(default_factory=dict)
-    reports: Dict[str, Dict[str, str]] = field(default_factory=dict)
-
-
 def register_reports_to_db(
-    result: "ScenarioResult",
+    result: dict,
     factor_qsids: List[str],
     output_dir: str,
     bt_qsid: Optional[str] = None,

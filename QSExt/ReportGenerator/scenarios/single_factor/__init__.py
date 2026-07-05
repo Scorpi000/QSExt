@@ -1,0 +1,1 @@
+from QSExt.ReportGenerator.scenarios.single_factor.scenario import SingleFactorReport

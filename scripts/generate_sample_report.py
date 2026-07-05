@@ -24,8 +24,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from QSExt.ReportGenerator.core import DataContext
-from QSExt.ReportGenerator.themes.default import DefaultTheme
+from QSExt.ReportGenerator.themes.base import Theme
 from QSExt.ReportGenerator.layout import LayoutRenderer
+from QSExt.ReportGenerator.scenarios.single_factor import SingleFactorReport
 
 
 def _make_mock_output():
@@ -167,7 +168,7 @@ def main():
     })
 
     print("[3/4] 渲染报告...")
-    theme = DefaultTheme()
+    theme = Theme()
     layout_renderer = LayoutRenderer()
     report_config = config["report"]
 
