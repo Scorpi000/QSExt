@@ -22,6 +22,6 @@ Python：使用 conda 的 QS312 环境，位置是：D:\miniforge\envs\QS312
 ## 图数据库
 
 * 数据库类型：neo4j
-* 数据库：qs-neo4j
+* 数据库：neo4j
 * 数据库的连接信息可以在文件 "~/QuantStudioConfig/Neo4jDBConfig.json" 中
 * 数据库内容：用于存储因子、算子等信息
