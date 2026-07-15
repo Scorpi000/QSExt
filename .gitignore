@@ -9,6 +9,7 @@ _eric*/
 backup/
 TestCoverage.bat
 .DS_Store
+QSWeb/logs/
 *.coverage
 *.e4p
 *.bak
@@ -20,6 +21,7 @@ TestCoverage.bat
 *.code-workspace
 *.ttf
 *.lnk
+*.log
 
 .vscode/
 *.code-workspace

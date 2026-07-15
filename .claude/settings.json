@@ -1,4 +1,26 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(powershell -ExecutionPolicy Bypass -File \"./scripts/start.ps1\" -NoFrontend)",
+      "Bash(curl -s http://localhost:28000/health)",
+      "Bash(rm -f \"c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs\"/*.log)",
+      "Bash(powershell -Command 'Get-Process | Where-Object { $_.ProcessName -match '\\\\''python|uvicorn|node'\\\\'' } | Select-Object Id, ProcessName | Format-Table -AutoSize')",
+      "Bash(powershell -Command \"Get-WmiObject Win32_Process -Filter \\\\\"ProcessId=34864\\\\\" | Select-Object ProcessId, CommandLine | Format-List\")",
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process -Filter \\\\\"ProcessId=34864\\\\\" | Select-Object ProcessId, CommandLine | Format-List\")",
+      "Bash(taskkill /PID 34864 /F)",
+      "Bash(taskkill /PID 14496 /F)",
+      "Bash(taskkill /PID 35324 /F)",
+      "Bash(powershell -Command \"Stop-Process -Id 34864,14496,35324 -Force\")",
+      "Bash(powershell -Command 'Get-Process | Where-Object { $_.Id -eq 35268 -or $_.Id -eq 17536 -or $_.Id -eq 14996 -or $_.Id -eq 24240 } | Select-Object Id, ProcessName, HasExited')",
+      "Bash(powershell -Command \"\\(Get-WmiObject Win32_Process -Filter 'ProcessId=14996'\\).ParentProcessId; \\(Get-WmiObject Win32_Process -Filter 'ProcessId=17536'\\).ParentProcessId; \\(Get-WmiObject Win32_Process -Filter 'ProcessId=24240'\\).ParentProcessId\")",
+      "Bash(powershell -Command \"Stop-Process -Id 14996,24240 -Force -ErrorAction SilentlyContinue; Start-Sleep 1; Remove-Item -Force 'c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs\\\\backend-20260715-221401.log','c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs\\\\backend-error-20260715-221401.log' -ErrorAction SilentlyContinue; Get-ChildItem 'c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs'\")",
+      "Bash(powershell -Command \"Get-Command npm | Select-Object Name, Source, CommandType | Format-List\")",
+      "Bash(npm install *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"
+    ]
+  },
   "profiles": {
     "defaults": {
       "font": {

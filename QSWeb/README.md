@@ -10,6 +10,57 @@
 
 ## 快速开始
 
+### 方式一：使用启动脚本（推荐）
+
+`scripts/start.ps1` 可一键启动前后端服务，日志自动输出到 `logs/` 目录。
+
+**前置准备**
+
+1. 安装后端依赖：`pip install -r QSWeb/backend/requirements.txt`
+2. 安装前端依赖：`cd QSWeb/frontend && npm install`
+3. 修改脚本顶部配置区的 `$PythonExe` 路径，指向你的 Python 解释器
+
+**使用方式**
+
+```powershell
+cd QSWeb
+
+# 同时启动前后端（后端 :28000，前端 :23000）
+.\scripts\start.ps1
+
+# 仅启动后端
+.\scripts\start.ps1 -NoFrontend
+
+# 仅启动前端
+.\scripts\start.ps1 -NoBackend
+
+# 自定义端口
+.\scripts\start.ps1 -BackendPort 8000 -FrontendPort 3000
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-NoFrontend` | 不启动前端 | - |
+| `-NoBackend` | 不启动后端 | - |
+| `-BackendPort` | 后端监听端口 | 28000 |
+| `-FrontendPort` | 前端监听端口 | 23000 |
+
+启动后日志文件位于 `QSWeb/logs/`，按 `<服务>-<时间戳>.log` 命名。
+
+**手动配置脚本**
+
+编辑 `scripts/start.ps1` 顶部配置区：
+
+```powershell
+# Python 解释器路径（指向 QS 环境下的 python.exe）
+$PythonExe = "$env:USERPROFILE\Project\PythonEnv\QS\Scripts\python.exe"
+
+# 日志输出目录
+$LogDir = "$PSScriptRoot\..\logs"
+```
+
+### 方式二：手动分别启动
+
 ### 1. 启动后端服务
 
 ```bash
