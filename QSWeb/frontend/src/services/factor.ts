@@ -31,6 +31,11 @@ export interface FactorData {
   total_columns: number
 }
 
+// 重连因子库
+export const reconnectFactorDB = (connId: string) => {
+  return api.post(`/factors/${connId}/reconnect`)
+}
+
 // 获取因子表列表
 export const getTables = (connId: string) => {
   return api.get<FactorTable[]>(`/factors/${connId}/tables`)
@@ -84,5 +89,15 @@ export const getFactorMetadata = (
 ) => {
   return api.get<Record<string, any>>(
     `/factors/${connId}/tables/${tableName}/factors/${factorName}/metadata`
+  )
+}
+
+// 获取因子表元数据
+export const getTableMetadata = (
+  connId: string,
+  tableName: string
+) => {
+  return api.get<Record<string, any>>(
+    `/factors/${connId}/tables/${tableName}/metadata`
   )
 }

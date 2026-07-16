@@ -15,7 +15,10 @@
       "Bash(powershell -Command \"\\(Get-WmiObject Win32_Process -Filter 'ProcessId=14996'\\).ParentProcessId; \\(Get-WmiObject Win32_Process -Filter 'ProcessId=17536'\\).ParentProcessId; \\(Get-WmiObject Win32_Process -Filter 'ProcessId=24240'\\).ParentProcessId\")",
       "Bash(powershell -Command \"Stop-Process -Id 14996,24240 -Force -ErrorAction SilentlyContinue; Start-Sleep 1; Remove-Item -Force 'c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs\\\\backend-20260715-221401.log','c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs\\\\backend-error-20260715-221401.log' -ErrorAction SilentlyContinue; Get-ChildItem 'c:\\\\Users\\\\hst\\\\Project\\\\QSExt\\\\QSWeb\\\\logs'\")",
       "Bash(powershell -Command \"Get-Command npm | Select-Object Name, Source, CommandType | Format-List\")",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(tasklist)",
+      "Bash(\"D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe\" -c \"import pandas; print\\(pandas.__version__\\)\")",
+      "Bash('D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe' -c ' *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

@@ -17,6 +17,17 @@ from app.services.factor_service import factor_service
 router = APIRouter()
 
 
+@router.post("/{conn_id}/reconnect")
+async def reconnect(conn_id: str):
+    """断开并重新连接因子库，清除缓存的数据库实例"""
+    try:
+        factor_service.disconnect(conn_id)
+        # 下次访问时会自动重新连接
+        return {"message": "重连成功"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{conn_id}/tables", response_model=List[FactorTableInfo])
 async def list_tables(conn_id: str):
     """获取因子表列表"""
@@ -48,20 +59,25 @@ async def get_factor_data(
     factor_name: str,
     start_date: Optional[date] = Query(None, description="起始日期"),
     end_date: Optional[date] = Query(None, description="截止日期"),
+    ids: Optional[str] = Query(None, description="ID 列表，逗号分隔"),
     limit: int = Query(100, ge=1, le=10000, description="返回行数限制")
 ):
     """获取因子数据"""
     try:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()] if ids else None
         return await factor_service.get_factor_data(
             conn_id=conn_id,
             table_name=table_name,
             factor_names=[factor_name],
             start_date=start_date,
             end_date=end_date,
+            ids=id_list,
             limit=limit
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
 
 @router.post(
@@ -84,8 +100,10 @@ async def get_multi_factor_data(
             ids=request.ids,
             limit=request.limit
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
 
 
 @router.get(
@@ -103,5 +121,26 @@ async def get_factor_metadata(
             table_name=table_name,
             factor_name=factor_name
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.get(
+    "/{conn_id}/tables/{table_name}/metadata"
+)
+async def get_table_metadata(
+    conn_id: str,
+    table_name: str
+) -> Dict[str, Any]:
+    """获取因子表元数据"""
+    try:
+        return await factor_service.get_table_metadata(
+            conn_id=conn_id,
+            table_name=table_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")

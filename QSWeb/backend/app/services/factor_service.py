@@ -6,8 +6,9 @@
 
 import os
 import sys
+import datetime
+import pandas as pd
 from typing import List, Optional, Dict, Any
-from datetime import date
 from pathlib import Path
 
 from app.models.factor import (
@@ -36,54 +37,29 @@ class FactorService:
             raise ValueError(f"连接不存在: {conn_id}")
 
         db_type = conn.db_type
-        config = conn.config
+        args = conn.args
 
         try:
-            # 动态导入 QuantStudio 模块并创建实例
+            # 动态导入 QuantStudio 模块并创建实例，args 直接传递原生参数
             if db_type == "HDF5DB":
                 from QuantStudio.Factor.HDF5DB import HDF5DB
-                db = HDF5DB(args={"MainDir": config.get("db_path", "")})
+                db = HDF5DB(args=args)
 
             elif db_type == "SQLDB":
                 from QuantStudio.Factor.SQLDB import SQLDB
-                db = SQLDB(args={
-                    "DBType": config.get("db_type", "MySQL"),
-                    "DBName": config.get("db_name", ""),
-                    "IPAddr": config.get("host", "127.0.0.1"),
-                    "Port": config.get("port", 3306),
-                    "User": config.get("user", "root"),
-                    "Pwd": config.get("password", ""),
-                })
+                db = SQLDB(args=args)
 
             elif db_type == "ClickHouseDB":
                 from QSExt.Factor.ClickHouseDB import ClickHouseDB
-                db = ClickHouseDB(args={
-                    "DBName": config.get("database", "default"),
-                    "IPAddr": config.get("host", "127.0.0.1"),
-                    "Port": config.get("port", 9000),
-                    "User": config.get("user", "default"),
-                    "Pwd": config.get("password", ""),
-                })
+                db = ClickHouseDB(args=args)
 
             elif db_type == "MongoDB":
                 from QSExt.Factor.MongoDB import MongoDB
-                db = MongoDB(args={
-                    "DBName": config.get("database", "default"),
-                    "IPAddr": config.get("host", "127.0.0.1"),
-                    "Port": config.get("port", 27017),
-                    "User": config.get("user", "root"),
-                    "Pwd": config.get("password", ""),
-                })
+                db = MongoDB(args=args)
 
             elif db_type == "Neo4jDB":
                 from QSExt.Factor.Neo4jDB import Neo4jDB
-                db = Neo4jDB(args={
-                    "DBName": config.get("database", "neo4j"),
-                    "IPAddr": config.get("host", "127.0.0.1"),
-                    "Port": config.get("port", 7687),
-                    "User": config.get("user", "neo4j"),
-                    "Pwd": config.get("password", ""),
-                })
+                db = Neo4jDB(args=args)
 
             else:
                 raise ValueError(f"不支持的数据库类型: {db_type}")
@@ -166,8 +142,8 @@ class FactorService:
         conn_id: str,
         table_name: str,
         factor_names: List[str],
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        start_date: Optional[datetime.date] = None,
+        end_date: Optional[datetime.date] = None,
         ids: Optional[List[str]] = None,
         limit: int = 100
     ) -> FactorDataResponse:
@@ -177,13 +153,15 @@ class FactorService:
         try:
             ft = db.getTable(table_name)
 
-            # 获取日期范围
+            # 获取日期范围（date 转 datetime）
             if start_date and end_date:
+                start_dt = datetime.datetime.combine(start_date, datetime.datetime.min.time())
+                end_dt = datetime.datetime.combine(end_date, datetime.datetime.min.time())
                 dts = ft.getDateTime(
                     ifactor_name=factor_names[0],
                     iid=None,
-                    start_dt=start_date,
-                    end_dt=end_date
+                    start_dt=start_dt,
+                    end_dt=end_dt
                 )
             else:
                 dts = ft.getDateTime(
@@ -197,13 +175,7 @@ class FactorService:
 
             # 获取 ID 列表
             if not ids:
-                if dts:
-                    ids = ft.getID(
-                        ifactor_name=factor_names[0],
-                        idt=dts[-1]
-                    )
-                else:
-                    ids = []
+                ids = ft.getID(ifactor_name=factor_names[0], idt=None)
 
             # 限制 ID 数量
             if len(ids) > 100:
@@ -212,35 +184,53 @@ class FactorService:
             # 读取数据
             data = ft.readData(
                 factor_names=factor_names,
-                ids=ids,
+                ids=ids if ids else None,
                 dts=dts
             )
 
             # 转换为响应格式
-            # Panel 对象需要特殊处理
-            if hasattr(data, 'to_frame'):
-                # Panel 转 DataFrame
+            # Panel 对象需要特殊处理（自定义 Panel 的 to_frame 有 bug）
+            if hasattr(data, 'items') and hasattr(data, 'major_axis'):
+                # Panel → 逐因子取 DataFrame 后 stack 成长表
+                frames = []
+                for factor_name in data.items:
+                    factor_df = data[factor_name]  # DataFrame (major_axis × minor_axis)
+                    stacked = factor_df.stack(future_stack=True)
+                    stacked.name = factor_name
+                    frames.append(stacked)
+                if frames:
+                    df = frames[0].to_frame() if len(frames) == 1 else pd.concat(frames, axis=1)
+                    df = df.reset_index()
+                    # 统一列名：level_0=datetime, level_1=code
+                    col_map = {df.columns[0]: 'datetime', df.columns[1]: 'code'}
+                    df = df.rename(columns=col_map)
+                else:
+                    df = pd.DataFrame()
+            elif hasattr(data, 'to_frame'):
                 df = data.to_frame()
                 df.index.names = ['datetime', 'code']
+                df = df.reset_index()
             elif hasattr(data, 'to_dict'):
                 df = data
             else:
-                # 尝试直接使用
                 df = data
 
-            # 处理 MultiIndex 情况
-            if hasattr(df, 'index') and hasattr(df.index, 'levels'):
-                # MultiIndex，重置索引以便前端显示
+            # 处理 MultiIndex 情况（兜底）
+            if hasattr(df, 'index') and hasattr(df.index, 'levels') and len(df.index.levels) > 1:
                 df = df.reset_index()
 
             # 限制返回的行数
             if len(df) > limit:
                 df = df.head(limit)
 
-            # 转换 Timestamp 为字符串
+            # 转换不可直接 JSON 序列化的列为字符串，NaN/NaT/None 保留为 None
             for col in df.columns:
                 if hasattr(df[col], 'dt'):
-                    df[col] = df[col].astype(str)
+                    df[col] = df[col].apply(lambda x: None if pd.isna(x) else str(x))
+                elif df[col].dtype == object:
+                    df[col] = df[col].where(df[col].notna(), None).apply(
+                        lambda x: None if x is None else str(x)
+                    )
 
             return FactorDataResponse(
                 data=df.to_dict() if hasattr(df, 'to_dict') else {},
@@ -265,9 +255,45 @@ class FactorService:
         try:
             ft = db.getTable(table_name)
             meta = ft.getFactorMetaData(factor_names=[factor_name])
-            return meta
+            # 转换为可序列化的 dict
+            result = {}
+            for key, val in meta.items():
+                if hasattr(val, 'iloc'):
+                    result[key] = str(val.iloc[0]) if len(val) > 0 else None
+                else:
+                    result[key] = str(val) if val is not None else None
+            return result
         except Exception as e:
             raise ValueError(f"获取因子元数据失败: {str(e)}")
+
+    async def get_table_metadata(
+        self,
+        conn_id: str,
+        table_name: str
+    ) -> Dict[str, Any]:
+        """获取因子表元数据"""
+        db = self._get_factor_db(conn_id)
+
+        try:
+            ft = db.getTable(table_name)
+            meta = ft.getMetaData()
+            # 转换为可序列化的 dict
+            result = {}
+            if hasattr(meta, 'items'):
+                for key, val in meta.items():
+                    result[key] = str(val) if val is not None else None
+            return result
+        except Exception as e:
+            raise ValueError(f"获取因子表元数据失败: {str(e)}")
+
+    def disconnect(self, conn_id: str):
+        """断开指定连接并清除缓存"""
+        db = self._factor_dbs.pop(conn_id, None)
+        if db is not None:
+            try:
+                db.disconnect()
+            except Exception:
+                pass
 
     def disconnect_all(self):
         """断开所有连接"""

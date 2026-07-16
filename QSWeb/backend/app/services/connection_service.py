@@ -2,6 +2,7 @@
 连接管理服务
 
 管理因子库连接的生命周期
+配置统一存储在 QSWebConfig.json 中
 """
 
 import uuid
@@ -24,23 +25,29 @@ class ConnectionService:
 
     def __init__(self):
         self._connections: Dict[str, Dict[str, Any]] = {}
-        self._storage_path = Path(settings.QS_CONFIG_PATH) / "connections.json"
+        self._config_path = Path(settings.QS_CONFIG_PATH) / "QSWebConfig.json"
+        self._config: Dict[str, Any] = {}
         self._load_connections()
 
     def _load_connections(self):
-        """从文件加载连接配置"""
-        if self._storage_path.exists():
+        """从 QSWebConfig.json 加载连接配置"""
+        if self._config_path.exists():
             try:
-                with open(self._storage_path, "r", encoding="utf-8") as f:
-                    self._connections = json.load(f)
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    self._config = json.load(f)
+                self._connections = self._config.get("factor_dbs", {})
             except Exception:
+                self._config = {"version": "1.0"}
                 self._connections = {}
+        else:
+            self._config = {"version": "1.0"}
 
     def _save_connections(self):
-        """保存连接配置到文件"""
-        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._storage_path, "w", encoding="utf-8") as f:
-            json.dump(self._connections, f, ensure_ascii=False, indent=2)
+        """保存连接配置到 QSWebConfig.json，保留其他顶层配置项"""
+        self._config["factor_dbs"] = self._connections
+        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._config_path, "w", encoding="utf-8") as f:
+            json.dump(self._config, f, ensure_ascii=False, indent=2)
 
     def list_connections(self) -> List[ConnectionResponse]:
         """获取所有连接"""
@@ -51,7 +58,7 @@ class ConnectionService:
                 name=conn["name"],
                 db_type=conn["db_type"],
                 description=conn.get("description"),
-                config=conn.get("config", {}),
+                args=conn.get("args", {}),
                 status=conn.get("status", "disconnected")
             ))
         return result
@@ -66,7 +73,7 @@ class ConnectionService:
             name=conn["name"],
             db_type=conn["db_type"],
             description=conn.get("description"),
-            config=conn.get("config", {}),
+            args=conn.get("args", {}),
             status=conn.get("status", "disconnected")
         )
 
@@ -77,7 +84,7 @@ class ConnectionService:
             "name": conn.name,
             "db_type": conn.db_type,
             "description": conn.description,
-            "config": conn.config,
+            "args": conn.args,
             "status": "disconnected"
         }
         self._save_connections()
@@ -86,7 +93,7 @@ class ConnectionService:
             name=conn.name,
             db_type=conn.db_type,
             description=conn.description,
-            config=conn.config,
+            args=conn.args,
             status="disconnected"
         )
 
@@ -104,8 +111,8 @@ class ConnectionService:
             existing["name"] = conn.name
         if conn.description is not None:
             existing["description"] = conn.description
-        if conn.config is not None:
-            existing["config"] = conn.config
+        if conn.args is not None:
+            existing["args"] = conn.args
 
         self._save_connections()
         return ConnectionResponse(
@@ -113,7 +120,7 @@ class ConnectionService:
             name=existing["name"],
             db_type=existing["db_type"],
             description=existing.get("description"),
-            config=existing.get("config", {}),
+            args=existing.get("args", {}),
             status=existing.get("status", "disconnected")
         )
 
@@ -135,20 +142,20 @@ class ConnectionService:
 
         conn = self._connections[conn_id]
         db_type = conn["db_type"]
-        config = conn.get("config", {})
+        args = conn.get("args", {})
 
         try:
             # 根据数据库类型测试连接
             if db_type == "HDF5DB":
-                return await self._test_hdf5(config)
+                return await self._test_hdf5(args)
             elif db_type == "SQLDB":
-                return await self._test_sql(config)
+                return await self._test_sql(args)
             elif db_type == "ClickHouseDB":
-                return await self._test_clickhouse(config)
+                return await self._test_clickhouse(args)
             elif db_type == "MongoDB":
-                return await self._test_mongodb(config)
+                return await self._test_mongodb(args)
             elif db_type == "Neo4jDB":
-                return await self._test_neo4j(config)
+                return await self._test_neo4j(args)
             else:
                 return ConnectionTestResult(
                     success=False,
@@ -160,16 +167,16 @@ class ConnectionService:
                 message=f"连接测试失败: {str(e)}"
             )
 
-    async def _test_hdf5(self, config: dict) -> ConnectionTestResult:
+    async def _test_hdf5(self, args: dict) -> ConnectionTestResult:
         """测试 HDF5 连接"""
         import os
-        db_path = config.get("db_path", "")
-        if not db_path:
+        main_dir = args.get("MainDir", "")
+        if not main_dir:
             return ConnectionTestResult(
                 success=False,
                 message="未配置主目录路径"
             )
-        if os.path.exists(db_path):
+        if os.path.exists(main_dir):
             return ConnectionTestResult(
                 success=True,
                 message="HDF5 主目录路径有效"
@@ -177,17 +184,17 @@ class ConnectionService:
         else:
             return ConnectionTestResult(
                 success=False,
-                message=f"路径不存在: {db_path}"
+                message=f"路径不存在: {main_dir}"
             )
 
-    async def _test_sql(self, config: dict) -> ConnectionTestResult:
+    async def _test_sql(self, args: dict) -> ConnectionTestResult:
         """测试 SQL 数据库连接"""
-        db_type = config.get("db_type", "MySQL")
-        host = config.get("host", "127.0.0.1")
-        port = config.get("port", 3306)
-        user = config.get("user", "root")
-        password = config.get("password", "")
-        db_name = config.get("db_name", "")
+        db_type = args.get("DBType", "MySQL")
+        host = args.get("IPAddr", "127.0.0.1")
+        port = args.get("Port", 3306)
+        user = args.get("User", "root")
+        password = args.get("Pwd", "")
+        db_name = args.get("DBName", "")
 
         try:
             if db_type == "MySQL":
@@ -234,13 +241,13 @@ class ConnectionService:
                 message=f"连接失败: {str(e)}"
             )
 
-    async def _test_clickhouse(self, config: dict) -> ConnectionTestResult:
+    async def _test_clickhouse(self, args: dict) -> ConnectionTestResult:
         """测试 ClickHouse 连接"""
-        host = config.get("host", "127.0.0.1")
-        port = config.get("port", 9000)
-        user = config.get("user", "default")
-        password = config.get("password", "")
-        database = config.get("database", "default")
+        host = args.get("IPAddr", "127.0.0.1")
+        port = args.get("Port", 9000)
+        user = args.get("User", "default")
+        password = args.get("Pwd", "")
+        database = args.get("DBName", "default")
 
         try:
             import clickhouse_driver
@@ -264,13 +271,13 @@ class ConnectionService:
                 message=f"连接失败: {str(e)}"
             )
 
-    async def _test_mongodb(self, config: dict) -> ConnectionTestResult:
+    async def _test_mongodb(self, args: dict) -> ConnectionTestResult:
         """测试 MongoDB 连接"""
-        host = config.get("host", "127.0.0.1")
-        port = config.get("port", 27017)
-        user = config.get("user", "root")
-        password = config.get("password", "")
-        database = config.get("database", "default")
+        host = args.get("IPAddr", "127.0.0.1")
+        port = args.get("Port", 27017)
+        user = args.get("User", "root")
+        password = args.get("Pwd", "")
+        database = args.get("DBName", "default")
 
         try:
             import pymongo
@@ -296,13 +303,13 @@ class ConnectionService:
                 message=f"连接失败: {str(e)}"
             )
 
-    async def _test_neo4j(self, config: dict) -> ConnectionTestResult:
+    async def _test_neo4j(self, args: dict) -> ConnectionTestResult:
         """测试 Neo4j 连接"""
-        host = config.get("host", "127.0.0.1")
-        port = config.get("port", 7687)
-        user = config.get("user", "neo4j")
-        password = config.get("password", "")
-        database = config.get("database", "neo4j")
+        host = args.get("IPAddr", "127.0.0.1")
+        port = args.get("Port", 7687)
+        user = args.get("User", "neo4j")
+        password = args.get("Pwd", "")
+        database = args.get("DBName", "neo4j")
 
         try:
             from neo4j import GraphDatabase

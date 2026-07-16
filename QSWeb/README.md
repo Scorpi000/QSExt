@@ -118,13 +118,15 @@ npm run dev
 
 ## 支持的数据库类型
 
+配置参数使用 QuantStudio FactorDB 的原生参数名：
+
 | 数据库类型 | 说明 | 配置参数 |
 |-----------|------|----------|
-| **HDF5DB** | HDF5 文件数据库 | `db_path`: 主目录路径 |
-| **SQLDB** | 关系数据库 | `db_type`: MySQL/PostgreSQL/SQL Server/Oracle<br>`host`、`port`、`user`、`password`、`db_name` |
-| **ClickHouseDB** | ClickHouse 列式数据库 | `host`、`port`、`user`、`password`、`database` |
-| **MongoDB** | MongoDB 文档数据库 | `host`、`port`、`user`、`password`、`database` |
-| **Neo4jDB** | Neo4j 图数据库 | `host`、`port`、`user`、`password`、`database` |
+| **HDF5DB** | HDF5 文件数据库 | `MainDir`: 主目录路径 |
+| **SQLDB** | 关系数据库 | `DBType`: MySQL/PostgreSQL/SQL Server/Oracle<br>`DBName`、`IPAddr`、`Port`、`User`、`Pwd` |
+| **ClickHouseDB** | ClickHouse 列式数据库 | `DBName`、`IPAddr`、`Port`、`User`、`Pwd` |
+| **MongoDB** | MongoDB 文档数据库 | `DBName`、`IPAddr`、`Port`、`User`、`Pwd` |
+| **Neo4jDB** | Neo4j 图数据库 | `DBName`、`IPAddr`、`Port`、`User`、`Pwd` |
 
 ## 使用说明
 
@@ -133,8 +135,30 @@ npm run dev
 1. 点击左侧"因子库连接"卡片中的"新建"按钮
 2. 输入连接名称（如：本地 HDF5 数据库）
 3. 选择数据库类型
-4. 填写连接配置参数
+4. 填写连接配置参数（使用 QuantStudio 原生参数名）
 5. 点击"确定"保存
+
+### 配置文件
+
+因子库连接配置统一存储在 `~/QuantStudioConfig/QSWebConfig.json`：
+
+```json
+{
+  "version": "1.0",
+  "factor_dbs": {
+    "连接ID": {
+      "name": "本地 HDF5 因子库",
+      "db_type": "HDF5DB",
+      "description": "本地因子数据",
+      "args": { "MainDir": "D:/Data/HDF5DB" }
+    }
+  }
+}
+```
+
+- 可手动编辑此文件批量配置因子库，页面加载后自动显示
+- 通过页面创建的连接也会自动保存到此文件
+- `args` 中的参数名与 QuantStudio FactorDB 的构造参数一致
 
 ### 浏览因子数据
 

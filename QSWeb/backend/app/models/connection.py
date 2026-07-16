@@ -11,7 +11,7 @@ class ConnectionBase(BaseModel):
     name: str = Field(..., description="连接名称", min_length=1, max_length=100)
     db_type: str = Field(..., description="数据库类型")
     description: Optional[str] = Field(None, description="描述")
-    config: Dict[str, Any] = Field(default_factory=dict, description="连接配置参数")
+    args: Dict[str, Any] = Field(default_factory=dict, description="QuantStudio FactorDB 参数")
 
 
 class ConnectionCreate(ConnectionBase):
@@ -23,7 +23,7 @@ class ConnectionUpdate(BaseModel):
     """更新连接"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
+    args: Optional[Dict[str, Any]] = None
 
 
 class ConnectionResponse(ConnectionBase):

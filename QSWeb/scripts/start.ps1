@@ -44,8 +44,9 @@ $ErrorActionPreference = "Stop"
 # 用户配置区 — 根据本地环境修改以下路径
 # ============================================================
 
-# Python 解释器路径（指向 QS 环境下的 python.exe）
-$PythonExe = "$env:USERPROFILE\Project\PythonEnv\QS\Scripts\python.exe"
+# Python 解释器路径
+# $PythonExe = "$env:USERPROFILE\Project\PythonEnv\QS\Scripts\python.exe"
+$PythonExe = "D:\PythonEnv\QS312\Scripts\python.exe"
 
 # 日志输出目录
 $LogDir = "$PSScriptRoot\..\logs"

@@ -49,5 +49,5 @@ QSWeb/backend/*.pyc
 QSWeb/backend/.env
 QSWeb/backend/.env.local
 QSWeb/backend/.env.*.local
-QSWeb/backend/connections.json
+QSWeb/backend/QSWebConfig.json
 QSWeb/backend/*.egg-info/

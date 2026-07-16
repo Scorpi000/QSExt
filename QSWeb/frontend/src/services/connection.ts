@@ -9,7 +9,7 @@ export interface Connection {
   name: string
   db_type: string
   description?: string
-  config: Record<string, any>
+  args: Record<string, any>
   status: string
 }
 
@@ -17,13 +17,13 @@ export interface ConnectionCreate {
   name: string
   db_type: string
   description?: string
-  config: Record<string, any>
+  args: Record<string, any>
 }
 
 export interface ConnectionUpdate {
   name?: string
   description?: string
-  config?: Record<string, any>
+  args?: Record<string, any>
 }
 
 export interface ConnectionTestResult {
