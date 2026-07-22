@@ -107,6 +107,27 @@ async def get_multi_factor_data(
 
 
 @router.get(
+    "/{conn_id}/tables/{table_name}/factors/{factor_name}/stats"
+)
+async def get_factor_stats(
+    conn_id: str,
+    table_name: str,
+    factor_name: str
+) -> Dict[str, Any]:
+    """获取因子统计信息（ID数量、时点数量、起止ID、起止时间）"""
+    try:
+        return await factor_service.get_factor_stats(
+            conn_id=conn_id,
+            table_name=table_name,
+            factor_name=factor_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.get(
     "/{conn_id}/tables/{table_name}/factors/{factor_name}/metadata"
 )
 async def get_factor_metadata(

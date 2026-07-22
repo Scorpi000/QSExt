@@ -66,7 +66,7 @@ function DataTable({ data, columns, index, loading }: DataTableProps) {
       columns={tableColumns}
       dataSource={tableData}
       loading={loading}
-      scroll={{ x: 'max-content', y: 500 }}
+      scroll={{ x: 'max-content', y: 'calc(100vh - 400px)' }}
       pagination={{
         pageSize: 100,
         showSizeChanger: true,

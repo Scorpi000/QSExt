@@ -39,6 +39,8 @@ import {
   FactorInfo,
   getFactorData,
   FactorData,
+  FactorStats,
+  getFactorStats,
   reconnectFactorDB,
   getFactorMetadata,
   getTableMetadata,
@@ -69,6 +71,9 @@ function DataManager() {
   // 元数据
   const [factorMeta, setFactorMeta] = useState<Record<string, any> | null>(null)
   const [tableMeta, setTableMeta] = useState<Record<string, any> | null>(null)
+
+  // 因子统计信息
+  const [factorStats, setFactorStats] = useState<FactorStats | null>(null)
 
   // 数据查询参数
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
@@ -148,6 +153,7 @@ function DataManager() {
     setLoadingData(true)
     setFactorMeta(null)
     setTableMeta(null)
+    setFactorStats(null)
     try {
       const params: any = { limit }
       if (dateRange) {
@@ -157,15 +163,17 @@ function DataManager() {
       if (selectedIds.length > 0) {
         params.ids = selectedIds.join(',')
       }
-      // 并行加载数据和元数据
-      const [data, fMeta, tMeta] = await Promise.all([
+      // 并行加载数据、元数据和统计信息
+      const [data, fMeta, tMeta, stats] = await Promise.all([
         getFactorData(factor.conn_id, factor.table_name, factor.name, params),
         getFactorMetadata(factor.conn_id, factor.table_name, factor.name),
         getTableMetadata(factor.conn_id, factor.table_name),
+        getFactorStats(factor.conn_id, factor.table_name, factor.name),
       ])
       setFactorData(data as unknown as FactorData)
       setFactorMeta(fMeta as unknown as Record<string, any>)
       setTableMeta(tMeta as unknown as Record<string, any>)
+      setFactorStats(stats as unknown as FactorStats)
     } catch (error) {
       // 错误已在 api 拦截器中处理
     } finally {
@@ -346,11 +354,12 @@ function DataManager() {
       </Col>
 
       {/* 中间：因子树 */}
-      <Col span={6}>
+      <Col span={6} style={{ height: '100%' }}>
         <Card
           title="因子浏览"
           size="small"
-          bodyStyle={{ padding: 0, height: 'calc(100% - 56px)', overflow: 'auto' }}
+          style={{ height: '100%' }}
+          bodyStyle={{ padding: 0, height: 'calc(100% - 46px)', overflow: 'hidden' }}
         >
           {activeConnection ? (
             <FactorTree
@@ -376,7 +385,7 @@ function DataManager() {
       </Col>
 
       {/* 右侧：数据预览 */}
-      <Col span={12}>
+      <Col span={12} style={{ height: '100%' }}>
         <Card
           title={
             selectedFactor
@@ -384,6 +393,7 @@ function DataManager() {
               : '数据预览'
           }
           size="small"
+          style={{ height: '100%' }}
           bodyStyle={{ padding: 0, height: 'calc(100% - 46px)', overflow: 'auto' }}
         >
           {selectedFactor ? (
@@ -434,19 +444,41 @@ function DataManager() {
                   </Button>
                 </Space>
               </div>
-              <DataTable
-                data={displayData.data}
-                columns={displayData.columns}
-                index={displayData.index}
-                loading={loadingData}
-              />
+              {/* 因子统计信息 */}
+              {factorStats && (
+                <div
+                  style={{
+                    padding: '6px 16px',
+                    borderBottom: '1px solid #f0f0f0',
+                    background: '#fafafa',
+                  }}
+                >
+                  <Space size="middle" wrap style={{ fontSize: 12 }}>
+                    <span>
+                      <span style={{ color: '#888' }}>起止ID：</span>
+                      <Tag>{factorStats.first_id ?? '-'}</Tag>
+                      <span style={{ color: '#ccc' }}>~</span>
+                      <Tag>{factorStats.last_id ?? '-'}</Tag>
+                      <span style={{ color: '#888' }}>数量：</span>
+                      <Tag color="blue">{factorStats.id_count}</Tag>
+                    </span>
+                    <span>
+                      <span style={{ color: '#888' }}>起止时间：</span>
+                      <Tag>{factorStats.first_dt ?? '-'}</Tag>
+                      <span style={{ color: '#ccc' }}>~</span>
+                      <Tag>{factorStats.last_dt ?? '-'}</Tag>
+                      <span style={{ color: '#888' }}>数量：</span>
+                      <Tag color="green">{factorStats.dt_count}</Tag>
+                    </span>
+                  </Space>
+                </div>
+              )}
               {/* 元数据展示 */}
               {(factorMeta || tableMeta) && (
-                <div style={{ padding: '0 16px 16px' }}>
-                  <Divider style={{ margin: '8px 0' }} />
+                <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
                   <Collapse
                     size="small"
-                    defaultActiveKey={['factor']}
+                    defaultActiveKey={[]}
                     items={[
                       ...(factorMeta && Object.keys(factorMeta).length > 0
                         ? [
@@ -496,6 +528,12 @@ function DataManager() {
                   />
                 </div>
               )}
+              <DataTable
+                data={displayData.data}
+                columns={displayData.columns}
+                index={displayData.index}
+                loading={loadingData}
+              />
             </Spin>
           ) : (
             <div

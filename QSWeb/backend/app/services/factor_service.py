@@ -243,6 +243,33 @@ class FactorService:
         except Exception as e:
             raise ValueError(f"获取因子数据失败: {str(e)}")
 
+    async def get_factor_stats(
+        self,
+        conn_id: str,
+        table_name: str,
+        factor_name: str
+    ) -> Dict[str, Any]:
+        """获取因子统计信息（ID数量、时点数量、起止ID、起止时间）"""
+        db = self._get_factor_db(conn_id)
+
+        try:
+            ft = db.getTable(table_name)
+
+            # 获取全量 ID 和时点
+            ids = ft.getID(ifactor_name=factor_name, idt=None)
+            dts = ft.getDateTime(ifactor_name=factor_name, iid=None)
+
+            return {
+                "id_count": len(ids) if ids else 0,
+                "dt_count": len(dts) if dts else 0,
+                "first_id": ids[0] if ids else None,
+                "last_id": ids[-1] if ids else None,
+                "first_dt": str(dts[0]) if dts else None,
+                "last_dt": str(dts[-1]) if dts else None,
+            }
+        except Exception as e:
+            raise ValueError(f"获取因子统计信息失败: {str(e)}")
+
     async def get_factor_metadata(
         self,
         conn_id: str,
