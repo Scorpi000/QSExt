@@ -151,6 +151,31 @@ class ZScoreStandardization(SectionOperator):
         factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None), "avg_weight": (avg_weight is not None), "dispersion_weight": (dispersion_weight is not None)}
         return super().__call__(*Factors, factor_args=factor_args, **kwargs)
 
+class MinMaxStandardization(SectionOperator):
+    """截面 Min-Max 标准化"""
+
+    def __init__(self, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        Args = {"Name": "calcMinMaxStandardization"} | args | {"DTMode": "多时点", "DataType": "double"}
+        Args["ModelArgs"] = {} | Args.get("ModelArgs", {})
+        return super().__init__(args=Args, config_file=config_file, **kwargs)
+    
+    def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
+        FactorData = x[0]
+        Mask = (x[1].astype(bool) if f._QSArgs.ModelArgs["mask"] else [None] * FactorData.shape[0])
+        CatData = (x[2] if f._QSArgs.ModelArgs["cat_data"] else [None] * FactorData.shape[0])
+        Rslt = np.full_like(FactorData, fill_value=np.nan)
+        for i in range(FactorData.shape[0]):
+            Rslt[i] = DataPreprocessingFun.standardizeMinMax(FactorData[i], mask=Mask[i], cat_data=CatData[i], **args)
+        return Rslt
+    
+    def __call__(self, f:Factor, mask:Optional[Factor]=None, cat_data:Optional[Factor]=None, factor_args:dict={}, **kwargs) -> SectionOperation:
+        Factors = [f]
+        if mask is not None: Factors.append(mask)
+        if cat_data is not None: Factors.append(cat_data)
+        factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None)}
+        return super().__call__(*Factors, factor_args=factor_args, **kwargs)
+
+
 class Orthogonalization(SectionOperator):
     """截面正交化"""
 
