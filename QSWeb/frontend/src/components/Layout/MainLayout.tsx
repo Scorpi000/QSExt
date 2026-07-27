@@ -22,13 +22,11 @@ const menuItems = [
     key: '/factor',
     icon: <ExperimentOutlined />,
     label: '因子工作台',
-    disabled: true,
   },
   {
     key: '/backtest',
     icon: <LineChartOutlined />,
     label: '回测工作台',
-    disabled: true,
   },
   {
     key: '/risk',

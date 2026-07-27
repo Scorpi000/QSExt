@@ -4,7 +4,7 @@
 
 from typing import List, Optional, Dict, Any
 from datetime import date
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from app.models.factor import (
     FactorInfo,
@@ -17,6 +17,7 @@ from app.models.factor import (
     DeleteFactorsRequest,
 )
 from app.services.factor_service import factor_service
+from app.core.exceptions import ValidationException
 
 router = APIRouter()
 
@@ -25,11 +26,10 @@ router = APIRouter()
 async def reconnect(conn_id: str):
     """断开并重新连接因子库，清除缓存的数据库实例"""
     try:
-        factor_service.disconnect(conn_id)
-        # 下次访问时会自动重新连接
+        await factor_service.disconnect(conn_id)
         return {"message": "重连成功"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ValidationException(str(e))
 
 
 @router.get("/{conn_id}/tables", response_model=List[FactorTableInfo])
@@ -38,7 +38,7 @@ async def list_tables(conn_id: str):
     try:
         return await factor_service.get_tables(conn_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ValidationException(str(e))
 
 
 @router.get(
@@ -50,7 +50,7 @@ async def list_factors(conn_id: str, table_name: str):
     try:
         return await factor_service.get_factors(conn_id, table_name)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ValidationException(str(e))
 
 
 @router.get(
@@ -78,10 +78,10 @@ async def get_factor_data(
             ids=id_list,
             limit=limit
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.post(
@@ -104,10 +104,10 @@ async def get_multi_factor_data(
             ids=request.ids,
             limit=request.limit
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.get(
@@ -125,10 +125,10 @@ async def get_factor_stats(
             table_name=table_name,
             factor_name=factor_name
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.get(
@@ -146,10 +146,10 @@ async def get_factor_metadata(
             table_name=table_name,
             factor_name=factor_name
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.get(
@@ -165,10 +165,10 @@ async def get_table_metadata(
             conn_id=conn_id,
             table_name=table_name
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 # ---------- 表管理 ----------
@@ -186,10 +186,10 @@ async def rename_table(
             old_name=table_name,
             new_name=request.new_name
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.delete("/{conn_id}/tables")
@@ -203,10 +203,10 @@ async def delete_tables(
             conn_id=conn_id,
             table_names=request.table_names
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.put("/{conn_id}/tables/{table_name}/metadata")
@@ -222,10 +222,10 @@ async def update_table_metadata(
             table_name=table_name,
             metadata=request.metadata
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 # ---------- 因子管理 ----------
@@ -245,10 +245,10 @@ async def rename_factor(
             old_name=factor_name,
             new_name=request.new_name
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.delete("/{conn_id}/tables/{table_name}/factors")
@@ -264,10 +264,10 @@ async def delete_factors(
             table_name=table_name,
             factor_names=request.factor_names
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")
 
 
 @router.put("/{conn_id}/tables/{table_name}/factors/{factor_name}/metadata")
@@ -285,7 +285,7 @@ async def update_factor_metadata(
             factor_name=factor_name,
             metadata=request.metadata
         )
-    except HTTPException:
+    except ValidationException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+        raise ValidationException(f"{type(e).__name__}: {e}")

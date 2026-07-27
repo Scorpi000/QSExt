@@ -6,16 +6,8 @@ python-multipart==0.0.6
 # 数据验证
 pydantic>=2.5.0
 
-# 认证
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-
 # 缓存和会话
 redis==5.0.0
-
-# 数据库
-sqlalchemy==2.0.23
-alembic==1.13.0
 
 # HTTP 客户端
 httpx==0.26.0

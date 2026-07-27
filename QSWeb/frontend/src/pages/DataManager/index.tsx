@@ -24,14 +24,17 @@ import {
   DeleteOutlined,
   SyncOutlined,
   ReloadOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   Connection,
   ConnectionCreate,
+  ConnectionUpdate,
   DB_TYPES,
   getConnections,
   createConnection,
+  updateConnection,
   deleteConnection,
 } from '../../services/connection'
 import {
@@ -95,6 +98,11 @@ function DataManager() {
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [createForm] = Form.useForm()
 
+  // 编辑连接对话框
+  const [editModalVisible, setEditModalVisible] = useState(false)
+  const [editingConnection, setEditingConnection] = useState<Connection | null>(null)
+  const [editForm] = Form.useForm()
+
   // 加载连接列表
   const loadConnections = useCallback(async () => {
     setLoadingConnections(true)
@@ -136,6 +144,33 @@ function DataManager() {
         setSelectedTable(null)
         setFactorData(null)
       }
+      loadConnections()
+    } catch {
+      // 错误已在 api 拦截器中处理
+    }
+  }
+
+  // 打开编辑连接对话框
+  const handleEditOpen = (conn: Connection) => {
+    setEditingConnection(conn)
+    editForm.setFieldsValue({
+      name: conn.name,
+      db_type: conn.db_type,
+      description: conn.description,
+      args: conn.args,
+    })
+    setEditModalVisible(true)
+  }
+
+  // 编辑连接
+  const handleEdit = async (values: ConnectionUpdate) => {
+    if (!editingConnection) return
+    try {
+      await updateConnection(editingConnection.id, values)
+      message.success('更新成功')
+      setEditModalVisible(false)
+      editForm.resetFields()
+      setEditingConnection(null)
       loadConnections()
     } catch {
       // 错误已在 api 拦截器中处理
@@ -388,6 +423,15 @@ function DataManager() {
                         <Tag color={getDbTypeColor(conn.db_type)}>{conn.db_type}</Tag>
                       </Space>
                       <Space size="small">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEditOpen(conn)
+                          }}
+                        />
                         <Button
                           type="text"
                           size="small"
@@ -815,6 +859,156 @@ function DataManager() {
                       label="DBName（数据库名）"
                       initialValue="neo4j"
                     >
+                      <Input placeholder="neo4j" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑连接对话框 */}
+      <Modal
+        title="编辑连接"
+        open={editModalVisible}
+        onCancel={() => {
+          setEditModalVisible(false)
+          editForm.resetFields()
+          setEditingConnection(null)
+        }}
+        onOk={() => editForm.submit()}
+        width={600}
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleEdit}
+        >
+          <Form.Item label="数据库类型">
+            <Input value={editingConnection?.db_type} disabled />
+          </Form.Item>
+
+          <Form.Item
+            name="name"
+            label="连接名称"
+            rules={[{ required: true, message: '请输入连接名称' }]}
+          >
+            <Input placeholder="例如：本地 HDF5 数据库" />
+          </Form.Item>
+
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} placeholder="可选描述" />
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) =>
+              prevValues.name !== currentValues.name
+            }
+          >
+            {({ getFieldValue }) => {
+              const dbType = editingConnection?.db_type
+              if (dbType === 'HDF5DB') {
+                return (
+                  <Form.Item
+                    name={['args', 'MainDir']}
+                    label="MainDir（主目录路径）"
+                    rules={[{ required: true, message: '请输入主目录路径' }]}
+                  >
+                    <Input placeholder="例如：D:/Data/HDF5DB" />
+                  </Form.Item>
+                )
+              }
+              if (dbType === 'SQLDB') {
+                return (
+                  <>
+                    <Form.Item name={['args', 'DBType']} label="DBType（数据库类型）" rules={[{ required: true }]}>
+                      <Select>
+                        <Select.Option value="MySQL">MySQL</Select.Option>
+                        <Select.Option value="PostgreSQL">PostgreSQL</Select.Option>
+                        <Select.Option value="SQL Server">SQL Server</Select.Option>
+                        <Select.Option value="Oracle">Oracle</Select.Option>
+                      </Select>
+                    </Form.Item>
+                    <Form.Item name={['args', 'IPAddr']} label="IPAddr（主机地址）" rules={[{ required: true }]}>
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）">
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item name={['args', 'DBName']} label="DBName（数据库名）" rules={[{ required: true }]}>
+                      <Input placeholder="Scorpion" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              if (dbType === 'ClickHouseDB') {
+                return (
+                  <>
+                    <Form.Item name={['args', 'IPAddr']} label="IPAddr（主机地址）" rules={[{ required: true }]}>
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）">
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item name={['args', 'DBName']} label="DBName（数据库名）" rules={[{ required: true }]}>
+                      <Input placeholder="default" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              if (dbType === 'MongoDB') {
+                return (
+                  <>
+                    <Form.Item name={['args', 'IPAddr']} label="IPAddr（主机地址）" rules={[{ required: true }]}>
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）">
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item name={['args', 'DBName']} label="DBName（数据库名）" rules={[{ required: true }]}>
+                      <Input placeholder="default" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              if (dbType === 'Neo4jDB') {
+                return (
+                  <>
+                    <Form.Item name={['args', 'IPAddr']} label="IPAddr（主机地址）" rules={[{ required: true }]}>
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）">
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item name={['args', 'DBName']} label="DBName（数据库名）">
                       <Input placeholder="neo4j" />
                     </Form.Item>
                   </>

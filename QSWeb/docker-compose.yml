@@ -1,0 +1,91 @@
+version: "3.8"
+
+services:
+  # ========== 后端服务 ==========
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qsweb-backend
+    ports:
+      - "28000:28000"
+    environment:
+      - QS_CONFIG_PATH=/root/QuantStudioConfig
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ~/QuantStudioConfig:/root/QuantStudioConfig:ro
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - qsweb-network
+
+  # ========== 前端服务 ==========
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qsweb-frontend
+    ports:
+      - "23000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - qsweb-network
+
+  # ========== Redis（缓存 / 任务队列） ==========
+  redis:
+    image: redis:7-alpine
+    container_name: qsweb-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - qsweb-network
+
+  # ========== Neo4j（图数据库，QSRegistry 元数据） ==========
+  neo4j:
+    image: neo4j:5-community
+    container_name: qsweb-neo4j
+    ports:
+      - "7474:7474"   # HTTP
+      - "7687:7687"   # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/neo4j123
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    restart: unless-stopped
+    networks:
+      - qsweb-network
+
+  # ========== PostgreSQL（可选，QSRegistry 或业务数据） ==========
+  postgres:
+    image: postgres:16-alpine
+    container_name: qsweb-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=qsweb
+      - POSTGRES_PASSWORD=qsweb123
+      - POSTGRES_DB=qsweb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - qsweb-network
+
+volumes:
+  redis-data:
+  neo4j-data:
+  neo4j-logs:
+  postgres-data:
+
+networks:
+  qsweb-network:
+    driver: bridge

@@ -3,7 +3,7 @@
 """
 
 from typing import List
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from app.models.connection import (
     ConnectionCreate,
@@ -12,6 +12,7 @@ from app.models.connection import (
     ConnectionTestResult
 )
 from app.services.connection_service import connection_service
+from app.core.exceptions import NotFoundException
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ async def get_connection(conn_id: str):
     """获取单个连接"""
     conn = connection_service.get_connection(conn_id)
     if not conn:
-        raise HTTPException(status_code=404, detail="连接不存在")
+        raise NotFoundException("连接", conn_id)
     return conn
 
 
@@ -42,7 +43,7 @@ async def update_connection(conn_id: str, conn: ConnectionUpdate):
     """更新连接"""
     result = connection_service.update_connection(conn_id, conn)
     if not result:
-        raise HTTPException(status_code=404, detail="连接不存在")
+        raise NotFoundException("连接", conn_id)
     return result
 
 
@@ -50,7 +51,7 @@ async def update_connection(conn_id: str, conn: ConnectionUpdate):
 async def delete_connection(conn_id: str):
     """删除连接"""
     if not connection_service.delete_connection(conn_id):
-        raise HTTPException(status_code=404, detail="连接不存在")
+        raise NotFoundException("连接", conn_id)
     return {"message": "删除成功"}
 
 

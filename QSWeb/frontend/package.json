@@ -16,7 +16,13 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
     "axios": "^1.6.0",
-    "dayjs": "^1.11.10"
+    "dayjs": "^1.11.10",
+    "reactflow": "^11.10.0",
+    "zustand": "^4.4.0",
+    "@rjsf/core": "^5.18.0",
+    "@rjsf/validator-ajv8": "^5.18.0",
+    "@rjsf/antd": "^5.18.0",
+    "plotly.js-dist-min": "^2.29.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

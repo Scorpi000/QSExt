@@ -18,7 +18,24 @@
       "Bash(npm install *)",
       "Bash(tasklist)",
       "Bash(\"D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe\" -c \"import pandas; print\\(pandas.__version__\\)\")",
-      "Bash('D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe' -c ' *)"
+      "Bash('D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe' -c ' *)",
+      "Bash(git -C d:/HST/QSExt log --oneline -20)",
+      "Bash(openspec --help)",
+      "Bash(npx openspec *)",
+      "Bash(openspec spec *)",
+      "Bash(openspec schemas *)",
+      "Bash(openspec templates *)",
+      "Read(//c/Users/lenovo/AppData/Local/hermes/node/node_modules/@fission-ai/openspec/schemas/spec-driven/templates/**)",
+      "Bash(openspec change *)",
+      "Bash(openspec validate *)",
+      "Bash(openspec status *)",
+      "Bash(python -c \"from QuantStudio.Factor.BasicOperator import Abs; print\\(Abs\\)\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, r'D:\\\\HST\\\\QSExt'\\); sys.path.insert\\(0, r'D:\\\\Project\\\\QuantStudio'\\); from QuantStudio.Factor.BasicOperator import Abs; print\\(Abs._QSArgs\\); print\\(hasattr\\(Abs._QSArgs, 'model_json_schema'\\)\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import QuantStudio; import inspect; from QuantStudio.BackTest import *; print\\(dir\\(\\)\\)\")",
+      "Bash(pip show *)",
+      "Bash(d:/PythonEnv/QS312/Scripts/python.exe -c ' *)",
+      "Bash(npx tsc *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

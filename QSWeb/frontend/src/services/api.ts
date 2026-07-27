@@ -13,7 +13,7 @@ const api = axios.create({
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const msg = error.response?.data?.detail || error.message || '请求失败'
+    const msg = error.response?.data?.message || error.response?.data?.detail || error.message || '请求失败'
     message.error(msg)
     return Promise.reject(error)
   }
