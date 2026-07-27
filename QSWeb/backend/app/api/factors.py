@@ -10,7 +10,11 @@ from app.models.factor import (
     FactorInfo,
     FactorTableInfo,
     FactorDataRequest,
-    FactorDataResponse
+    FactorDataResponse,
+    RenameRequest,
+    MetadataUpdate,
+    DeleteTablesRequest,
+    DeleteFactorsRequest,
 )
 from app.services.factor_service import factor_service
 
@@ -160,6 +164,126 @@ async def get_table_metadata(
         return await factor_service.get_table_metadata(
             conn_id=conn_id,
             table_name=table_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+# ---------- 表管理 ----------
+
+@router.put("/{conn_id}/tables/{table_name}/rename")
+async def rename_table(
+    conn_id: str,
+    table_name: str,
+    request: RenameRequest
+):
+    """重命名因子表"""
+    try:
+        return await factor_service.rename_table(
+            conn_id=conn_id,
+            old_name=table_name,
+            new_name=request.new_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.delete("/{conn_id}/tables")
+async def delete_tables(
+    conn_id: str,
+    request: DeleteTablesRequest
+):
+    """批量删除因子表"""
+    try:
+        return await factor_service.delete_tables(
+            conn_id=conn_id,
+            table_names=request.table_names
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.put("/{conn_id}/tables/{table_name}/metadata")
+async def update_table_metadata(
+    conn_id: str,
+    table_name: str,
+    request: MetadataUpdate
+):
+    """更新因子表元数据"""
+    try:
+        return await factor_service.update_table_metadata(
+            conn_id=conn_id,
+            table_name=table_name,
+            metadata=request.metadata
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+# ---------- 因子管理 ----------
+
+@router.put("/{conn_id}/tables/{table_name}/factors/{factor_name}/rename")
+async def rename_factor(
+    conn_id: str,
+    table_name: str,
+    factor_name: str,
+    request: RenameRequest
+):
+    """重命名因子"""
+    try:
+        return await factor_service.rename_factor(
+            conn_id=conn_id,
+            table_name=table_name,
+            old_name=factor_name,
+            new_name=request.new_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.delete("/{conn_id}/tables/{table_name}/factors")
+async def delete_factors(
+    conn_id: str,
+    table_name: str,
+    request: DeleteFactorsRequest
+):
+    """批量删除因子"""
+    try:
+        return await factor_service.delete_factors(
+            conn_id=conn_id,
+            table_name=table_name,
+            factor_names=request.factor_names
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{type(e).__name__}: {e}")
+
+
+@router.put("/{conn_id}/tables/{table_name}/factors/{factor_name}/metadata")
+async def update_factor_metadata(
+    conn_id: str,
+    table_name: str,
+    factor_name: str,
+    request: MetadataUpdate
+):
+    """更新因子元数据"""
+    try:
+        return await factor_service.update_factor_metadata(
+            conn_id=conn_id,
+            table_name=table_name,
+            factor_name=factor_name,
+            metadata=request.metadata
         )
     except HTTPException:
         raise

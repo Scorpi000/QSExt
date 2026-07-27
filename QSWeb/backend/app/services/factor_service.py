@@ -322,6 +322,44 @@ class FactorService:
             except Exception:
                 pass
 
+    async def rename_table(self, conn_id: str, old_name: str, new_name: str) -> Dict[str, Any]:
+        """重命名因子表"""
+        db = self._get_factor_db(conn_id)
+        db.renameTable(old_name, new_name)
+        return {"message": f"表 '{old_name}' 已重命名为 '{new_name}'"}
+
+    async def delete_tables(self, conn_id: str, table_names: List[str]) -> Dict[str, Any]:
+        """批量删除因子表"""
+        db = self._get_factor_db(conn_id)
+        for name in table_names:
+            db.deleteTable(name)
+        return {"message": f"已删除 {len(table_names)} 个表"}
+
+    async def update_table_metadata(self, conn_id: str, table_name: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """更新因子表元数据"""
+        db = self._get_factor_db(conn_id)
+        db.setTableMetaData(table_name, meta_data=metadata)
+        # 元数据只存在于内存中，调用 disconnect 会丢失，但这里不处理持久化
+        return {"message": f"表 '{table_name}' 元数据已更新"}
+
+    async def rename_factor(self, conn_id: str, table_name: str, old_name: str, new_name: str) -> Dict[str, Any]:
+        """重命名因子"""
+        db = self._get_factor_db(conn_id)
+        db.renameFactor(table_name, old_name, new_name)
+        return {"message": f"因子 '{old_name}' 已重命名为 '{new_name}'"}
+
+    async def delete_factors(self, conn_id: str, table_name: str, factor_names: List[str]) -> Dict[str, Any]:
+        """批量删除因子"""
+        db = self._get_factor_db(conn_id)
+        db.deleteFactor(table_name, factor_names)
+        return {"message": f"已从表 '{table_name}' 删除 {len(factor_names)} 个因子"}
+
+    async def update_factor_metadata(self, conn_id: str, table_name: str, factor_name: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """更新因子元数据"""
+        db = self._get_factor_db(conn_id)
+        db.setFactorMetaData(table_name, factor_name, meta_data=metadata)
+        return {"message": f"因子 '{factor_name}' 元数据已更新"}
+
     def disconnect_all(self):
         """断开所有连接"""
         for db in self._factor_dbs.values():

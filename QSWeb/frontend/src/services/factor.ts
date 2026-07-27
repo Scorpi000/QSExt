@@ -121,3 +121,71 @@ export const getTableMetadata = (
     `/factors/${connId}/tables/${tableName}/metadata`
   )
 }
+
+// ---------- 表管理 ----------
+
+// 重命名因子表
+export const renameTable = (
+  connId: string,
+  tableName: string,
+  newName: string
+) => {
+  return api.put(`/factors/${connId}/tables/${tableName}/rename`, { new_name: newName })
+}
+
+// 批量删除因子表
+export const deleteTables = (
+  connId: string,
+  tableNames: string[]
+) => {
+  return api.delete(`/factors/${connId}/tables`, { data: { table_names: tableNames } })
+}
+
+// 更新因子表元数据
+export const updateTableMetadata = (
+  connId: string,
+  tableName: string,
+  metadata: Record<string, any>
+) => {
+  return api.put(`/factors/${connId}/tables/${tableName}/metadata`, { metadata })
+}
+
+// ---------- 因子管理 ----------
+
+// 重命名因子
+export const renameFactor = (
+  connId: string,
+  tableName: string,
+  oldName: string,
+  newName: string
+) => {
+  return api.put(
+    `/factors/${connId}/tables/${tableName}/factors/${oldName}/rename`,
+    { new_name: newName }
+  )
+}
+
+// 批量删除因子
+export const deleteFactors = (
+  connId: string,
+  tableName: string,
+  factorNames: string[]
+) => {
+  return api.delete(
+    `/factors/${connId}/tables/${tableName}/factors`,
+    { data: { factor_names: factorNames } }
+  )
+}
+
+// 更新因子元数据
+export const updateFactorMetadata = (
+  connId: string,
+  tableName: string,
+  factorName: string,
+  metadata: Record<string, any>
+) => {
+  return api.put(
+    `/factors/${connId}/tables/${tableName}/factors/${factorName}/metadata`,
+    { metadata }
+  )
+}

@@ -17,7 +17,6 @@ import {
   InputNumber,
   Descriptions,
   Divider,
-  Collapse,
   Switch,
 } from 'antd'
 import {
@@ -37,6 +36,7 @@ import {
 } from '../../services/connection'
 import {
   FactorInfo,
+  FactorTable,
   getFactorData,
   FactorData,
   FactorStats,
@@ -44,9 +44,16 @@ import {
   reconnectFactorDB,
   getFactorMetadata,
   getTableMetadata,
+  renameTable,
+  deleteTables,
+  updateTableMetadata,
+  renameFactor,
+  deleteFactors,
+  updateFactorMetadata,
 } from '../../services/factor'
 import FactorTree from '../../components/FactorTree/FactorTree'
 import DataTable from '../../components/DataTable/DataTable'
+import MetadataEditor from '../../components/MetadataEditor/MetadataEditor'
 
 const { RangePicker } = DatePicker
 
@@ -60,6 +67,9 @@ function DataManager() {
 
   // 因子树刷新 key（重连后递增以强制重新挂载）
   const [treeRefreshKey, setTreeRefreshKey] = useState(0)
+
+  // 当前选中的表（点击表节点时设置）
+  const [selectedTable, setSelectedTable] = useState<FactorTable | null>(null)
 
   // 当前选中的因子
   const [selectedFactor, setSelectedFactor] = useState<FactorInfo | null>(null)
@@ -91,7 +101,7 @@ function DataManager() {
     try {
       const data = await getConnections()
       setConnections(data as unknown as Connection[])
-    } catch (error) {
+    } catch {
       // 错误已在 api 拦截器中处理
     } finally {
       setLoadingConnections(false)
@@ -110,7 +120,7 @@ function DataManager() {
       setCreateModalVisible(false)
       createForm.resetFields()
       loadConnections()
-    } catch (error) {
+    } catch {
       // 错误已在 api 拦截器中处理
     }
   }
@@ -123,10 +133,11 @@ function DataManager() {
       if (activeConnection?.id === id) {
         setActiveConnection(null)
         setSelectedFactor(null)
+        setSelectedTable(null)
         setFactorData(null)
       }
       loadConnections()
-    } catch (error) {
+    } catch {
       // 错误已在 api 拦截器中处理
     }
   }
@@ -136,13 +147,30 @@ function DataManager() {
     try {
       await reconnectFactorDB(id)
       message.success('重连成功')
-      // 清空当前选中的因子和数据，刷新因子树
       if (activeConnection?.id === id) {
         setSelectedFactor(null)
+        setSelectedTable(null)
         setFactorData(null)
         setTreeRefreshKey((k) => k + 1)
       }
-    } catch (error) {
+    } catch {
+      // 错误已在 api 拦截器中处理
+    }
+  }
+
+  // 选择表节点
+  const handleTableSelect = async (table: FactorTable) => {
+    setSelectedTable(table)
+    setSelectedFactor(null)
+    setFactorData(null)
+    setFactorStats(null)
+    setFactorMeta(null)
+    setTableMeta(null)
+
+    try {
+      const tMeta = await getTableMetadata(table.conn_id, table.name)
+      setTableMeta(tMeta as unknown as Record<string, any>)
+    } catch {
       // 错误已在 api 拦截器中处理
     }
   }
@@ -150,6 +178,7 @@ function DataManager() {
   // 选择因子
   const handleFactorSelect = async (factor: FactorInfo) => {
     setSelectedFactor(factor)
+    setSelectedTable(null)
     setLoadingData(true)
     setFactorMeta(null)
     setTableMeta(null)
@@ -163,18 +192,15 @@ function DataManager() {
       if (selectedIds.length > 0) {
         params.ids = selectedIds.join(',')
       }
-      // 并行加载数据、元数据和统计信息
-      const [data, fMeta, tMeta, stats] = await Promise.all([
+      const [data, fMeta, stats] = await Promise.all([
         getFactorData(factor.conn_id, factor.table_name, factor.name, params),
         getFactorMetadata(factor.conn_id, factor.table_name, factor.name),
-        getTableMetadata(factor.conn_id, factor.table_name),
         getFactorStats(factor.conn_id, factor.table_name, factor.name),
       ])
       setFactorData(data as unknown as FactorData)
       setFactorMeta(fMeta as unknown as Record<string, any>)
-      setTableMeta(tMeta as unknown as Record<string, any>)
       setFactorStats(stats as unknown as FactorStats)
-    } catch (error) {
+    } catch {
       // 错误已在 api 拦截器中处理
     } finally {
       setLoadingData(false)
@@ -188,17 +214,83 @@ function DataManager() {
     }
   }
 
+  // ---------- 表管理回调 ----------
+
+  const handleTableRename = async (oldName: string, newName: string) => {
+    if (!activeConnection) return
+    await renameTable(activeConnection.id, oldName, newName)
+    message.success(`表 "${oldName}" 已重命名为 "${newName}"`)
+    setSelectedTable(null)
+    setTreeRefreshKey((k) => k + 1)
+  }
+
+  const handleTableDelete = async (tableNames: string[]) => {
+    if (!activeConnection) return
+    await deleteTables(activeConnection.id, tableNames)
+    message.success(`已删除 ${tableNames.length} 个表`)
+    setSelectedTable(null)
+    setSelectedFactor(null)
+    setFactorData(null)
+    setTreeRefreshKey((k) => k + 1)
+  }
+
+  const handleTableMetadataSave = async (metadata: Record<string, any>) => {
+    if (!activeConnection || !selectedTable) return
+    await updateTableMetadata(activeConnection.id, selectedTable.name, metadata)
+    // 刷新元数据显示
+    const tMeta = await getTableMetadata(activeConnection.id, selectedTable.name)
+    setTableMeta(tMeta as unknown as Record<string, any>)
+  }
+
+  // ---------- 因子管理回调 ----------
+
+  const handleFactorRename = async (tableName: string, oldName: string, newName: string) => {
+    if (!activeConnection) return
+    await renameFactor(activeConnection.id, tableName, oldName, newName)
+    message.success(`因子 "${oldName}" 已重命名为 "${newName}"`)
+    // 如果当前选中的是被重命名的因子，更新选中状态
+    if (selectedFactor?.name === oldName && selectedFactor?.table_name === tableName) {
+      setSelectedFactor(null)
+      setFactorData(null)
+    }
+  }
+
+  const handleFactorDelete = async (tableName: string, factorNames: string[]) => {
+    if (!activeConnection) return
+    await deleteFactors(activeConnection.id, tableName, factorNames)
+    message.success(`已删除 ${factorNames.length} 个因子`)
+    if (selectedFactor?.table_name === tableName && factorNames.includes(selectedFactor.name)) {
+      setSelectedFactor(null)
+      setFactorData(null)
+    }
+  }
+
+  const handleFactorMetadataSave = async (metadata: Record<string, any>) => {
+    if (!activeConnection || !selectedFactor) return
+    await updateFactorMetadata(
+      activeConnection.id,
+      selectedFactor.table_name,
+      selectedFactor.name,
+      metadata
+    )
+    // 刷新元数据显示
+    const fMeta = await getFactorMetadata(
+      activeConnection.id,
+      selectedFactor.table_name,
+      selectedFactor.name
+    )
+    setFactorMeta(fMeta as unknown as Record<string, any>)
+  }
+
   // 过滤缺失值后的数据
   const displayData = useMemo(() => {
     if (!factorData) return { data: {}, columns: [], index: [] }
     if (!filterNaN) return factorData
 
-    // 找出因子值列（排除 datetime、code 等）
     const valueCols = factorData.columns.filter(
       (c) => c !== 'datetime' && c !== 'code'
     )
 
-    // 过滤掉所有值列都是 NaN 的行索引
     const keepIndices: number[] = []
     for (let i = 0; i < factorData.index.length; i++) {
       const hasValue = valueCols.some((col) => {
@@ -208,7 +300,6 @@ function DataManager() {
       if (hasValue) keepIndices.push(i)
     }
 
-    // 按保留索引重建数据
     const newData: Record<string, any[]> = {}
     for (const col of factorData.columns) {
       const colData = factorData.data[col] || []
@@ -221,7 +312,6 @@ function DataManager() {
     }
   }, [factorData, filterNaN])
 
-  // 获取数据库类型标签颜色
   const getDbTypeColor = (dbType: string) => {
     const colors: Record<string, string> = {
       HDF5DB: 'blue',
@@ -232,6 +322,13 @@ function DataManager() {
     }
     return colors[dbType] || 'default'
   }
+
+  // 右侧面板标题
+  const rightPanelTitle = selectedFactor
+    ? `${selectedFactor.table_name} / ${selectedFactor.name}`
+    : selectedTable
+      ? `${selectedTable.name} / 表信息`
+      : '数据预览'
 
   return (
     <Row gutter={16} style={{ height: 'calc(100vh - 160px)' }}>
@@ -275,6 +372,7 @@ function DataManager() {
                     onClick={() => {
                       setActiveConnection(conn)
                       setSelectedFactor(null)
+                      setSelectedTable(null)
                       setFactorData(null)
                     }}
                   >
@@ -330,7 +428,6 @@ function DataManager() {
               </div>
             )}
 
-            {/* 选中连接的参数信息 */}
             {activeConnection && Object.keys(activeConnection.args).length > 0 && (
               <div style={{ padding: '0 16px 12px' }}>
                 <Divider style={{ margin: '0 0 8px' }} />
@@ -367,6 +464,11 @@ function DataManager() {
               connectionId={activeConnection.id}
               connectionName={activeConnection.name}
               onFactorSelect={handleFactorSelect}
+              onTableSelect={handleTableSelect}
+              onTableRename={handleTableRename}
+              onTableDelete={handleTableDelete}
+              onFactorRename={handleFactorRename}
+              onFactorDelete={handleFactorDelete}
             />
           ) : (
             <div
@@ -384,14 +486,10 @@ function DataManager() {
         </Card>
       </Col>
 
-      {/* 右侧：数据预览 */}
+      {/* 右侧：数据预览 / 表信息 */}
       <Col span={12} style={{ height: '100%' }}>
         <Card
-          title={
-            selectedFactor
-              ? `${selectedFactor.table_name} / ${selectedFactor.name}`
-              : '数据预览'
-          }
+          title={rightPanelTitle}
           size="small"
           style={{ height: '100%' }}
           bodyStyle={{ padding: 0, height: 'calc(100% - 46px)', overflow: 'auto' }}
@@ -473,61 +571,14 @@ function DataManager() {
                   </Space>
                 </div>
               )}
-              {/* 元数据展示 */}
-              {(factorMeta || tableMeta) && (
-                <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
-                  <Collapse
-                    size="small"
-                    defaultActiveKey={[]}
-                    items={[
-                      ...(factorMeta && Object.keys(factorMeta).length > 0
-                        ? [
-                            {
-                              key: 'factor',
-                              label: '因子信息',
-                              children: (
-                                <Descriptions
-                                  column={2}
-                                  size="small"
-                                  labelStyle={{ color: '#666', fontSize: 12 }}
-                                  contentStyle={{ fontSize: 12 }}
-                                >
-                                  {Object.entries(factorMeta).map(([key, value]) => (
-                                    <Descriptions.Item key={key} label={key}>
-                                      {value ?? '-'}
-                                    </Descriptions.Item>
-                                  ))}
-                                </Descriptions>
-                              ),
-                            },
-                          ]
-                        : []),
-                      ...(tableMeta && Object.keys(tableMeta).length > 0
-                        ? [
-                            {
-                              key: 'table',
-                              label: '因子表信息',
-                              children: (
-                                <Descriptions
-                                  column={2}
-                                  size="small"
-                                  labelStyle={{ color: '#666', fontSize: 12 }}
-                                  contentStyle={{ fontSize: 12 }}
-                                >
-                                  {Object.entries(tableMeta).map(([key, value]) => (
-                                    <Descriptions.Item key={key} label={key}>
-                                      {value ?? '-'}
-                                    </Descriptions.Item>
-                                  ))}
-                                </Descriptions>
-                              ),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                </div>
-              )}
+              {/* 因子元数据 */}
+              <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0' }}>
+                <MetadataEditor
+                  title="因子信息"
+                  metadata={factorMeta || {}}
+                  onSave={handleFactorMetadataSave}
+                />
+              </div>
               <DataTable
                 data={displayData.data}
                 columns={displayData.columns}
@@ -535,6 +586,30 @@ function DataManager() {
                 loading={loadingData}
               />
             </Spin>
+          ) : selectedTable ? (
+            <div style={{ padding: '16px' }}>
+              <Descriptions
+                title="表基本信息"
+                column={2}
+                size="small"
+                labelStyle={{ color: '#666', fontSize: 12 }}
+                contentStyle={{ fontSize: 12 }}
+              >
+                <Descriptions.Item label="表名">{selectedTable.name}</Descriptions.Item>
+                <Descriptions.Item label="因子数量">
+                  {selectedTable.factor_count ?? '-'}
+                </Descriptions.Item>
+                {selectedTable.description && (
+                  <Descriptions.Item label="描述">{selectedTable.description}</Descriptions.Item>
+                )}
+              </Descriptions>
+              <Divider style={{ margin: '12px 0' }} />
+              <MetadataEditor
+                title="因子表信息"
+                metadata={tableMeta || {}}
+                onSave={handleTableMetadataSave}
+              />
+            </div>
           ) : (
             <div
               style={{
@@ -545,7 +620,7 @@ function DataManager() {
                 color: '#999',
               }}
             >
-              请从左侧因子树中选择一个因子
+              请从左侧因子树中选择一个表或因子
             </div>
           )}
         </Card>

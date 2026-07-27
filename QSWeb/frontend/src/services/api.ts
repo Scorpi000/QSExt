@@ -1,7 +1,3 @@
-/**
- * API 基础配置
- */
-
 import axios from 'axios'
 import { message } from 'antd'
 
@@ -13,7 +9,7 @@ const api = axios.create({
   },
 })
 
-// 响应拦截器
+// 响应拦截器：解包 data
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {

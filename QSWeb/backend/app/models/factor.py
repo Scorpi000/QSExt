@@ -26,6 +26,27 @@ class FactorTableInfo(BaseModel):
     conn_id: str
     factor_count: Optional[int] = None
     description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class RenameRequest(BaseModel):
+    """重命名请求"""
+    new_name: str = Field(..., description="新名称")
+
+
+class MetadataUpdate(BaseModel):
+    """元数据更新请求"""
+    metadata: Dict[str, Any] = Field(..., description="元数据 key-value 字典")
+
+
+class DeleteTablesRequest(BaseModel):
+    """批量删除表请求"""
+    table_names: List[str] = Field(..., description="要删除的表名列表")
+
+
+class DeleteFactorsRequest(BaseModel):
+    """批量删除因子请求"""
+    factor_names: List[str] = Field(..., description="要删除的因子名列表")
 
 
 class FactorDBInfo(BaseModel):
