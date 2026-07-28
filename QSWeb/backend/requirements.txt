@@ -6,9 +6,6 @@ python-multipart==0.0.6
 # 数据验证
 pydantic>=2.5.0
 
-# 缓存和会话
-redis==5.0.0
-
 # HTTP 客户端
 httpx==0.26.0
 

@@ -12,6 +12,8 @@ import { getTables, getFactors, FactorTable, FactorInfo } from '../../services/f
 interface FactorTreeProps {
   connectionId: string
   connectionName: string
+  /** 只读模式（如 JYDB 不支持写操作） */
+  readonly?: boolean
   onFactorSelect?: (factor: FactorInfo) => void
   onTableSelect?: (table: FactorTable) => void
   onTableRename: (oldName: string, newName: string) => Promise<void>
@@ -28,6 +30,7 @@ interface TreeNodeData extends DataNode {
 function FactorTree({
   connectionId,
   connectionName,
+  readonly = false,
   onFactorSelect,
   onTableSelect,
   onTableRename,
@@ -241,9 +244,12 @@ function FactorTree({
     },
   ]
 
-  // titleRender 实现右键菜单
+  // titleRender 实现右键菜单（只读模式下不显示右键菜单）
   const titleRender = (node: TreeNodeData) => {
     const { type, data } = node
+    if (readonly) {
+      return <span>{node.title as React.ReactNode}</span>
+    }
     if (type === 'table' && data) {
       return (
         <Dropdown menu={{ items: getTableMenuItems(data as FactorTable) }} trigger={['contextMenu']}>

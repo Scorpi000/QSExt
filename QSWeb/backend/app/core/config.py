@@ -22,9 +22,6 @@ class Settings:
         "http://127.0.0.1:23000",
     ]
 
-    # Redis 配置（可选）
-    REDIS_URL: str = "redis://localhost:6379/0"
-
     # PostgreSQL 配置（可选）
     DATABASE_URL: str = "postgresql://user:pass@localhost:5432/qsweb"
 

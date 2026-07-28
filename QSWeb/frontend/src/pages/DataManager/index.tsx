@@ -32,6 +32,7 @@ import {
   ConnectionCreate,
   ConnectionUpdate,
   DB_TYPES,
+  isWritableDB,
   getConnections,
   createConnection,
   updateConnection,
@@ -351,6 +352,7 @@ function DataManager() {
     const colors: Record<string, string> = {
       HDF5DB: 'blue',
       SQLDB: 'cyan',
+      JYDB: 'geekblue',
       ClickHouseDB: 'orange',
       MongoDB: 'lime',
       Neo4jDB: 'purple',
@@ -507,6 +509,7 @@ function DataManager() {
               key={`${activeConnection.id}-${treeRefreshKey}`}
               connectionId={activeConnection.id}
               connectionName={activeConnection.name}
+              readonly={!isWritableDB(activeConnection.db_type)}
               onFactorSelect={handleFactorSelect}
               onTableSelect={handleTableSelect}
               onTableRename={handleTableRename}
@@ -621,6 +624,7 @@ function DataManager() {
                   title="因子信息"
                   metadata={factorMeta || {}}
                   onSave={handleFactorMetadataSave}
+                  readonly={!isWritableDB(activeConnection?.db_type || '')}
                 />
               </div>
               <DataTable
@@ -652,6 +656,7 @@ function DataManager() {
                 title="因子表信息"
                 metadata={tableMeta || {}}
                 onSave={handleTableMetadataSave}
+                readonly={!isWritableDB(activeConnection?.db_type || '')}
               />
             </div>
           ) : (
@@ -773,6 +778,35 @@ function DataManager() {
                       rules={[{ required: true }]}
                     >
                       <Input placeholder="Scorpion" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              if (dbType === 'JYDB') {
+                return (
+                  <>
+                    <Form.Item
+                      name={['args', 'IPAddr']}
+                      label="IPAddr（主机地址）"
+                      rules={[{ required: true }]}
+                    >
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）" initialValue={5432}>
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input placeholder="jydb" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item
+                      name={['args', 'DBName']}
+                      label="DBName（数据库名）"
+                      rules={[{ required: true }]}
+                    >
+                      <Input placeholder="JYDB" />
                     </Form.Item>
                   </>
                 )
@@ -947,6 +981,27 @@ function DataManager() {
                     </Form.Item>
                     <Form.Item name={['args', 'DBName']} label="DBName（数据库名）" rules={[{ required: true }]}>
                       <Input placeholder="Scorpion" />
+                    </Form.Item>
+                  </>
+                )
+              }
+              if (dbType === 'JYDB') {
+                return (
+                  <>
+                    <Form.Item name={['args', 'IPAddr']} label="IPAddr（主机地址）" rules={[{ required: true }]}>
+                      <Input placeholder="127.0.0.1" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Port']} label="Port（端口）">
+                      <InputNumber style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name={['args', 'User']} label="User（用户名）">
+                      <Input placeholder="jydb" />
+                    </Form.Item>
+                    <Form.Item name={['args', 'Pwd']} label="Pwd（密码）">
+                      <Input.Password />
+                    </Form.Item>
+                    <Form.Item name={['args', 'DBName']} label="DBName（数据库名）" rules={[{ required: true }]}>
+                      <Input placeholder="JYDB" />
                     </Form.Item>
                   </>
                 )

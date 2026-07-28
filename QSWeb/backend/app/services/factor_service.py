@@ -32,6 +32,9 @@ class FactorService:
         elif db_type == "SQLDB":
             from QuantStudio.Factor.SQLDB import SQLDB
             db = SQLDB(args=args)
+        elif db_type == "JYDB":
+            from QuantStudio.Factor.JYDB import JYDB
+            db = JYDB(args=args)
         elif db_type == "ClickHouseDB":
             from QSExt.Factor.ClickHouseDB import ClickHouseDB
             db = ClickHouseDB(args=args)

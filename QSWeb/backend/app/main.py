@@ -7,9 +7,12 @@ QSWeb 后端应用入口
 """
 
 import json
+import traceback
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import router as api_router
 from app.core.config import settings
@@ -47,6 +50,54 @@ async def api_exception_handler(request: Request, exc: APIException):
             "message": exc.message,
             "detail": exc.detail,
         }
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """处理 Starlette/FastAPI 标准 HTTP 异常"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": "HTTP_ERROR",
+            "message": exc.detail,
+            "detail": None,
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理 Pydantic 请求验证异常"""
+    errors = []
+    for error in exc.errors():
+        errors.append({
+            "loc": error.get("loc", []),
+            "msg": error.get("msg", ""),
+            "type": error.get("type", ""),
+        })
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "VALIDATION_ERROR",
+            "message": "请求参数验证失败",
+            "detail": errors,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """兜底异常处理：捕获所有未处理的异常"""
+    # 记录完整 traceback 便于排查
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "服务器内部错误" if not settings.DEBUG else str(exc),
+            "detail": None if not settings.DEBUG else traceback.format_exc(),
+        },
     )
 
 

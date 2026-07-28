@@ -1,196 +1,233 @@
 /**
- * 回测工作台页面
+ * BacktestStudio - 回测工作台页面
  *
- * 布局：左侧配置面板 | 右侧结果展示
+ * 左侧：配置区（全局因子池 + 全局价格因子池 + 日期/时点 + 模块选择 + 运行按钮）
+ * 右侧：结果区（结果树 + 叶子节点详情）
  */
 
-import { useEffect } from 'react'
-import { Row, Col, Card, Button, message } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
-import BacktestConfig from '../../components/BacktestConfig'
-import ICAnalysisChart from '../../components/ICAnalysisChart'
-import QuantileChart from '../../components/QuantileChart'
-import BacktestResult from '../../components/BacktestResult'
-import BacktestHistory from '../../components/BacktestHistory'
-import TaskProgress from '../../components/TaskProgress'
-import { useTaskProgress } from '../../hooks/useTaskProgress'
-import { useBacktestStudioStore } from '../../stores/backtestStudio'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  runICAnalysis,
-  runQuantilePortfolio,
-  runTurnover,
-  submitStrategyBacktest,
-  getBacktestResult,
-  type ICAnalysisParams,
-  type QuantilePortfolioParams,
-  type TurnoverParams,
-} from '../../services/backtest'
+  Row, Col, Card, Button, DatePicker, Radio, Space, Tooltip, message,
+} from 'antd'
+import { PlayCircleOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
+import type { ModuleInfo, ModuleRunConfig, ResultNode, BacktestRunRequest, FactorRef, SectionIdSource } from '../../services/backtest'
+import { getBacktestModules, getBacktestConfig, getSectionIdSources, submitBacktestRun, getBacktestResult } from '../../services/backtest'
+import { useTaskProgress } from '../../hooks/useTaskProgress'
+import TaskProgress from '../../components/TaskProgress'
+import ModulePicker from '../../components/ModulePicker'
+import ModuleList from '../../components/ModuleList'
+import ResultTree from '../../components/ResultTree'
+import ResultLeaf from '../../components/ResultLeaf'
+import FactorSelector from '../../components/FactorSelector'
+
+const { RangePicker } = DatePicker
 
 function BacktestStudio() {
-  const store = useBacktestStudioStore()
+  // ─── 全局因子池 ───────────────────────────────────────────
+  const [globalFactors, setGlobalFactors] = useState<FactorRef[]>([])
 
-  // WebSocket 监听策略回测任务进度
-  const { task: wsTask } = useTaskProgress(store.strategyTaskId)
+  // ─── 全局配置 ─────────────────────────────────────────────
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(
+    [dayjs().subtract(3, 'year'), dayjs()]
+  )
+  const [tradingDayAvailable, setTradingDayAvailable] = useState(false)
+  const [dtMode, setDtMode] = useState<'natural' | 'trading'>('natural')
+  const [sectionSources, setSectionSources] = useState<SectionIdSource[]>([])
 
-  // 当 WebSocket 通知任务完成或失败时，获取结果或更新状态
+  // ─── 模块列表 ─────────────────────────────────────────────
+  const [modules, setModules] = useState<ModuleInfo[]>([])
+  const [moduleConfigs, setModuleConfigs] = useState<ModuleRunConfig[]>([])
+
+  // ─── 运行状态 ─────────────────────────────────────────────
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const { task } = useTaskProgress(taskId)
+  const [resultTree, setResultTree] = useState<ResultNode | null>(null)
+  const [selectedLeaf, setSelectedLeaf] = useState<ResultNode | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+
+  // ─── 加载 ─────────────────────────────────────────────────
+  const loadModules = useCallback(async () => {
+    try {
+      const data = await getBacktestModules()
+      setModules(data as unknown as ModuleInfo[])
+    } catch { /* handled */ }
+  }, [])
+
   useEffect(() => {
-    if (!wsTask || !store.strategyTaskId) return
-    if (wsTask.status === 'completed' && !store.strategyResult) {
-      getBacktestResult(store.strategyTaskId).then((resp) => {
-        if (resp.result) {
-          store.setStrategyResult(resp.result)
-          store.setStrategyLoading(false)
+    loadModules()
+    getBacktestConfig().then((data) => {
+      const cfg = data as unknown as { trading_day_available: boolean; section_id_sources: string[] }
+      setTradingDayAvailable(cfg.trading_day_available)
+      setDtMode(cfg.trading_day_available ? 'trading' : 'natural')
+    }).catch(() => {})
+    getSectionIdSources().then((data) => {
+      setSectionSources(data as unknown as SectionIdSource[])
+    }).catch(() => {})
+  }, [loadModules])
+
+  // ─── 模块管理 ─────────────────────────────────────────────
+  const handleAddModule = (config: ModuleRunConfig) => {
+    setModuleConfigs([...moduleConfigs, config])
+    message.success(`已添加模块: ${config.instance_label || config.module_key}`)
+  }
+
+  const handleEditModule = (index: number) => {
+    const cfg = moduleConfigs[index]
+    const newConfigs = [...moduleConfigs]
+    newConfigs.splice(index, 1)
+    setModuleConfigs(newConfigs)
+    message.info(`已移除 "${cfg.instance_label || cfg.module_key}"，请重新添加并配置`)
+  }
+
+  const handleDeleteModule = (index: number) => {
+    const newConfigs = [...moduleConfigs]
+    newConfigs.splice(index, 1)
+    setModuleConfigs(newConfigs)
+  }
+
+  // ─── 运行回测 ─────────────────────────────────────────────
+  const handleRun = async () => {
+    if (moduleConfigs.length === 0) { message.warning('请至少添加一个回测模块'); return }
+    if (!dateRange) { message.warning('请选择日期范围'); return }
+
+    setResultTree(null)
+    setSelectedLeaf(null)
+    setIsRunning(true)
+
+    const request: BacktestRunRequest = {
+      module_configs: moduleConfigs,
+      start_date: dateRange[0].format('YYYY-MM-DD'),
+      end_date: dateRange[1].format('YYYY-MM-DD'),
+      dt_mode: dtMode,
+    }
+
+    try {
+      const resp = await submitBacktestRun(request)
+      const data = resp as unknown as { task_id: string }
+      setTaskId(data.task_id)
+    } catch { setIsRunning(false) }
+  }
+
+  // ─── 轮询结果 ─────────────────────────────────────────────
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!taskId) return
+
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const result = await getBacktestResult(taskId)
+        const data = result as unknown as Record<string, any>
+        if (data && data.type) {
+          setResultTree(data as unknown as ResultNode)
+          setIsRunning(false)
+          if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
         }
-      }).catch(() => {
-        store.setStrategyLoading(false)
-      })
-    }
-    if (wsTask.status === 'failed' && store.strategyLoading) {
-      store.setStrategyLoading(false)
-      message.error(wsTask.error || '回测任务失败')
-    }
-  }, [wsTask?.status, store.strategyTaskId, store.strategyResult, store.strategyLoading])
+      } catch { /* 继续轮询 */ }
+    }, 2000)
 
-  // IC 分析
-  const handleRunIC = async () => {
-    store.setIcLoading(true)
-    store.setAnalysisType('ic')
-    try {
-      const params: ICAnalysisParams = {
-        conn_id: store.connId,
-        table_name: store.tableName,
-        factor_name: store.factorName,
-      }
-      const result = await runICAnalysis(params)
-      store.setIcResult(result)
-    } catch {
-      // api interceptor handles error
-    } finally {
-      store.setIcLoading(false)
+    return () => {
+      if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null }
     }
-  }
+  }, [taskId])
 
-  // 分位数组合
-  const handleRunQuantile = async () => {
-    store.setQuantileLoading(true)
-    store.setAnalysisType('quantile')
-    try {
-      const params: QuantilePortfolioParams = {
-        conn_id: store.connId,
-        table_name: store.tableName,
-        factor_name: store.factorName,
-      }
-      const result = await runQuantilePortfolio(params)
-      store.setQuantileResult(result)
-    } finally {
-      store.setQuantileLoading(false)
+  // ─── WebSocket 失败处理 ───────────────────────────────────
+  useEffect(() => {
+    if (task && task.status === 'failed') {
+      message.error(`回测失败: ${task.error || '未知错误'}`)
+      setIsRunning(false)
     }
-  }
-
-  // 换手率
-  const handleRunTurnover = async () => {
-    store.setTurnoverLoading(true)
-    store.setAnalysisType('turnover')
-    try {
-      const params: TurnoverParams = {
-        conn_id: store.connId,
-        table_name: store.tableName,
-        factor_name: store.factorName,
-      }
-      const result = await runTurnover(params)
-      store.setTurnoverResult(result)
-    } finally {
-      store.setTurnoverLoading(false)
+    if (task && task.status === 'completed') {
+      setIsRunning(false)
     }
-  }
+  }, [task])
 
-  // 策略回测（异步）
-  const handleRunStrategy = async () => {
-    store.setStrategyLoading(true)
-    store.setAnalysisType('strategy')
-    store.setStrategyResult(null)
-    try {
-      const params = store.strategyParams || {
-        conn_id: store.connId,
-        table_name: store.tableName,
-        factor_name: store.factorName,
-      }
-      const { task_id } = await submitStrategyBacktest(params)
-      store.setStrategyTaskId(task_id)
-    } catch {
-      store.setStrategyLoading(false)
-    }
-  }
-
-  const isLoading = store.icLoading || store.quantileLoading || store.turnoverLoading || store.strategyLoading
-
+  // ─── 渲染 ─────────────────────────────────────────────────
   return (
-    <div style={{ height: 'calc(100vh - 160px)', overflow: 'auto' }}>
-      <Row gutter={16}>
-        {/* 左侧：配置面板 */}
-        <Col span={6}>
-          <BacktestConfig
-            onRunIC={handleRunIC}
-            onRunQuantile={handleRunQuantile}
-            onRunTurnover={handleRunTurnover}
-            onRunStrategy={handleRunStrategy}
-            loading={isLoading}
-          />
+    <Row gutter={16} style={{ height: 'calc(100vh - 160px)' }}>
+      <Col span={10} style={{ height: '100%', overflow: 'auto' }}>
 
-          {/* 策略回测进度 */}
-          {store.strategyTaskId && store.strategyLoading && (
-            <Card title="任务进度" size="small" style={{ marginTop: 12 }}>
-              <TaskProgress task={wsTask} width={undefined} />
-            </Card>
-          )}
-        </Col>
+        {/* 全局因子池 */}
+        <Card title="全局因子池" size="small" style={{ marginBottom: 12 }}>
+          <FactorSelector selected={globalFactors} onChange={setGlobalFactors} />
+        </Card>
 
-        {/* 右侧：结果展示 */}
-        <Col span={18}>
-          <Card
-            size="small"
-            style={{ minHeight: 400 }}
-            extra={
-              (store.icResult || store.quantileResult || store.strategyResult) && (
-                <Button size="small" icon={<DownloadOutlined />}>
-                  导出报告
-                </Button>
-              )
-            }
-          >
-            {/* 切换标签页 */}
-            {store.analysisType === 'ic' && store.icResult && (
-              <ICAnalysisChart result={store.icResult} />
-            )}
-            {store.analysisType === 'quantile' && store.quantileResult && (
-              <QuantileChart result={store.quantileResult} />
-            )}
-            {store.analysisType === 'strategy' && store.strategyResult && (
-              <BacktestResult result={store.strategyResult} />
-            )}
-            {store.analysisType === 'turnover' && store.turnoverResult && (
-              <div>
-                <h4>换手率分析: {store.turnoverResult.factor_name}</h4>
-                <p>平均换手率: <strong>{(store.turnoverResult.avg_turnover * 100).toFixed(2)}%</strong></p>
-              </div>
-            )}
-
-            {/* 无结果提示 */}
-            {!store.icResult && !store.quantileResult && !store.strategyResult && !store.turnoverResult && (
-              <div style={{ textAlign: 'center', padding: 60, color: '#999' }}>
-                <p>请在左侧选择因子并运行分析</p>
-                <p>支持 IC 分析、分位数组合、换手率分析和策略回测</p>
-              </div>
-            )}
-          </Card>
-
-          {/* 回测历史 */}
-          <div style={{ marginTop: 16 }}>
-            <BacktestHistory />
+        {/* 全局配置 */}
+        <Card title="全局配置" size="small" style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>日期范围</div>
+            <RangePicker style={{ width: '100%' }} value={dateRange}
+              onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs])} />
           </div>
-        </Col>
-      </Row>
-    </div>
+          <div>
+            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+              时点模式
+              {!tradingDayAvailable && (
+                <Tooltip title="交易日源未配置，请在 QSWebConfig.json 的 backtest.trading_day_source 中配置">
+                  <InfoCircleOutlined style={{ marginLeft: 6, color: '#faad14' }} />
+                </Tooltip>
+              )}
+            </div>
+            <Radio.Group value={dtMode} onChange={(e) => setDtMode(e.target.value)}
+              optionType="button" size="small">
+              <Radio.Button value="natural">自然日</Radio.Button>
+              <Radio.Button value="trading" disabled={!tradingDayAvailable}>交易日</Radio.Button>
+            </Radio.Group>
+            {!tradingDayAvailable && (
+              <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>
+                配置文件中未设置交易日源，仅支持自然日模式
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* 模块 */}
+        <Card title="回测模块" size="small" style={{ marginBottom: 12 }}
+          extra={<Button size="small" icon={<ReloadOutlined />} onClick={loadModules} />}>
+          <div style={{ marginBottom: 12 }}>
+            <ModulePicker
+              onAdd={handleAddModule}
+              globalFactors={globalFactors}
+              sectionSources={sectionSources}
+            />
+          </div>
+          <ModuleList configs={moduleConfigs} moduleInfos={modules}
+            onEdit={handleEditModule} onDelete={handleDeleteModule} />
+        </Card>
+
+        {/* 运行 */}
+        <Card size="small">
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Button type="primary" size="large" icon={<PlayCircleOutlined />}
+              onClick={handleRun} disabled={isRunning} block>
+              {isRunning ? '运行中...' : '全部运行'}
+            </Button>
+            <TaskProgress task={task} width={undefined} showName />
+          </Space>
+        </Card>
+      </Col>
+
+      {/* 结果区 */}
+      <Col span={14} style={{ height: '100%' }}>
+        <Row gutter={8} style={{ height: '100%' }}>
+          <Col span={8} style={{ height: '100%' }}>
+            <Card title="结果树" size="small" style={{ height: '100%' }}
+              bodyStyle={{ padding: 8, height: 'calc(100% - 46px)', overflow: 'auto' }}>
+              {resultTree
+                ? <ResultTree data={resultTree} onSelect={setSelectedLeaf} />
+                : <div style={{ textAlign: 'center', padding: 32, color: '#ccc', fontSize: 13 }}>运行回测后在此查看结果</div>}
+            </Card>
+          </Col>
+          <Col span={16} style={{ height: '100%' }}>
+            <Card title={selectedLeaf ? selectedLeaf.label : '结果详情'} size="small" style={{ height: '100%' }}
+              bodyStyle={{ padding: 12, height: 'calc(100% - 46px)', overflow: 'auto' }}>
+              <ResultLeaf node={selectedLeaf} />
+            </Card>
+          </Col>
+        </Row>
+      </Col>
+    </Row>
   )
 }
 

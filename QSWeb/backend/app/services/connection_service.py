@@ -148,7 +148,7 @@ class ConnectionService:
             # 根据数据库类型测试连接
             if db_type == "HDF5DB":
                 return await self._test_hdf5(args)
-            elif db_type == "SQLDB":
+            elif db_type in ("SQLDB", "JYDB"):
                 return await self._test_sql(args)
             elif db_type == "ClickHouseDB":
                 return await self._test_clickhouse(args)

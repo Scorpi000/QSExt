@@ -1,130 +1,138 @@
 """
-回测 API
-
-提供截面因子测试（IC 分析、分位数组合、换手率）和策略回测的 REST 接口。
+回测工作台 API 路由
 """
 
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, Query
+from typing import List
+
+from fastapi import APIRouter, HTTPException
 
 from app.models.backtest import (
-    ICAnalysisRequest,
-    QuantilePortfolioRequest,
-    TurnoverRequest,
-    StrategyBacktestRequest,
-    BacktestRegisterRequest,
+    ModuleInfo,
+    ModuleRunConfig,
+    BacktestRunRequest,
+    ResultNode,
+    BACKTEST_MODULE_REGISTRY,
 )
-from app.services.backtest_service import backtest_service
+from app.services.factor_service import factor_service
+from app.services.qs_bridge import QSBridge, _load_backtest_config
 from app.tasks.manager import task_manager
-from app.core.exceptions import ValidationException, NotFoundException
 
 router = APIRouter()
 
-
-# ─── IC 分析 ─────────────────────────────────────────────
-
-@router.post("/ic-analysis")
-async def run_ic_analysis(req: ICAnalysisRequest) -> Dict[str, Any]:
-    """运行截面因子 IC 分析"""
-    try:
-        return await backtest_service.run_ic_analysis(req)
-    except ValueError as e:
-        raise ValidationException(str(e))
-    except Exception as e:
-        raise ValidationException(f"{type(e).__name__}: {e}")
+# QSBridge 实例（暂不接入 RegistryService）
+qs_bridge = QSBridge(factor_service=factor_service, registry_service=None)
 
 
-# ─── 分位数组合 ──────────────────────────────────────────
-
-@router.post("/quantile-portfolio")
-async def run_quantile_portfolio(req: QuantilePortfolioRequest) -> Dict[str, Any]:
-    """运行分位数组合分析"""
-    try:
-        return await backtest_service.run_quantile_portfolio(req)
-    except ValueError as e:
-        raise ValidationException(str(e))
-    except Exception as e:
-        raise ValidationException(f"{type(e).__name__}: {e}")
-
-
-# ─── 换手率 ──────────────────────────────────────────────
-
-@router.post("/turnover")
-async def run_turnover(req: TurnoverRequest) -> Dict[str, Any]:
-    """运行因子换手率分析"""
-    try:
-        return await backtest_service.run_turnover(req)
-    except ValueError as e:
-        raise ValidationException(str(e))
-    except Exception as e:
-        raise ValidationException(f"{type(e).__name__}: {e}")
+def _module_def_to_info(key: str, mod_def: dict) -> ModuleInfo:
+    """将模块注册表条目转换为 ModuleInfo Pydantic 模型"""
+    from app.models.backtest import ParamDef
+    params = [ParamDef(**p) for p in mod_def.get("params", [])]
+    return ModuleInfo(
+        key=mod_def["key"],
+        name=mod_def["name"],
+        category=mod_def["category"],
+        description=mod_def.get("description", ""),
+        params=params,
+        requires_price=mod_def.get("requires_price", False),
+        requires_descriptor_ids=mod_def.get("requires_descriptor_ids", True),
+    )
 
 
-# ─── 策略回测 ────────────────────────────────────────────
+# ─── 配置信息 ─────────────────────────────────────────────────
 
-@router.post("/strategy/run")
-async def submit_strategy_backtest(req: StrategyBacktestRequest) -> Dict[str, str]:
-    """提交策略回测异步任务，返回任务 ID"""
-    try:
-        task_id = await backtest_service.submit_strategy_backtest(req)
-        return {"task_id": task_id, "message": "回测任务已提交"}
-    except ValueError as e:
-        raise ValidationException(str(e))
-    except Exception as e:
-        raise ValidationException(f"{type(e).__name__}: {e}")
-
-
-# ─── 回测结果 ────────────────────────────────────────────
-
-@router.get("/tasks/{task_id}/result")
-async def get_backtest_result(task_id: str) -> Dict[str, Any]:
-    """获取异步回测任务的结果"""
-    task = task_manager.get_task(task_id)
-    if task is None:
-        raise NotFoundException("任务", task_id)
-
-    response = task.to_dict()
-    if task.status.value == "completed":
-        response["result"] = task.result
-    elif task.status.value == "failed":
-        response["error"] = task.error
-
-    return response
+@router.get("/config")
+async def get_backtest_config():
+    """返回回测相关配置信息（供前端判断功能可用性）"""
+    cfg = _load_backtest_config()
+    tds = cfg.get("trading_day_source")
+    trading_day_available = bool(tds and tds.get("conn_id"))
+    section_id_sources = list(cfg.get("section_id_sources", {}).keys())
+    return {
+        "trading_day_available": trading_day_available,
+        "section_id_sources": section_id_sources,
+    }
 
 
-@router.get("/tasks/{task_id}")
-async def get_task_status(task_id: str) -> Dict[str, Any]:
-    """获取任务状态"""
-    task = task_manager.get_task(task_id)
-    if task is None:
-        raise NotFoundException("任务", task_id)
-    return task.to_dict()
+@router.get("/section-id-sources")
+async def get_section_id_sources():
+    """返回已配置的截面 ID 源列表"""
+    cfg = _load_backtest_config()
+    sources = cfg.get("section_id_sources", {})
+    return [
+        {"name": name, "method": info.get("method", "")}
+        for name, info in sources.items()
+    ]
 
 
-# ─── 回测历史 ────────────────────────────────────────────
+# ─── 模块列表 ─────────────────────────────────────────────────
 
-@router.get("/history")
-async def get_backtest_history(
-    factor_name: Optional[str] = Query(None, description="因子名称筛选"),
-    limit: int = Query(20, ge=1, le=100, description="返回数量上限"),
-) -> Dict[str, Any]:
-    """获取回测历史列表"""
-    results = backtest_service.get_history(factor_name=factor_name, limit=limit)
-    return {"total": len(results), "items": results}
+@router.get("/modules", response_model=List[ModuleInfo])
+async def list_modules():
+    """获取所有已注册的回测模块元信息"""
+    return [
+        _module_def_to_info(key, mod_def)
+        for key, mod_def in BACKTEST_MODULE_REGISTRY.items()
+    ]
 
 
-# ─── 回测注册 ────────────────────────────────────────────
+@router.get("/modules/{module_key}", response_model=ModuleInfo)
+async def get_module(module_key: str):
+    """获取指定模块的详细信息"""
+    mod_def = BACKTEST_MODULE_REGISTRY.get(module_key)
+    if mod_def is None:
+        raise HTTPException(status_code=404, detail=f"未知的回测模块: {module_key}")
+    return _module_def_to_info(module_key, mod_def)
 
-@router.post("/{task_id}/register")
-async def register_backtest(task_id: str, req: BacktestRegisterRequest = BacktestRegisterRequest()) -> Dict[str, Any]:
-    """注册回测到 QSRegistry"""
-    try:
-        return await backtest_service.register_backtest(
-            task_id=task_id,
-            name=req.name,
-            category=req.category,
+
+# ─── 回测运行 ─────────────────────────────────────────────────
+
+@router.post("/run")
+async def run_backtest(request: BacktestRunRequest):
+    """提交回测任务（异步执行）"""
+    # 验证模块引用
+    for cfg in request.module_configs:
+        if cfg.module_key not in BACKTEST_MODULE_REGISTRY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知的回测模块: {cfg.module_key}",
+            )
+
+    async def _run():
+        await task_manager.update_progress(task_id, 5, "正在解析因子...")
+
+        result = await qs_bridge.run_backtest(
+            module_configs=request.module_configs,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            dt_mode=request.dt_mode,
+            rebalance_dts=request.rebalance_dts,
         )
-    except ValueError as e:
-        raise ValidationException(str(e))
-    except Exception as e:
-        raise ValidationException(f"{type(e).__name__}: {e}")
+
+        await task_manager.update_progress(task_id, 90, "正在转换结果...")
+        return result.model_dump()
+
+    task_id = await task_manager.submit(
+        name=f"回测运行 ({len(request.module_configs)} 个模块)",
+        coro_or_func=_run(),
+    )
+
+    await task_manager.update_progress(task_id, 0, "任务已提交")
+    return {"task_id": task_id}
+
+
+@router.get("/tasks/{task_id}/result", response_model=ResultNode)
+async def get_task_result(task_id: str):
+    """获取回测任务的结果"""
+    task = task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    if task.status.value == "pending":
+        raise HTTPException(status_code=202, detail="任务尚未开始")
+    elif task.status.value == "running":
+        raise HTTPException(status_code=202, detail="任务正在运行中")
+    elif task.status.value == "failed":
+        raise HTTPException(status_code=500, detail=f"任务执行失败: {task.error}")
+
+    # 从 task.result（dict）重新构造 ResultNode
+    return ResultNode(**task.result)

@@ -35,7 +35,10 @@
       "Bash(python -c \"import QuantStudio; import inspect; from QuantStudio.BackTest import *; print\\(dir\\(\\)\\)\")",
       "Bash(pip show *)",
       "Bash(d:/PythonEnv/QS312/Scripts/python.exe -c ' *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(D:/PythonEnv/QS312/Scripts/python.exe -c \"from app.services.qs_bridge import QSBridge; print\\('OK'\\)\")",
+      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'Progress: {d[\\\\\"progress\\\\\"][\\\\\"complete\\\\\"]}/{d[\\\\\"progress\\\\\"][\\\\\"total\\\\\"]}'\\)\")",
+      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'Progress: {d[\\\\\"progress\\\\\"][\\\\\"complete\\\\\"]}/{d[\\\\\"progress\\\\\"][\\\\\"total\\\\\"]}, State: {d[\\\\\"state\\\\\"]}'\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

@@ -11,12 +11,8 @@ services:
       - "28000:28000"
     environment:
       - QS_CONFIG_PATH=/root/QuantStudioConfig
-      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ~/QuantStudioConfig:/root/QuantStudioConfig:ro
-    depends_on:
-      redis:
-        condition: service_started
     restart: unless-stopped
     networks:
       - qsweb-network
@@ -31,18 +27,6 @@ services:
       - "23000:80"
     depends_on:
       - backend
-    restart: unless-stopped
-    networks:
-      - qsweb-network
-
-  # ========== Redis（缓存 / 任务队列） ==========
-  redis:
-    image: redis:7-alpine
-    container_name: qsweb-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
     restart: unless-stopped
     networks:
       - qsweb-network
@@ -81,7 +65,6 @@ services:
       - qsweb-network
 
 volumes:
-  redis-data:
   neo4j-data:
   neo4j-logs:
   postgres-data:

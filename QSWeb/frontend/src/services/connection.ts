@@ -34,12 +34,19 @@ export interface ConnectionTestResult {
 
 // 支持的数据库类型
 export const DB_TYPES = [
-  { value: 'HDF5DB', label: 'HDF5 数据库', icon: '📁' },
-  { value: 'SQLDB', label: '关系数据库 (SQL)', icon: '🗃️' },
-  { value: 'ClickHouseDB', label: 'ClickHouse', icon: '⚡' },
-  { value: 'MongoDB', label: 'MongoDB', icon: '🍃' },
-  { value: 'Neo4jDB', label: 'Neo4j 图数据库', icon: '🔗' },
+  { value: 'HDF5DB', label: 'HDF5 数据库', icon: '📁', writable: true },
+  { value: 'SQLDB', label: '关系数据库 (SQL)', icon: '🗃️', writable: true },
+  { value: 'JYDB', label: '聚源数据库 (JYDB)', icon: '📊', writable: false },
+  { value: 'ClickHouseDB', label: 'ClickHouse', icon: '⚡', writable: true },
+  { value: 'MongoDB', label: 'MongoDB', icon: '🍃', writable: true },
+  { value: 'Neo4jDB', label: 'Neo4j 图数据库', icon: '🔗', writable: true },
 ]
+
+/** 判断数据库类型是否支持写入操作 */
+export function isWritableDB(dbType: string): boolean {
+  const def = DB_TYPES.find((d) => d.value === dbType)
+  return def?.writable ?? true
+}
 
 // 获取所有连接
 export const getConnections = () => {

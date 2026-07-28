@@ -6,6 +6,8 @@ interface MetadataEditorProps {
   title: string
   metadata: Record<string, any>
   onSave: (data: Record<string, any>) => Promise<void>
+  /** 只读模式，不显示编辑控件 */
+  readonly?: boolean
 }
 
 interface Entry {
@@ -14,7 +16,7 @@ interface Entry {
   originalKey?: string
 }
 
-function MetadataEditor({ title, metadata, onSave }: MetadataEditorProps) {
+function MetadataEditor({ title, metadata, onSave, readonly = false }: MetadataEditorProps) {
   const [entries, setEntries] = useState<Entry[]>([])
   const [saving, setSaving] = useState(false)
   const originalKeysRef = useRef<Set<string>>(new Set())
@@ -105,15 +107,17 @@ function MetadataEditor({ title, metadata, onSave }: MetadataEditorProps) {
         }}
       >
         <span style={{ fontWeight: 500, fontSize: 13 }}>{title}</span>
-        <Button
-          type="primary"
-          size="small"
-          icon={<SaveOutlined />}
-          loading={saving}
-          onClick={handleSave}
-        >
-          保存
-        </Button>
+        {!readonly && (
+          <Button
+            type="primary"
+            size="small"
+            icon={<SaveOutlined />}
+            loading={saving}
+            onClick={handleSave}
+          >
+            保存
+          </Button>
+        )}
       </div>
       {isEmpty ? (
         <div style={{ color: '#999', fontSize: 12, padding: '4px 0' }}>
@@ -122,44 +126,50 @@ function MetadataEditor({ title, metadata, onSave }: MetadataEditorProps) {
       ) : (
         entries.map((entry, index) => (
           <Row key={index} gutter={8} style={{ marginBottom: 4 }}>
-            <Col span={8}>
+            <Col span={readonly ? 8 : 8}>
               <Input
                 size="small"
                 placeholder="键名"
                 value={entry.key}
+                disabled={readonly}
                 onChange={(e) => handleKeyChange(index, e.target.value)}
               />
             </Col>
-            <Col span={14}>
+            <Col span={readonly ? 16 : 14}>
               <Input
                 size="small"
                 placeholder="值"
                 value={entry.value}
+                disabled={readonly}
                 onChange={(e) => handleValueChange(index, e.target.value)}
               />
             </Col>
-            <Col span={2}>
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDelete(index)}
-              />
-            </Col>
+            {!readonly && (
+              <Col span={2}>
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => handleDelete(index)}
+                />
+              </Col>
+            )}
           </Row>
         ))
       )}
-      <Button
-        type="dashed"
-        size="small"
-        icon={<PlusOutlined />}
-        onClick={handleAdd}
-        style={{ marginTop: 4 }}
-        block
-      >
-        添加
-      </Button>
+      {!readonly && (
+        <Button
+          type="dashed"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={handleAdd}
+          style={{ marginTop: 4 }}
+          block
+        >
+          添加
+        </Button>
+      )}
     </div>
   )
 }

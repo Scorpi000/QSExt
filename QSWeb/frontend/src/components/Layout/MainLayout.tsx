@@ -19,6 +19,11 @@ const menuItems = [
     label: '数据管理',
   },
   {
+    key: '/risk',
+    icon: <SafetyOutlined />,
+    label: '风险管理',
+  },
+  {
     key: '/factor',
     icon: <ExperimentOutlined />,
     label: '因子工作台',
@@ -29,22 +34,14 @@ const menuItems = [
     label: '回测工作台',
   },
   {
-    key: '/risk',
-    icon: <SafetyOutlined />,
-    label: '风险管理',
-    disabled: true,
-  },
-  {
     key: '/portfolio',
     icon: <PieChartOutlined />,
     label: '组合优化',
-    disabled: true,
   },
   {
     key: '/report',
     icon: <FileTextOutlined />,
     label: '报告中心',
-    disabled: true,
   },
 ]
 

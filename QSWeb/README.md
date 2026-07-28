@@ -10,7 +10,87 @@
 
 ## 快速开始
 
-### 方式一：使用启动脚本（推荐）
+### 方式一：Docker Compose 部署（生产/演示环境）
+
+适合小团队自部署或快速演示，一键启动前端 + 后端 + Neo4j + PostgreSQL。
+
+**前置条件**
+
+- Docker 20.10+
+- Docker Compose 2.0+
+- 主机上已存在 `~/QuantStudioConfig/` 目录（包含数据库连接配置文件）
+
+**启动**
+
+```bash
+cd QSWeb
+
+# 构建并启动所有服务
+docker compose up -d
+
+# 查看服务状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f backend
+```
+
+**服务端口**
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| 前端 (Nginx) | `23000` | Web GUI 入口 |
+| 后端 (FastAPI) | `28000` | REST API + WebSocket |
+| Neo4j | `7474` (HTTP) / `7687` (Bolt) | 图数据库（QSRegistry 元数据） |
+| PostgreSQL | `5432` | 可选业务数据库 |
+
+启动后访问 **http://localhost:23000** 打开 QSWeb。
+
+**管理命令**
+
+```bash
+# 停止所有服务
+docker compose down
+
+# 停止并删除数据卷（重置数据库）
+docker compose down -v
+
+# 仅重启后端
+docker compose restart backend
+
+# 查看特定服务日志
+docker compose logs -f --tail=100 backend
+
+# 进入后端容器调试
+docker compose exec backend bash
+```
+
+**环境变量**
+
+后端支持以下环境变量，可在 `docker-compose.yml` 中修改：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `QS_CONFIG_PATH` | QuantStudio 配置目录 | `/root/QuantStudioConfig` |
+| `CORS_ORIGINS` | 允许跨域的前端地址 | `http://localhost:23000` |
+
+**默认凭据**
+
+| 服务 | 用户名 | 密码 |
+|------|--------|------|
+| Neo4j | `neo4j` | `neo4j123` |
+| PostgreSQL | `qsweb` | `qsweb123` |
+
+> **生产环境提醒**：请务必修改默认密码。生产部署建议使用外部数据库（已有的 Neo4j/PostgreSQL 集群），在 `docker-compose.yml` 中移除对应服务并修改后端配置。
+
+**常见问题**
+
+1. **后端无法访问 QuantStudio 配置**：确保主机 `~/QuantStudioConfig/` 目录存在且包含必要的配置文件（`JYDBConfig.json` 等）
+2. **Neo4j 启动失败**：确保 7474/7687 端口未被占用；首次启动 APOC 插件安装可能需要几分钟
+3. **前端页面空白**：检查后端是否正常 `docker compose logs backend`，确认 API 可访问
+4. **WebSocket 连接失败**：检查 nginx 配置中的 WebSocket 代理设置，确认无反向代理拦截
+
+### 方式二：使用启动脚本（开发环境）
 
 `scripts/start.ps1` 可一键启动前后端服务，日志自动输出到 `logs/` 目录。
 
@@ -100,21 +180,12 @@ npm run dev
 
 ## 功能模块
 
-### 已实现
-
-- [x] **数据管理**
-  - [x] 因子库连接管理（创建/删除/测试连接）
-  - [x] 因子树浏览（延迟加载因子表和因子列表）
-  - [x] 因子数据预览（分页显示）
-  - [x] 支持多种数据库后端
-
-### 待实现
-
-- [ ] 因子工作台（搜索、DAG 可视化、衍生因子创建）
-- [ ] 回测工作台（IC 分析、分位数组合、策略回测）
-- [ ] 风险管理（风险矩阵、多因子风险分解）
-- [ ] 组合优化（均值方差、风险预算）
-- [ ] 报告中心（报告生成和浏览）
+- [x] **数据管理** — 因子库连接管理、因子树浏览、数据预览、元数据编辑
+- [x] **因子工作台** — 因子搜索（关键词/语义）、DAG 可视化、衍生因子创建向导
+- [x] **回测工作台** — 模块化回测（IC 分析、因子分组、策略回测）、结果树展示
+- [x] **风险管理** — 风险库浏览、协方差/相关系数矩阵热力图、因子风险分解
+- [x] **组合优化** — 均值方差/风险预算优化、约束编辑器、权重导出
+- [x] **报告中心** — 报告生成（单因子/多因子场景）、HTML/Markdown 预览、QSRegistry 注册
 
 ## 支持的数据库类型
 
@@ -177,27 +248,49 @@ npm run dev
 
 ```
 QSWeb/
-├── frontend/              # 前端项目
+├── frontend/                  # 前端项目
 │   ├── src/
-│   │   ├── components/    # 通用组件
-│   │   │   ├── Layout/    # 布局组件
-│   │   │   ├── FactorTree/# 因子树组件
-│   │   │   └── DataTable/ # 数据表格组件
-│   │   ├── pages/         # 页面组件
-│   │   │   └── DataManager/# 数据管理页面
-│   │   ├── services/      # API 调用
-│   │   └── styles/        # 样式
+│   │   ├── components/        # 通用组件
+│   │   │   ├── Layout/        # 主布局（侧边栏 + 内容区）
+│   │   │   ├── Loading/       # 全局 Loading + 骨架屏
+│   │   │   ├── FactorTree/    # 因子树组件
+│   │   │   ├── FactorSelector/# 因子选择器
+│   │   │   ├── FactorDecomposition/ # 因子风险分解组件
+│   │   │   ├── MetadataEditor/# 元数据编辑器
+│   │   │   ├── ModulePicker/  # 回测模块选择器
+│   │   │   ├── ModuleList/    # 回测模块列表
+│   │   │   ├── ResultTree/    # 回测结果树
+│   │   │   ├── ResultLeaf/    # 结果叶子渲染
+│   │   │   ├── RiskHeatmap/   # 风险矩阵热力图
+│   │   │   └── SpecificRiskHistogram/ # 特异性风险直方图
+│   │   ├── pages/             # 页面组件（懒加载）
+│   │   │   ├── DataManager/   # 数据管理页面
+│   │   │   ├── FactorWorkbench/# 因子工作台页面
+│   │   │   ├── BacktestStudio/# 回测工作台页面
+│   │   │   ├── RiskManager/   # 风险管理页面
+│   │   │   ├── PortfolioOptimizer/# 组合优化页面
+│   │   │   └── ReportCenter/  # 报告中心页面
+│   │   ├── services/          # API 调用封装
+│   │   ├── stores/            # Zustand 状态管理
+│   │   ├── hooks/             # 自定义 Hooks（useTaskProgress 等）
+│   │   └── styles/            # 样式
+│   ├── Dockerfile             # 多阶段构建（node → nginx）
+│   ├── nginx.conf             # Nginx SPA + API 代理配置
 │   ├── package.json
 │   └── vite.config.ts
 │
-├── backend/               # 后端项目
+├── backend/                   # 后端项目
 │   ├── app/
-│   │   ├── api/           # API 路由
-│   │   ├── models/        # 数据模型
-│   │   ├── services/      # 业务服务
-│   │   └── core/          # 核心配置
+│   │   ├── api/               # API 路由（connections/factors/registry/backtest/risk/portfolio/report）
+│   │   ├── models/            # Pydantic 数据模型
+│   │   ├── services/          # 业务服务（FactorService/BacktestService/QSBridge/...）
+│   │   ├── tasks/             # 异步任务管理（TaskManager + WebSocket）
+│   │   └── core/              # 核心配置、自定义异常
+│   ├── Dockerfile             # 多阶段构建
 │   └── requirements.txt
 │
+├── docker-compose.yml          # Docker Compose 编排文件
+├── scripts/                    # 启动脚本
 └── README.md
 ```
 
