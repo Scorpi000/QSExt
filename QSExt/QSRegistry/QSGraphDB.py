@@ -248,10 +248,13 @@ class QSGraphDB(QSNeo4jObject):
         return fdb.Name
 
     def _extractFDBConnection(self, fdb: FactorDB) -> str:
-        """提取因子库的连接信息"""
-        conn_info = {"type": fdb.__class__.__name__}
-        if hasattr(fdb._QSArgs, "MainDir"):
-            conn_info["MainDir"] = str(fdb._QSArgs.MainDir)
+        """提取因子库的连接信息，序列化完整的重建元信息"""
+        conn_info = {
+            "ClassName": fdb.__class__.__name__,
+            "ModulePath": fdb.__class__.__module__,
+            "ConfigFile": fdb.ConfigFile,
+            "QSArgs": _sanitizeForJSON(fdb._QSArgs.model_dump()),
+        }
         return json.dumps(conn_info, ensure_ascii=False)
 
     def storeFactorOperator(self, op: FactorOperator) -> str:
@@ -1554,6 +1557,45 @@ class QSGraphDB(QSNeo4jObject):
             raise __QS_Error__(f"因子 {factor_data['Name']} 没有关联的算子")
         return self.reconstructOperator(op_qsid)
 
+    def _autoBuildFactorDB(self, fdb_name: str, fdb_node: dict) -> FactorDB:
+        """从图节点元数据自动构建并连接 FactorDB 实例
+
+        Args:
+            fdb_name: 因子库名称
+            fdb_node: Neo4j 返回的因子库节点（包含 ConnectionJSON 等属性）
+
+        Returns:
+            已连接的 FactorDB 实例
+        """
+        conn_json = json.loads(fdb_node.get("ConnectionJSON", "{}"))
+        module_path = conn_json.get("ModulePath")
+        class_name = conn_json.get("ClassName")
+        config_file = conn_json.get("ConfigFile")
+        qs_args = _desanitizeFromJSON(conn_json.get("QSArgs", {}))
+
+        if not module_path or not class_name:
+            raise __QS_Error__(
+                f"因子库 '{fdb_name}' 的 ConnectionJSON 缺少 ModulePath 或 ClassName，"
+                f"无法自动构建，请先调用 registerFactorDB 显式注册该因子库"
+            )
+
+        try:
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            raise __QS_Error__(
+                f"因子库 '{fdb_name}' 自动构建失败: "
+                f"无法加载类 {module_path}.{class_name}: {e}"
+            )
+
+        fdb = cls(args=qs_args, config_file=config_file)
+        fdb.connect()
+        self._QS_Logger.info(
+            f"已自动构建并连接因子库: '{fdb_name}'"
+            + (f" (配置文件: {config_file})" if config_file else "")
+        )
+        return fdb
+
     def _reconstructFactorTableFactor(self, factor_data: dict) -> Factor:
         """重建 FactorTableFactor"""
         ft_qsid = factor_data.get("FactorTableQSID")
@@ -1568,11 +1610,14 @@ class QSGraphDB(QSNeo4jObject):
             {"ft_qsid": ft_qsid}
         )
         if not fdb_results:
-            raise __QS_Error__(f"因子表 {ft_qsid} 没有关联的因子库，请先调用 registerFactorDB")
-        fdb_name = fdb_results[0]["d"]["Name"]
-        if fdb_name not in self._FactorDBRegistry:
-            raise __QS_Error__(f"因子库 {fdb_name} 未注册，请先调用 registerFactorDB")
-        fdb = self._FactorDBRegistry[fdb_name]
+            raise __QS_Error__(f"因子表 {ft_qsid} 没有关联的因子库")
+        fdb_node = fdb_results[0]["d"]
+        fdb_name = fdb_node["Name"]
+        if fdb_name in self._FactorDBRegistry:
+            fdb = self._FactorDBRegistry[fdb_name]
+        else:
+            fdb = self._autoBuildFactorDB(fdb_name, fdb_node)
+            self._FactorDBRegistry[fdb_name] = fdb
         # 获取因子表名称
         ft_data = self._runCypher(
             "MATCH (t:`因子表` {QSID: $qsid}) RETURN t",

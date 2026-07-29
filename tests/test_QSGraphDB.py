@@ -1849,6 +1849,180 @@ def test_37_store_factor_storer():
     return True
 
 
+def test_38_extract_fdb_connection_roundtrip():
+    """测试 38: _extractFDBConnection 序列化往返测试"""
+    print("\n" + "=" * 60)
+    print("测试 38: _extractFDBConnection 序列化往返")
+    print("=" * 60)
+
+    # --- JYDB 序列化测试 ---
+    jydb = _get_jydb()
+    if jydb is None:
+        print("  [SKIP] JYDB 不可用")
+        return True
+    print(f"  JYDB Name={jydb.Name}, ConfigFile={jydb.ConfigFile}")
+
+    gdb = QSGraphDB(args=gdb_args)
+    gdb.connect()
+
+    conn_json_str = gdb._extractFDBConnection(jydb)
+    conn = json.loads(conn_json_str)
+    print(f"  [PASS] _extractFDBConnection 输出合法 JSON")
+
+    # 验证必要字段
+    assert "ClassName" in conn, f"缺少 ClassName 字段"
+    assert conn["ClassName"] == "JYDB", f"ClassName 应为 'JYDB'，实际: {conn['ClassName']}"
+    print(f"  [PASS] ClassName = {conn['ClassName']}")
+
+    assert "ModulePath" in conn, f"缺少 ModulePath 字段"
+    assert "JYDB" in conn["ModulePath"], f"ModulePath 应包含 'JYDB'"
+    print(f"  [PASS] ModulePath = {conn['ModulePath']}")
+
+    assert "ConfigFile" in conn, f"缺少 ConfigFile 字段"
+    assert conn["ConfigFile"] is not None, f"JYDB ConfigFile 不应为 None"
+    assert "JYDBConfig" in conn["ConfigFile"], f"ConfigFile 应包含 'JYDBConfig'"
+    print(f"  [PASS] ConfigFile = {conn['ConfigFile']}")
+
+    assert "QSArgs" in conn, f"缺少 QSArgs 字段"
+    qs_args = conn["QSArgs"]
+    assert isinstance(qs_args, dict), f"QSArgs 应为 dict"
+    print(f"  [PASS] QSArgs 存在, 包含 {len(qs_args)} 个字段: {sorted(qs_args.keys())}")
+
+    # 验证非敏感参数存在
+    assert "Name" in qs_args, f"QSArgs 应包含 Name"
+    assert qs_args["Name"] == "JYDB", f"QSArgs.Name 应为 'JYDB'"
+    print(f"  [PASS] QSArgs.Name = {qs_args['Name']}")
+
+    # 验证 exclude=True 的敏感字段不出现在 QSArgs 中
+    sensitive_fields = ["Pwd", "User", "IPAddr", "Port", "DBName", "DBType"]
+    for field in sensitive_fields:
+        assert field not in qs_args, f"敏感字段 '{field}' 不应出现在 QSArgs 中 (exclude=True)"
+    print(f"  [PASS] 敏感字段已排除: {sensitive_fields}")
+
+    # --- HDF5DB 序列化测试 ---
+    from QuantStudio.Factor.HDF5DB import HDF5DB
+    tmpdir = tempfile.mkdtemp(prefix="qs_test_hdf5_conn_")
+    os.makedirs(tmpdir, exist_ok=True)
+    hdb = HDF5DB(args={"MainDir": tmpdir})
+    hdb.connect()
+    print(f"\n  HDF5DB Name={hdb.Name}, MainDir={hdb._QSArgs.MainDir}")
+
+    conn2_str = gdb._extractFDBConnection(hdb)
+    conn2 = json.loads(conn2_str)
+
+    assert conn2["ClassName"] == "HDF5DB"
+    print(f"  [PASS] HDF5DB ClassName = {conn2['ClassName']}")
+
+    # HDF5DB 未指定 config_file 时，若默认配置文件存在则使用之，否则为 None
+    if conn2["ConfigFile"] is None:
+        print(f"  [PASS] HDF5DB ConfigFile = None (默认配置文件不存在)")
+    else:
+        assert "HDF5DBConfig" in conn2["ConfigFile"], f"ConfigFile 应指向默认配置文件"
+        print(f"  [PASS] HDF5DB ConfigFile = {conn2['ConfigFile']} (默认配置文件)")
+
+    qs_args2 = conn2["QSArgs"]
+    assert "MainDir" in qs_args2, f"HDF5DB QSArgs 应包含 MainDir"
+    print(f"  [PASS] HDF5DB QSArgs.MainDir 存在")
+
+    # 验证 HDF5DB 的 exclude=True 字段被排除
+    assert "FileOpenRetryNum" not in qs_args2, f"HDF5DB 的 FileOpenRetryNum 不应出现 (exclude=True)"
+    print(f"  [PASS] HDF5DB 敏感字段 FileOpenRetryNum 已排除")
+
+    gdb.disconnect()
+    hdb.disconnect()
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    return True
+
+
+def test_39_auto_reconstruct_factor_db():
+    """测试 39: FactorDB 自动重建集成测试"""
+    print("\n" + "=" * 60)
+    print("测试 39: FactorDB 自动重建集成测试")
+    print("=" * 60)
+    jydb = _get_jydb()
+    if jydb is None:
+        print("  [SKIP] JYDB 不可用")
+        return True
+
+    # --- 步骤 1: 注册 JYDB (使用新的完整序列化) ---
+    gdb1 = QSGraphDB(args=gdb_args)
+    gdb1.connect()
+
+    fdb_name = gdb1.registerFactorDB(jydb)
+    assert fdb_name == "JYDB", f"注册应返回 'JYDB'，实际: {fdb_name}"
+    print(f"  [PASS] gdb1.registerFactorDB: {fdb_name}")
+
+    # 验证 ConnectionJSON 包含完整信息
+    fdb_nodes = gdb1.executeCypher(
+        "MATCH (d:`因子库` {Name: $name}) RETURN d", {"name": "JYDB"}
+    )
+    assert len(fdb_nodes) == 1
+    conn = json.loads(fdb_nodes[0]["d"].get("ConnectionJSON", "{}"))
+    assert "ClassName" in conn and "ModulePath" in conn and "ConfigFile" in conn and "QSArgs" in conn
+    print(f"  [PASS] ConnectionJSON 包含完整重建信息")
+
+    # --- 步骤 2: 存储因子表 ---
+    ft = jydb.getTable("日行情表")
+    ft_qsid = gdb1.storeFactorTable(ft, fdb_name="JYDB")
+    print(f"  [PASS] storeFactorTable: {ft._QSArgs.Name}, QSID: {ft_qsid[:16]}...")
+
+    # 选取一个因子存储为 FactorTableFactor
+    factor_names = ft.FactorNames[:5]
+    test_factor_name = factor_names[0]
+    factor_in_ft = ft.getFactor(test_factor_name)
+    factor_qsids = gdb1.storeFactors([factor_in_ft], tags={factor_in_ft.QSID: ["auto_reconstruct_test"]})
+    test_qsid = factor_qsids[0]
+    print(f"  [PASS] 因子已存储: {test_factor_name}, QSID: {test_qsid[:16]}...")
+
+    gdb1.disconnect()
+
+    # --- 步骤 3: 创建新的 QSGraphDB 实例 (空 _FactorDBRegistry) ---
+    gdb2 = QSGraphDB(args=gdb_args)
+    gdb2.connect()
+
+    assert "JYDB" not in gdb2._FactorDBRegistry, f"新实例的注册表应为空"
+    print(f"  [PASS] gdb2 注册表为空 (未显式注册)")
+
+    # --- 步骤 4: 自动重建 ---
+    try:
+        reconstructed = gdb2.reconstructFactor(test_qsid)
+    except Exception as e:
+        print(f"  X 自动重建失败: {e}")
+        gdb2.disconnect()
+        raise
+
+    print(f"  [PASS] 自动重建成功: {type(reconstructed).__name__}")
+    print(f"  [PASS] Name: {reconstructed._QSArgs.Name}")
+    print(f"  [PASS] QSID 一致: {reconstructed.QSID == test_qsid}")
+
+    # 验证 JYDB 已被自动缓存到注册表
+    assert "JYDB" in gdb2._FactorDBRegistry, f"JYDB 应已缓存到注册表"
+    print(f"  [PASS] JYDB 已自动缓存到 _FactorDBRegistry")
+
+    # --- 步骤 5: 再次重建 (验证缓存命中，不重复建连) ---
+    reconstructed2 = gdb2.reconstructFactor(test_qsid)
+    print(f"  [PASS] 再次重建成功 (缓存命中): {type(reconstructed2).__name__}")
+
+    # 验证使用注册表中的同一实例
+    assert gdb2._FactorDBRegistry["JYDB"] is gdb2._FactorDBRegistry["JYDB"]
+    print(f"  [PASS] 缓存命中, 使用同一 JYDB 实例")
+
+    # 验证数据可用
+    import datetime as dt2
+    ids = ["000001.SZ"]
+    dts = [dt2.datetime(2024, 6, 3)]
+    data = reconstructed.FactorTable.readData(
+        factor_names=[reconstructed._QSArgs.Name], ids=ids, dts=dts
+    )
+    print(f"  [PASS] 数据可用, shape={data.shape}")
+
+    # 清理
+    gdb2.deleteFactor(test_qsid)
+    gdb2.disconnect()
+    return True
+
+
 # ============================================================
 # 主入口
 # ============================================================
@@ -1893,6 +2067,9 @@ if __name__ == "__main__":
         ("幂等回测存储", test_36_idempotent_backtest),
         # ── 因子存储器注册测试 ──
         ("存储因子存储器", test_37_store_factor_storer),
+        # ── FactorDB 自动重建测试 ──
+        ("_extractFDBConnection 序列化", test_38_extract_fdb_connection_roundtrip),
+        ("FactorDB 自动重建集成", test_39_auto_reconstruct_factor_db),
     ]
 
     passed = 0
