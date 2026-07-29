@@ -2,7 +2,7 @@
 因子库连接配置模型
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
@@ -28,8 +28,10 @@ class ConnectionUpdate(BaseModel):
 
 class ConnectionResponse(ConnectionBase):
     """连接响应"""
-    id: str = Field(..., description="连接 ID")
+    qsid: str = Field(..., description="连接 QSID（唯一标识）")
     status: str = Field(default="disconnected", description="连接状态")
+    created_at: Optional[str] = Field(None, description="创建时间")
+    updated_at: Optional[str] = Field(None, description="更新时间")
 
     class Config:
         from_attributes = True
@@ -40,3 +42,19 @@ class ConnectionTestResult(BaseModel):
     success: bool
     message: str
     detail: Optional[Dict[str, Any]] = None
+
+
+class ImpactFactor(BaseModel):
+    """受影响因子"""
+    QSID: str
+    Name: str
+    FactorTableName: Optional[str] = None
+
+
+class ImpactAnalysis(BaseModel):
+    """删除影响分析"""
+    factor_db: Optional[Dict[str, Any]] = None
+    direct_factors: List[ImpactFactor] = []
+    indirect_factors: List[ImpactFactor] = []
+    factor_tables: List[Dict[str, str]] = []
+    total_affected_factors: int = 0

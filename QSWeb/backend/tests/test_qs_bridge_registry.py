@@ -215,3 +215,63 @@ class TestQSBridgeDualSourceResolution:
         factor = await bridge._get_factor_from_registry("reg_factor")
         assert factor is not None
         assert factor._QSArgs.Name == "reg_factor"
+
+
+class TestDeclarativeNodeBuilders:
+    """声明式 _BT_NODE_BUILDERS 注册表验证
+
+    验证所有模块定义包含必要字段，calc/node 类可正常导入。
+    """
+
+    def test_all_builders_have_required_fields(self):
+        """每个 builder 条目都包含必要字段"""
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+
+        required_fields = {"calc_module", "calc_class", "node_module", "node_class"}
+        for key, builder in _BT_NODE_BUILDERS.items():
+            missing = required_fields - set(builder.keys())
+            assert not missing, f"模块 '{key}' 缺少必要字段: {missing}"
+
+    def test_calc_classes_importable(self):
+        """所有 calc_class 可在对应模块中找到"""
+        import importlib
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+
+        for key, builder in _BT_NODE_BUILDERS.items():
+            mod = importlib.import_module(builder["calc_module"])
+            cls = getattr(mod, builder["calc_class"])
+            assert cls is not None, f"模块 '{key}': 无法导入 calc_class '{builder['calc_class']}'"
+
+    def test_node_classes_importable(self):
+        """所有 node_class 可在对应模块中找到"""
+        import importlib
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+
+        for key, builder in _BT_NODE_BUILDERS.items():
+            mod = importlib.import_module(builder["node_module"])
+            cls = getattr(mod, builder["node_class"])
+            assert cls is not None, f"模块 '{key}': 无法导入 node_class '{builder['node_class']}'"
+
+    def test_module_keys_match_registry(self):
+        """_BT_NODE_BUILDERS 的 key 与 BACKTEST_MODULE_REGISTRY 对齐"""
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+        # 这些 key 应与前端模块注册表中定义的 key 一致
+        expected_keys = {"ic", "ic_decay", "multi_portfolio", "factor_turnover",
+                         "section_correlation", "fama_macbeth"}
+        assert set(_BT_NODE_BUILDERS.keys()) == expected_keys, \
+            f"Builder keys 与预期不一致: {set(_BT_NODE_BUILDERS.keys()) ^ expected_keys}"
+
+    def test_per_factor_modules_have_flag(self):
+        """per_factor 标记的模块使用每个因子分别构造 calc"""
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+
+        per_factor_keys = [k for k, v in _BT_NODE_BUILDERS.items() if v.get("per_factor")]
+        assert "ic_decay" in per_factor_keys, "ic_decay 应标记为 per_factor"
+
+    def test_price_required_modules(self):
+        """requires_price 标记的模块价格因子为必需"""
+        from app.services.qs_bridge import _BT_NODE_BUILDERS
+
+        price_keys = [k for k, v in _BT_NODE_BUILDERS.items() if v.get("requires_price")]
+        assert "ic" in price_keys, "ic 应标记为 requires_price"
+        assert "fama_macbeth" in price_keys, "fama_macbeth 应标记为 requires_price"

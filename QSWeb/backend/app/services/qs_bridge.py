@@ -52,6 +52,70 @@ def _load_backtest_config() -> dict:
     return dict(DEFAULT_BACKTEST_CONFIG)
 
 
+# ─── 声明式回测模块构造器 ────────────────────────────────────────
+
+_BT_NODE_BUILDERS = {
+    "ic": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.IC",
+        "calc_class": "CalcIC",
+        "node_module": "QuantStudio.BackTest.SectionFactor.IC",
+        "node_class": "IC",
+        "requires_price": True,
+        "calc_params": ["lookback", "period_lookback", "corr_method"],
+        "node_params_map": {"RollingAvgPeriod": "rolling_avg_period"},
+        "default_node_params": {"GenReport": False},
+    },
+    "ic_decay": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.IC",
+        "calc_class": "CalcIC",
+        "node_module": "QuantStudio.BackTest.SectionFactor.IC",
+        "node_class": "ICDecay",
+        "requires_price": True,
+        "per_factor": True,  # 每个因子分别构造 calc
+        "calc_params": ["lookback", "period_lookback", "corr_method"],
+        "default_node_params": {"GenReport": False},
+    },
+    "multi_portfolio": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.QuantilePortfolio",
+        "calc_class": "makeQuantilePortfolio",
+        "node_module": "QuantStudio.BackTest.SectionFactor.QuantilePortfolio",
+        "node_class": "MultiPortfolio",
+        "requires_price": False,
+        "calc_params": ["group_num", "ascending"],
+        "portfolios_mode": True,  # 直接返回 portfolio_list
+        "default_node_params": {"GenReport": False},
+    },
+    "factor_turnover": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.Correlation",
+        "calc_class": "CalcFactorTurnover",
+        "node_module": "QuantStudio.BackTest.SectionFactor.Correlation",
+        "node_class": "FactorTurnover",
+        "requires_price": False,
+        "calc_params": ["lookback", "period_lookback", "corr_method"],
+        "default_node_params": {"GenReport": False},
+    },
+    "section_correlation": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.Correlation",
+        "calc_class": "CalcSectionCorrelation",
+        "node_module": "QuantStudio.BackTest.SectionFactor.Correlation",
+        "node_class": "SectionCorrelation",
+        "requires_price": False,
+        "calc_params": ["corr_method"],
+        "default_node_params": {"GenReport": False},
+    },
+    "fama_macbeth": {
+        "calc_module": "QuantStudio.BackTest.SectionFactor.ReturnDecomposition",
+        "calc_class": "CalcFamaMacBethRegression",
+        "node_module": "QuantStudio.BackTest.SectionFactor.ReturnDecomposition",
+        "node_class": "FamaMacBethRegression",
+        "requires_price": True,
+        "calc_params": ["lookback", "period_lookback"],
+        "node_params_map": {"RollingAvgPeriod": "rolling_avg_period"},
+        "default_node_params": {"GenReport": False},
+    },
+}
+
+
 class QSBridge:
     """QuantStudio 回测桥接层"""
 
@@ -234,274 +298,87 @@ class QSBridge:
 
     # ─── 回测节点构造 ─────────────────────────────────────────
 
-    def _build_ic_node_sync(
+    def _build_node_sync(
         self, cfg: ModuleRunConfig, price_factor,
         descriptor_ids: List[str], dts: List[dt.datetime]
     ):
-        """同步构造 IC 回测节点
+        """通用回测节点构造器（声明式）
 
-        Parameters
-        ----------
-        cfg : ModuleRunConfig
-            模块配置（含已解析的因子和价格）
-        price_factor : Factor
-            价格因子对象
-        descriptor_ids : List[str]
-            截面 ID
-        dts : List[datetime]
-            计算时点序列，用于 calc_dt_rule 变换
+        根据 _BT_NODE_BUILDERS 中的模块定义自动构造 Calc + Node。
         """
-        from QuantStudio.BackTest.SectionFactor.IC import CalcIC, IC
+        import importlib
+
+        builder = _BT_NODE_BUILDERS.get(cfg.module_key)
+        if builder is None:
+            raise ValueError(f"未知的回测模块: {cfg.module_key}")
 
         params = cfg.params
 
-        corr_method = params.get("corr_method", "spearman")
-        lookback = params.get("lookback", 31)
-        period_lookback = params.get("period_lookback", 1)
-        rolling_avg_period = params.get("rolling_avg_period", 12)
-        calc_dt_rule = params.get("calc_dt_rule", "")
+        # 动态导入 calc 和 node 类
+        calc_mod = importlib.import_module(builder["calc_module"])
+        calc_cls = getattr(calc_mod, builder["calc_class"])
+        node_mod = importlib.import_module(builder["node_module"])
+        node_cls = getattr(node_mod, builder["node_class"])
 
-        # CalcDTRuler: 由 calc_dt_rule 从 DTs 变换得到
+        # CalcDTRuler
+        calc_dt_rule = params.get("calc_dt_rule", "")
         calc_dtruler = None
         if calc_dt_rule:
             calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
         factor_args = {"CalcDTRuler": calc_dtruler} if calc_dtruler else {}
 
-        ic_factor = CalcIC(
-            descriptor_ids=descriptor_ids,
-            lookback=lookback,
-            period_lookback=period_lookback,
-            corr_method=corr_method,
-        )(
-            *cfg._resolved_factors,
-            price=price_factor,
-            factor_args=factor_args,
-        )
+        # 提取 calc 参数
+        calc_kwargs = {}
+        for pname in builder.get("calc_params", []):
+            if pname in params:
+                calc_kwargs[pname] = params[pname]
 
         label = cfg.instance_label or cfg.module_key
-        ic_node = IC(
-            ic_factor,
-            args={
-                "RollingAvgPeriod": rolling_avg_period,
-                "GenReport": False,
-                "Name": label,
-            },
-        )
 
-        return ic_node
+        # 构造 node_params
+        node_params = dict(builder.get("default_node_params", {}))
+        node_params["Name"] = label
+        for node_key, param_key in builder.get("node_params_map", {}).items():
+            if param_key in params:
+                node_params[node_key] = params[param_key]
 
-    # ─── IC 衰减 ──────────────────────────────────────────────
-
-    def _build_ic_decay_node_sync(
-        self, cfg: ModuleRunConfig, price_factor,
-        descriptor_ids: List[str], dts: List[dt.datetime]
-    ):
-        """同步构造 IC 衰减回测节点
-
-        为每个因子构造一个 CalcIC → ICDecay(ic_list) 的节点。
-        """
-        from QuantStudio.BackTest.SectionFactor.IC import CalcIC, ICDecay
-
-        params = cfg.params
-        corr_method = params.get("corr_method", "spearman")
-        lookback = params.get("lookback", 31)
-        period_lookback = params.get("period_lookback", 1)
-        calc_dt_rule = params.get("calc_dt_rule", "")
-
-        calc_dtruler = None
-        if calc_dt_rule:
-            calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
-        factor_args = {"CalcDTRuler": calc_dtruler} if calc_dtruler else {}
-
-        # 为每个因子构造一个 IC 因子
-        ic_factors = []
-        for factor in cfg._resolved_factors:
-            ic_f = CalcIC(
+        # 特殊模式：portfolios_mode（分位数组合）
+        if builder.get("portfolios_mode"):
+            factor = cfg._resolved_factors[0]
+            portfolio_list = calc_cls(
+                factor=factor,
                 descriptor_ids=descriptor_ids,
-                lookback=lookback,
-                period_lookback=period_lookback,
-                corr_method=corr_method,
-            )(
-                factor,
-                price=price_factor,
-                factor_args=factor_args,
+                **calc_kwargs,
             )
-            ic_factors.append(ic_f)
+            return node_cls(
+                portfolio_list[0] if portfolio_list else None,
+                portfolio_list=portfolio_list,
+                args=node_params,
+            )
 
-        label = cfg.instance_label or cfg.module_key
-        return ICDecay(
-            ic_factors,
-            args={
-                "GenReport": False,
-                "Name": label,
-            },
-        )
+        # per_factor 模式：每个因子分别构造 calc
+        if builder.get("per_factor"):
+            calc_factors = []
+            for factor in cfg._resolved_factors:
+                cf = calc_cls(
+                    descriptor_ids=descriptor_ids,
+                    **calc_kwargs,
+                )(
+                    factor,
+                    price=price_factor,
+                    factor_args=factor_args,
+                )
+                calc_factors.append(cf)
+            return node_cls(calc_factors, args=node_params)
 
-    # ─── 分位数组合 ────────────────────────────────────────────
-
-    def _build_multi_portfolio_node_sync(
-        self, cfg: ModuleRunConfig, price_factor,
-        descriptor_ids: List[str], dts: List[dt.datetime]
-    ):
-        """同步构造分位数组合回测节点"""
-        from QuantStudio.BackTest.SectionFactor.QuantilePortfolio import (
-            makeQuantilePortfolio, MultiPortfolio,
-        )
-
-        params = cfg.params
-        group_num = params.get("group_num", 5)
-        ascending = params.get("ascending", False)
-        calc_dt_rule = params.get("calc_dt_rule", "")
-
-        calc_dtruler = None
-        if calc_dt_rule:
-            calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
-        # 取第一个因子构造分位数组合
-        factor = cfg._resolved_factors[0]
-
-        # 构造分位数组合
-        portfolio_list = makeQuantilePortfolio(
-            factor=factor,
-            descriptor_ids=descriptor_ids,
-            ascending=ascending,
-            group_num=group_num,
-        )
-
-        label = cfg.instance_label or cfg.module_key
-        return MultiPortfolio(
-            portfolio_list[0] if portfolio_list else None,  # nv (net value factor, 后续由 CalcMaskPortfolio 生成)
-            portfolio_list=portfolio_list,
-            args={
-                "GenReport": False,
-                "Name": label,
-            },
-        )
-
-    # ─── 因子换手率 ────────────────────────────────────────────
-
-    def _build_factor_turnover_node_sync(
-        self, cfg: ModuleRunConfig, price_factor,
-        descriptor_ids: List[str], dts: List[dt.datetime]
-    ):
-        """同步构造因子换手率回测节点"""
-        from QuantStudio.BackTest.SectionFactor.Correlation import (
-            CalcFactorTurnover, FactorTurnover,
-        )
-
-        params = cfg.params
-        corr_method = params.get("corr_method", "spearman")
-        lookback = params.get("lookback", 31)
-        period_lookback = params.get("period_lookback", 1)
-        calc_dt_rule = params.get("calc_dt_rule", "")
-
-        calc_dtruler = None
-        if calc_dt_rule:
-            calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
-        factor_args = {"CalcDTRuler": calc_dtruler} if calc_dtruler else {}
-
-        ft_factor = CalcFactorTurnover(
-            descriptor_ids=descriptor_ids,
-            lookback=lookback,
-            period_lookback=period_lookback,
-            corr_method=corr_method,
-        )(
-            *cfg._resolved_factors,
-            factor_args=factor_args,
-        )
-
-        label = cfg.instance_label or cfg.module_key
-        return FactorTurnover(
-            ft_factor,
-            args={
-                "GenReport": False,
-                "Name": label,
-            },
-        )
-
-    # ─── 截面相关性 ────────────────────────────────────────────
-
-    def _build_section_correlation_node_sync(
-        self, cfg: ModuleRunConfig, price_factor,
-        descriptor_ids: List[str], dts: List[dt.datetime]
-    ):
-        """同步构造截面相关性回测节点"""
-        from QuantStudio.BackTest.SectionFactor.Correlation import (
-            CalcSectionCorrelation, SectionCorrelation,
-        )
-
-        params = cfg.params
-        corr_method = params.get("corr_method", "spearman")
-        calc_dt_rule = params.get("calc_dt_rule", "")
-
-        calc_dtruler = None
-        if calc_dt_rule:
-            calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
-        factor_args = {"CalcDTRuler": calc_dtruler} if calc_dtruler else {}
-
-        sc_factor = CalcSectionCorrelation(
-            descriptor_ids=descriptor_ids,
-            corr_method=corr_method,
-        )(
-            *cfg._resolved_factors,
-            factor_args=factor_args,
-        )
-
-        label = cfg.instance_label or cfg.module_key
-        return SectionCorrelation(
-            sc_factor,
-            args={
-                "GenReport": False,
-                "Name": label,
-            },
-        )
-
-    # ─── Fama-MacBeth 回归 ─────────────────────────────────────
-
-    def _build_fama_macbeth_node_sync(
-        self, cfg: ModuleRunConfig, price_factor,
-        descriptor_ids: List[str], dts: List[dt.datetime]
-    ):
-        """同步构造 Fama-MacBeth 回归回测节点"""
-        from QuantStudio.BackTest.SectionFactor.ReturnDecomposition import (
-            CalcFamaMacBethRegression, FamaMacBethRegression,
-        )
-
-        params = cfg.params
-        lookback = params.get("lookback", 31)
-        period_lookback = params.get("period_lookback", 1)
-        rolling_avg_period = params.get("rolling_avg_period", 12)
-        calc_dt_rule = params.get("calc_dt_rule", "")
-
-        calc_dtruler = None
-        if calc_dt_rule:
-            calc_dtruler = self._compute_calc_dts(dts, calc_dt_rule)
-
-        factor_args = {"CalcDTRuler": calc_dtruler} if calc_dtruler else {}
-
-        fmr_factor = CalcFamaMacBethRegression(
-            descriptor_ids=descriptor_ids,
-            lookback=lookback,
-            period_lookback=period_lookback,
-        )(
+        # 标准模式：所有因子传给同一个 calc
+        calc_kwargs_with_base = {"descriptor_ids": descriptor_ids, **calc_kwargs}
+        calc_factor = calc_cls(**calc_kwargs_with_base)(
             *cfg._resolved_factors,
             price=price_factor,
             factor_args=factor_args,
         )
-
-        label = cfg.instance_label or cfg.module_key
-        return FamaMacBethRegression(
-            fmr_factor,
-            args={
-                "RollingAvgPeriod": rolling_avg_period,
-                "GenReport": False,
-                "Name": label,
-            },
-        )
+        return node_cls(calc_factor, args=node_params)
 
     # ─── 回测执行 ─────────────────────────────────────────────
 
@@ -672,32 +549,9 @@ class QSBridge:
             if requires_price and cfg._resolved_price is None:
                 raise ValueError(f"模块 '{cfg.module_key}' 需要价格因子，但未配置")
 
-            if cfg.module_key == "ic":
-                node = self._build_ic_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            elif cfg.module_key == "ic_decay":
-                node = self._build_ic_decay_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            elif cfg.module_key == "multi_portfolio":
-                node = self._build_multi_portfolio_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            elif cfg.module_key == "factor_turnover":
-                node = self._build_factor_turnover_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            elif cfg.module_key == "section_correlation":
-                node = self._build_section_correlation_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            elif cfg.module_key == "fama_macbeth":
-                node = self._build_fama_macbeth_node_sync(
-                    cfg, cfg._resolved_price, section_ids, dts,
-                )
-            else:
-                raise ValueError(f"模块 {cfg.module_key} 尚未实现")
+            node = self._build_node_sync(
+                cfg, cfg._resolved_price, section_ids, dts,
+            )
 
             bt_nodes.append(node)
 

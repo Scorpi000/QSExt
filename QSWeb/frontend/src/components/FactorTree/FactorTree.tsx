@@ -75,6 +75,10 @@ function FactorTree({
 
   // 加载因子表列表
   const loadTables = useCallback(async () => {
+    if (!connectionId) {
+      setTreeData([])
+      return
+    }
     setLoading(true)
     try {
       const tables = (await getTables(connectionId)) as unknown as FactorTable[]

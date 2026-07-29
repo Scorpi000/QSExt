@@ -35,7 +35,8 @@ from QuantStudio.Factor.FactorOperation import (
 from QSExt.QSRegistry._serialization import (
     _sanitizeForJSON, _desanitizeFromJSON,
     serializeFactorArgs, serializeOperatorArgs, serializeOperatorCalculateRef,
-    _serializeCallable, _deserializeFuncRef
+    _serializeCallable, _deserializeFuncRef,
+    _decryptArgs,
 )
 
 
@@ -45,7 +46,7 @@ _SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT factor_qsid IF NOT EXISTS FOR (f:`因子`) REQUIRE f.QSID IS UNIQUE",
     "CREATE CONSTRAINT operator_qsid IF NOT EXISTS FOR (o:`算子`) REQUIRE o.QSID IS UNIQUE",
     "CREATE CONSTRAINT table_qsid IF NOT EXISTS FOR (t:`因子表`) REQUIRE t.QSID IS UNIQUE",
-    "CREATE CONSTRAINT fdb_name IF NOT EXISTS FOR (d:`因子库`) REQUIRE d.Name IS UNIQUE",
+    "CREATE CONSTRAINT fdb_qsid IF NOT EXISTS FOR (d:`因子库`) REQUIRE d.QSID IS UNIQUE",
     "CREATE CONSTRAINT riskdb_name IF NOT EXISTS FOR (d:`风险库`) REQUIRE d.Name IS UNIQUE",
     "CREATE CONSTRAINT risktable_qsid IF NOT EXISTS FOR (t:`风险表`) REQUIRE t.QSID IS UNIQUE",
     "CREATE CONSTRAINT optimizer_qsid IF NOT EXISTS FOR (o:`组合优化器`) REQUIRE o.QSID IS UNIQUE",
@@ -221,13 +222,17 @@ class QSGraphDB(QSNeo4jObject):
     def registerFactorDB(self, fdb: FactorDB) -> str:
         """注册因子库到图数据库和内存注册表
 
+        以 QSID 为 MERGE 键，节点属性包含 QSID。
+
         Args:
             fdb: QuantStudio FactorDB 实例
 
         Returns:
-            因子库名称
+            因子库 QSID
         """
+        qsid = fdb._QSArgs.QSID
         props = {
+            "QSID": qsid,
             "Name": fdb.Name,
             "DBType": fdb.__class__.__name__,
             "ClassName": fdb.__class__.__name__,
@@ -237,25 +242,334 @@ class QSGraphDB(QSNeo4jObject):
         }
         self._runCypher(
             """
-            MERGE (d:`因子库` {Name: $name})
+            MERGE (d:`因子库` {QSID: $qsid})
             ON CREATE SET d += $props, d.CreatedAt = $now
             ON MATCH SET d += $props
             """,
-            {"name": fdb.Name, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
+            {"qsid": qsid, "props": props, "now": dt.datetime.now(dt.timezone.utc).isoformat()}
         )
-        self._FactorDBRegistry[fdb.Name] = fdb
-        self._QS_Logger.info(f"已注册因子库: {fdb.Name}")
-        return fdb.Name
+        self._FactorDBRegistry[qsid] = fdb
+        self._QS_Logger.info(f"已注册因子库: {fdb.Name} (QSID: {qsid})")
+        return qsid
 
     def _extractFDBConnection(self, fdb: FactorDB) -> str:
-        """提取因子库的连接信息，序列化完整的重建元信息"""
-        conn_info = {
-            "ClassName": fdb.__class__.__name__,
-            "ModulePath": fdb.__class__.__module__,
-            "ConfigFile": fdb.ConfigFile,
-            "QSArgs": _sanitizeForJSON(fdb._QSArgs.model_dump()),
+        """提取因子库的连接信息，使用 ``__QS_Object__.serialize()`` 完整输出
+
+        生成的 ConnectionJSON 包含 ``__type__``、``__class__``、``__module__``、
+        加密后的 ``__qsargs__``。重建时由 ``__QS_Object__.__init__`` 自行处理
+        ``config_file`` 的默认查找逻辑。
+        """
+        data = fdb.serialize()
+        data["__module__"] = fdb.__class__.__module__
+        return json.dumps(_sanitizeForJSON(data), ensure_ascii=False)
+
+    # --- FactorDB CRUD ---
+
+    def listFactorDBs(self) -> List[Dict]:
+        """列出所有已注册的因子库节点
+
+        Returns:
+            [{QSID, Name, DBType, ClassName, ModulePath, CreatedAt, UpdatedAt}, ...]
+        """
+        results = self._runCypher(
+            "MATCH (d:`因子库`) RETURN d ORDER BY d.Name"
+        )
+        return [r["d"] for r in results]
+
+    def getFactorDB(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询因子库节点
+
+        Args:
+            qsid: 因子库 QSID
+
+        Returns:
+            因子库节点属性字典，不存在时返回 None
+        """
+        results = self._runCypher(
+            "MATCH (d:`因子库` {QSID: $qsid}) RETURN d",
+            {"qsid": qsid}
+        )
+        return results[0]["d"] if results else None
+
+    def deleteFactorDB(self, qsid: str) -> int:
+        """级联删除因子库及其所有依赖节点
+
+        删除链路：
+        (因子)-[:属于因子表]->(因子表)-[:属于因子库]->(因子库)
+        包含多跳依赖的因子（通过 [:依赖] 关系）。
+
+        Args:
+            qsid: 因子库 QSID
+
+        Returns:
+            删除的节点总数
+        """
+        fdb_node = self.getFactorDB(qsid)
+        if not fdb_node:
+            return 0
+
+        deleted = 0
+
+        # Step 1: 收集直接因子（通过因子表链路）的所有 QSID
+        direct_results = self._runCypher(
+            """
+            MATCH (d:`因子库` {QSID: $qsid})<-[:`属于因子库`]-(t:`因子表`)<-[:`属于因子表`]-(f:`因子`)
+            RETURN DISTINCT f.QSID AS qsid
+            """,
+            {"qsid": qsid}
+        )
+        direct_qsids = {r["qsid"] for r in direct_results}
+
+        # Step 2: 递归查找所有间接依赖这些因子的衍生因子
+        all_affected_qsids = set(direct_qsids)
+        if direct_qsids:
+            transitive_results = self._runCypher(
+                """
+                MATCH (affected:`因子`)-[:`依赖`*1..]->(direct:`因子`)
+                WHERE direct.QSID IN $direct_qsids
+                RETURN DISTINCT affected.QSID AS qsid
+                """,
+                {"direct_qsids": list(direct_qsids)}
+            )
+            all_affected_qsids.update(r["qsid"] for r in transitive_results)
+
+        # Step 3: 解除因子池包含关系
+        if all_affected_qsids:
+            self._runCypher(
+                """
+                MATCH (p:`因子池`)-[r:`包含`]->(f:`因子`)
+                WHERE f.QSID IN $qsids
+                DELETE r
+                """,
+                {"qsids": list(all_affected_qsids)}
+            )
+
+        # Step 4: 删除所有受影响因子节点（DETACH DELETE 自动删除残留关系）
+        for fqsid in all_affected_qsids:
+            self._runCypher(
+                "MATCH (f:`因子` {QSID: $qsid}) DETACH DELETE f",
+                {"qsid": fqsid}
+            )
+            deleted += 1
+
+        # Step 5: 删除因子表节点
+        table_results = self._runCypher(
+            """
+            MATCH (d:`因子库` {QSID: $qsid})<-[:`属于因子库`]-(t:`因子表`)
+            DETACH DELETE t
+            RETURN count(t) AS cnt
+            """,
+            {"qsid": qsid}
+        )
+        deleted += table_results[0]["cnt"] if table_results else 0
+
+        # Step 6: 删除因子库节点
+        self._runCypher(
+            "MATCH (d:`因子库` {QSID: $qsid}) DETACH DELETE d",
+            {"qsid": qsid}
+        )
+        deleted += 1
+
+        # Step 7: 清理内存注册表
+        self._FactorDBRegistry.pop(qsid, None)
+
+        self._QS_Logger.info(f"已级联删除因子库 '{fdb_node.get('Name', qsid)}' 及 {deleted - 1} 个依赖节点")
+        return deleted
+
+    def getImpactAnalysis(self, qsid: str) -> Dict:
+        """查询删除因子库的影响范围
+
+        Args:
+            qsid: 因子库 QSID
+
+        Returns:
+            {
+                "factor_db": {节点属性},
+                "direct_factors": [{QSID, Name, FactorTableName}, ...],
+                "indirect_factors": [{QSID, Name}, ...],
+                "factor_tables": [{QSID, Name}, ...],
+                "total_affected_factors": int,
+            }
+        """
+        fdb_node = self.getFactorDB(qsid)
+        if not fdb_node:
+            return {"factor_db": None, "direct_factors": [], "indirect_factors": [],
+                    "factor_tables": [], "total_affected_factors": 0}
+
+        # 直接因子（通过因子表链路）
+        direct_results = self._runCypher(
+            """
+            MATCH (d:`因子库` {QSID: $qsid})<-[:`属于因子库`]-(t:`因子表`)<-[:`属于因子表`]-(f:`因子`)
+            RETURN DISTINCT f.QSID AS QSID, f.Name AS Name, t.Name AS FactorTableName
+            """,
+            {"qsid": qsid}
+        )
+        direct_factors = [{"QSID": r["QSID"], "Name": r["Name"], "FactorTableName": r["FactorTableName"]} for r in direct_results]
+        direct_qsids = {f["QSID"] for f in direct_factors}
+
+        # 间接因子（多跳依赖）
+        indirect_factors = []
+        if direct_qsids:
+            transitive_results = self._runCypher(
+                """
+                MATCH (affected:`因子`)-[:`依赖`*1..]->(direct:`因子`)
+                WHERE direct.QSID IN $direct_qsids AND NOT affected.QSID IN $direct_qsids
+                RETURN DISTINCT affected.QSID AS QSID, affected.Name AS Name
+                """,
+                {"direct_qsids": list(direct_qsids)}
+            )
+            indirect_factors = [{"QSID": r["QSID"], "Name": r["Name"]} for r in transitive_results]
+
+        # 因子表
+        table_results = self._runCypher(
+            """
+            MATCH (d:`因子库` {QSID: $qsid})<-[:`属于因子库`]-(t:`因子表`)
+            RETURN t.QSID AS QSID, t.Name AS Name
+            """,
+            {"qsid": qsid}
+        )
+        factor_tables = [{"QSID": r["QSID"], "Name": r["Name"]} for r in table_results]
+
+        return {
+            "factor_db": fdb_node,
+            "direct_factors": direct_factors,
+            "indirect_factors": indirect_factors,
+            "factor_tables": factor_tables,
+            "total_affected_factors": len(direct_factors) + len(indirect_factors),
         }
-        return json.dumps(conn_info, ensure_ascii=False)
+
+    def reconstructFactorDB(self, qsid: str) -> Optional[FactorDB]:
+        """从图元数据重建并连接 FactorDB 实例（getFactorDB + _autoBuildFactorDB + connect 的便捷包装）
+
+        Args:
+            qsid: 因子库 QSID
+
+        Returns:
+            已连接的 FactorDB 实例，不存在时返回 None
+        """
+        fdb_node = self.getFactorDB(qsid)
+        if not fdb_node:
+            return None
+        fdb_name = fdb_node.get("Name", qsid)
+        if qsid in self._FactorDBRegistry:
+            return self._FactorDBRegistry[qsid]
+        fdb = self._autoBuildFactorDB(fdb_name, fdb_node)
+        self._FactorDBRegistry[qsid] = fdb
+        return fdb
+
+    # region 因子池持久化
+
+    def _getFactorDBInfo(self, factor_qsid: str) -> Optional[Dict]:
+        """查询因子所属的 FactorDB 信息
+
+        沿 ``(因子)-[:属于因子表]->(因子表)-[:属于因子库]->(因子库)`` 链路查找。
+
+        Returns:
+            {fdb_qsid, table_name} 或 None（非 FactorDB 来源时）
+        """
+        results = self._runCypher(
+            """
+            MATCH (f:`因子` {QSID: $qsid})-[:`属于因子表`]->(t:`因子表`)-[:`属于因子库`]->(d:`因子库`)
+            RETURN d.QSID AS fdb_qsid, t.Name AS table_name
+            """,
+            {"qsid": factor_qsid}
+        )
+        return results[0] if results else None
+
+    def saveFactorPool(self, name: str, qsids: List[str]) -> None:
+        """保存因子池到图数据库
+
+        创建或更新 ``因子池`` 节点，对池中每个因子建立 ``[:包含]`` 关系。
+
+        Args:
+            name: 因子池名称
+            qsids: 池中因子的 QSID 列表
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        self._runCypher(
+            """
+            MERGE (p:`因子池` {Name: $name})
+            ON CREATE SET p.CreatedAt = $now
+            ON MATCH SET p.UpdatedAt = $now
+            """,
+            {"name": name, "now": now}
+        )
+        # 先删除旧关系再建立新关系（覆盖保存）
+        self._runCypher(
+            """
+            MATCH (p:`因子池` {Name: $name})-[r:`包含`]->()
+            DELETE r
+            """,
+            {"name": name}
+        )
+        for qsid in qsids:
+            self._runCypher(
+                """
+                MATCH (p:`因子池` {Name: $name})
+                MATCH (f:`因子` {QSID: $qsid})
+                MERGE (p)-[:`包含`]->(f)
+                """,
+                {"name": name, "qsid": qsid}
+            )
+        self._QS_Logger.info(f"已保存因子池 '{name}'，包含 {len(qsids)} 个因子")
+
+    def loadFactorPool(self, name: str) -> List[Dict]:
+        """从图数据库加载因子池
+
+        Args:
+            name: 因子池名称
+
+        Returns:
+            [{QSID, Name, FactorClass, ...}, ...] 池中因子列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (p:`因子池` {Name: $name})-[:`包含`]->(f:`因子`)
+            RETURN f
+            """,
+            {"name": name}
+        )
+        return [r["f"] for r in results]
+
+    def listFactorPools(self) -> List[Dict]:
+        """列出所有已保存的因子池
+
+        Returns:
+            [{Name, CreatedAt, UpdatedAt, FactorCount}, ...]
+        """
+        results = self._runCypher(
+            """
+            MATCH (p:`因子池`)
+            OPTIONAL MATCH (p)-[:`包含`]->(f:`因子`)
+            RETURN p.Name AS Name, p.CreatedAt AS CreatedAt, p.UpdatedAt AS UpdatedAt, count(f) AS FactorCount
+            ORDER BY p.Name
+            """
+        )
+        return results
+
+    def deleteFactorPool(self, name: str) -> bool:
+        """删除已保存的因子池（仅删除池节点，不删除因子）
+
+        Args:
+            name: 因子池名称
+
+        Returns:
+            是否成功删除
+        """
+        results = self._runCypher(
+            """
+            MATCH (p:`因子池` {Name: $name})
+            DETACH DELETE p
+            RETURN count(p) AS cnt
+            """,
+            {"name": name}
+        )
+        deleted = results[0]["cnt"] > 0 if results else False
+        if deleted:
+            self._QS_Logger.info(f"已删除因子池 '{name}'")
+        return deleted
+
+    # endregion
 
     def storeFactorOperator(self, op: FactorOperator) -> str:
         """存储单个算子节点
@@ -293,7 +607,7 @@ class QSGraphDB(QSNeo4jObject):
             "QSID": ft.QSID,
             "FactorNamesJSON": json.dumps(ft.FactorNames, ensure_ascii=False),
             "MetaDataJSON": json.dumps(_sanitizeForJSON(ft.getMetaData(key=None).to_dict()) if hasattr(ft.getMetaData(key=None), 'to_dict') else {}, ensure_ascii=False),
-            "QSArgsJSON": json.dumps(_sanitizeForJSON(ft._QSArgs.model_dump()), ensure_ascii=False),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(ft._QSArgs.serialize()), ensure_ascii=False),
             "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
         self._runCypher(
@@ -486,7 +800,7 @@ class QSGraphDB(QSNeo4jObject):
     def _batchStoreFactorTables(self, all_fts: dict):
         """批量写入因子表并注册关联的因子库"""
         for ft, fdb_name in all_fts.values():
-            if ft.FactorDB and ft.FactorDB.Name not in self._FactorDBRegistry:
+            if ft.FactorDB and ft.FactorDB._QSArgs.QSID not in self._FactorDBRegistry:
                 self.registerFactorDB(ft.FactorDB)
             self.storeFactorTable(ft, fdb_name=fdb_name)
 
@@ -728,6 +1042,12 @@ class QSGraphDB(QSNeo4jObject):
                 self._QS_Logger.info(
                     f"自动注册目标因子表: {fdb_name}/{target_table} (QSID: {ft_qsid[:16]}...)"
                 )
+            else:
+                self._QS_Logger.warning(
+                    f"目标因子表 '{target_table}' 在图库和因子库 '{fdb_name}' 中均不存在，"
+                    f"跳过 [写入因子表] 和 [存入因子表] 关系创建。"
+                    f"请先运行 run_factor_def.py 将因子数据写入目标库，或手动注册该因子表。"
+                )
 
             if ft_qsid:
                 self._runCypher(
@@ -891,7 +1211,7 @@ class QSGraphDB(QSNeo4jObject):
             "ClassName": bt_node.__class__.__name__,
             "ModulePath": bt_node.__class__.__module__,
             "BacktestCategory": category,
-            "QSArgsJSON": json.dumps(_sanitizeForJSON(bt_node._QSArgs.model_dump()), ensure_ascii=False),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(bt_node._QSArgs.serialize()), ensure_ascii=False),
             "UpdatedAt": now,
         }
         if dtrange:
@@ -1505,6 +1825,7 @@ class QSGraphDB(QSNeo4jObject):
         data_ref = json.loads(factor_data.get("DataRef", "{}"))
         args = json.loads(factor_data.get("QSArgsJSON", "{}"))
         args = _desanitizeFromJSON(args)
+        args = _decryptArgs(args)
         args["Name"] = factor_data["Name"]
         ref_type = data_ref.get("type", "")
         if ref_type == "scalar":
@@ -1538,9 +1859,10 @@ class QSGraphDB(QSNeo4jObject):
         for desc_data in descriptors_data:
             desc = self.reconstructFactor(desc_data["QSID"], descriptor_map)
             descriptors.append(desc)
-        # 解析参数
+        # 解析参数（含解密）
         args = json.loads(factor_data.get("QSArgsJSON", "{}"))
         args = _desanitizeFromJSON(args)
+        args = _decryptArgs(args)
         args["Name"] = factor_data["Name"]
         args["Operator"] = operator
         # 调用算子生成因子
@@ -1560,6 +1882,15 @@ class QSGraphDB(QSNeo4jObject):
     def _autoBuildFactorDB(self, fdb_name: str, fdb_node: dict) -> FactorDB:
         """从图节点元数据自动构建并连接 FactorDB 实例
 
+        支持两种 ConnectionJSON 格式：
+        - 新格式（``__QS_Object__.serialize()`` 输出）：包含 ``__type__``、
+          ``__qsargs__``、``__module__``
+        - 旧格式（手动组装的 dict）：包含 ``ClassName``、``ModulePath``、
+          ``ConfigFile``、``QSArgs``
+
+        ``config_file`` 不在 ConnectionJSON 中存储，由 ``__QS_Object__.__init__``
+        按默认路径自动查找配置文件。
+
         Args:
             fdb_name: 因子库名称
             fdb_node: Neo4j 返回的因子库节点（包含 ConnectionJSON 等属性）
@@ -1568,10 +1899,18 @@ class QSGraphDB(QSNeo4jObject):
             已连接的 FactorDB 实例
         """
         conn_json = json.loads(fdb_node.get("ConnectionJSON", "{}"))
-        module_path = conn_json.get("ModulePath")
-        class_name = conn_json.get("ClassName")
-        config_file = conn_json.get("ConfigFile")
-        qs_args = _desanitizeFromJSON(conn_json.get("QSArgs", {}))
+        data = _desanitizeFromJSON(conn_json)
+
+        # 检测格式：新格式包含 __type__ == "__QS_Object__"
+        if data.get("__type__") == "__QS_Object__":
+            module_path = data.get("__module__")
+            class_name = data.get("__class__")
+            qs_args_data = data.get("__qsargs__", {})
+        else:
+            # 旧格式兼容
+            module_path = data.get("ModulePath")
+            class_name = data.get("ClassName")
+            qs_args_data = data.get("QSArgs", {})
 
         if not module_path or not class_name:
             raise __QS_Error__(
@@ -1588,11 +1927,13 @@ class QSGraphDB(QSNeo4jObject):
                 f"无法加载类 {module_path}.{class_name}: {e}"
             )
 
-        fdb = cls(args=qs_args, config_file=config_file)
+        # 使用 __QS_ArgClass__.deserialize() 解密 args（兼容明文旧数据）
+        qs_args = cls.__QS_ArgClass__.deserialize(qs_args_data).model_dump()
+        fdb = cls(args=qs_args)
         fdb.connect()
         self._QS_Logger.info(
             f"已自动构建并连接因子库: '{fdb_name}'"
-            + (f" (配置文件: {config_file})" if config_file else "")
+            + (f" (配置文件: {fdb.ConfigFile})" if fdb.ConfigFile else "")
         )
         return fdb
 
@@ -1612,12 +1953,13 @@ class QSGraphDB(QSNeo4jObject):
         if not fdb_results:
             raise __QS_Error__(f"因子表 {ft_qsid} 没有关联的因子库")
         fdb_node = fdb_results[0]["d"]
+        fdb_qsid = fdb_node.get("QSID", "")
         fdb_name = fdb_node["Name"]
-        if fdb_name in self._FactorDBRegistry:
-            fdb = self._FactorDBRegistry[fdb_name]
+        if fdb_qsid in self._FactorDBRegistry:
+            fdb = self._FactorDBRegistry[fdb_qsid]
         else:
             fdb = self._autoBuildFactorDB(fdb_name, fdb_node)
-            self._FactorDBRegistry[fdb_name] = fdb
+            self._FactorDBRegistry[fdb_qsid] = fdb
         # 获取因子表名称
         ft_data = self._runCypher(
             "MATCH (t:`因子表` {QSID: $qsid}) RETURN t",
@@ -1655,6 +1997,7 @@ class QSGraphDB(QSNeo4jObject):
             ft = fdb.getTable(ft_name, args=ft_stored_args)
         args = json.loads(factor_data.get("QSArgsJSON", "{}"))
         args = _desanitizeFromJSON(args)
+        args = _decryptArgs(args)
         name_in_ft = factor_data.get("NameInFT", "")
         args["Name"] = name_in_ft
         return ft.getFactor(name_in_ft, args=args)
@@ -1673,9 +2016,10 @@ class QSGraphDB(QSNeo4jObject):
         class_name = op_data["ClassName"]
         module = importlib.import_module(module_path)
         op_class = getattr(module, class_name)
-        # 解析参数
+        # 解析参数（含解密）
         model_args = json.loads(op_data.get("ModelArgsJSON", "{}"))
         model_args = _desanitizeFromJSON(model_args)
+        model_args = _decryptArgs(model_args)
         look_back = json.loads(op_data.get("LookBackJSON", "[]"))
         look_back = _desanitizeFromJSON(look_back)
         args = {
@@ -2087,12 +2431,14 @@ class QSGraphDB(QSNeo4jObject):
         Returns:
             风险库名称
         """
+        connection_data = risk_db.serialize()
+        connection_data["__module__"] = risk_db.__class__.__module__
         props = {
             "Name": risk_db.Name,
             "DBType": risk_db.__class__.__name__,
             "ClassName": risk_db.__class__.__name__,
             "ModulePath": risk_db.__class__.__module__,
-            "ConnectionJSON": json.dumps({"type": risk_db.__class__.__name__}, ensure_ascii=False),
+            "ConnectionJSON": json.dumps(_sanitizeForJSON(connection_data), ensure_ascii=False),
             "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
         self._runCypher(
@@ -2105,6 +2451,56 @@ class QSGraphDB(QSNeo4jObject):
         )
         self._QS_Logger.info(f"已注册风险库: {risk_db.Name}")
         return risk_db.Name
+
+    def _autoBuildRiskDB(self, rdb_name: str, rdb_node: dict):
+        """从图节点元数据自动构建并连接 RiskDB 实例
+
+        与 ``_autoBuildFactorDB`` 使用相同的 ``serialize()`` / ``deserialize()`` 协议。
+
+        Args:
+            rdb_name: 风险库名称
+            rdb_node: Neo4j 返回的风险库节点（包含 ConnectionJSON 等属性）
+
+        Returns:
+            已连接的 RiskDB 实例
+        """
+        conn_json = json.loads(rdb_node.get("ConnectionJSON", "{}"))
+        data = _desanitizeFromJSON(conn_json)
+
+        if data.get("__type__") == "__QS_Object__":
+            module_path = data.get("__module__")
+            class_name = data.get("__class__")
+            qs_args_data = data.get("__qsargs__", {})
+        else:
+            # 旧格式兼容：{"type": "..."}
+            module_path = data.get("ModulePath")
+            class_name = data.get("ClassName")
+            qs_args_data = data.get("QSArgs", {})
+
+        if not module_path or not class_name:
+            self._QS_Logger.warning(
+                f"风险库 '{rdb_name}' 的 ConnectionJSON 缺少 ModulePath 或 ClassName，"
+                f"无法自动构建，请先调用 registerRiskDB 显式注册该风险库"
+            )
+            return None
+
+        try:
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            raise __QS_Error__(
+                f"风险库 '{rdb_name}' 自动构建失败: "
+                f"无法加载类 {module_path}.{class_name}: {e}"
+            )
+
+        qs_args = cls.__QS_ArgClass__.deserialize(qs_args_data).model_dump()
+        rdb = cls(args=qs_args)
+        rdb.connect()
+        self._QS_Logger.info(
+            f"已自动构建并连接风险库: '{rdb_name}'"
+            + (f" (配置文件: {fdb.ConfigFile})" if fdb.ConfigFile else "")
+        )
+        return rdb
 
     def storeRiskTable(self, rt, risk_db_name: Optional[str] = None) -> str:
         """存储风险表节点
@@ -2122,7 +2518,7 @@ class QSGraphDB(QSNeo4jObject):
             "ClassName": rt.__class__.__name__,
             "ModulePath": rt.__class__.__module__,
             "MetaDataJSON": json.dumps(_sanitizeForJSON(rt.getMetaData(key=None).to_dict()) if hasattr(rt.getMetaData(key=None), 'to_dict') else {}, ensure_ascii=False),
-            "QSArgsJSON": json.dumps(_sanitizeForJSON(rt._QSArgs.model_dump()), ensure_ascii=False),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(rt._QSArgs.serialize()), ensure_ascii=False),
             "UpdatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
         self._runCypher(
@@ -2218,7 +2614,7 @@ class QSGraphDB(QSNeo4jObject):
             "ModulePath": pc.__class__.__module__,
             "OptimizerType": pc.__class__.__name__,
             "Description": getattr(pc._QSArgs, 'Description', ''),
-            "QSArgsJSON": json.dumps(_sanitizeForJSON(pc._QSArgs.model_dump()), ensure_ascii=False),
+            "QSArgsJSON": json.dumps(_sanitizeForJSON(pc._QSArgs.serialize()), ensure_ascii=False),
             "UpdatedAt": now,
         }
         self._runCypher(

@@ -1,8 +1,9 @@
 /**
  * BacktestStudio - 回测工作台页面
  *
- * 左侧：配置区（全局因子池 + 全局价格因子池 + 日期/时点 + 模块选择 + 运行按钮）
+ * 左侧：配置区（日期/时点 + 模块选择 + 运行按钮）
  * 右侧：结果区（结果树 + 叶子节点详情）
+ * 全局因子池通过右侧滑出面板访问。
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -11,7 +12,7 @@ import {
 } from 'antd'
 import { PlayCircleOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import type { ModuleInfo, ModuleRunConfig, ResultNode, BacktestRunRequest, FactorRef, SectionIdSource } from '../../services/backtest'
+import type { ModuleInfo, ModuleRunConfig, ResultNode, BacktestRunRequest, SectionIdSource } from '../../services/backtest'
 import { getBacktestModules, getBacktestConfig, getSectionIdSources, submitBacktestRun, getBacktestResult } from '../../services/backtest'
 import { useTaskProgress } from '../../hooks/useTaskProgress'
 import TaskProgress from '../../components/TaskProgress'
@@ -19,14 +20,10 @@ import ModulePicker from '../../components/ModulePicker'
 import ModuleList from '../../components/ModuleList'
 import ResultTree from '../../components/ResultTree'
 import ResultLeaf from '../../components/ResultLeaf'
-import FactorSelector from '../../components/FactorSelector'
 
 const { RangePicker } = DatePicker
 
 function BacktestStudio() {
-  // ─── 全局因子池 ───────────────────────────────────────────
-  const [globalFactors, setGlobalFactors] = useState<FactorRef[]>([])
-
   // ─── 全局配置 ─────────────────────────────────────────────
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(
     [dayjs().subtract(3, 'year'), dayjs()]
@@ -148,11 +145,6 @@ function BacktestStudio() {
     <Row gutter={16} style={{ height: 'calc(100vh - 160px)' }}>
       <Col span={10} style={{ height: '100%', overflow: 'auto' }}>
 
-        {/* 全局因子池 */}
-        <Card title="全局因子池" size="small" style={{ marginBottom: 12 }}>
-          <FactorSelector selected={globalFactors} onChange={setGlobalFactors} />
-        </Card>
-
         {/* 全局配置 */}
         <Card title="全局配置" size="small" style={{ marginBottom: 12 }}>
           <div style={{ marginBottom: 12 }}>
@@ -188,7 +180,6 @@ function BacktestStudio() {
           <div style={{ marginBottom: 12 }}>
             <ModulePicker
               onAdd={handleAddModule}
-              globalFactors={globalFactors}
               sectionSources={sectionSources}
             />
           </div>
@@ -227,6 +218,7 @@ function BacktestStudio() {
           </Col>
         </Row>
       </Col>
+
     </Row>
   )
 }

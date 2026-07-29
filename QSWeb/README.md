@@ -211,25 +211,30 @@ npm run dev
 
 ### 配置文件
 
-因子库连接配置统一存储在 `~/QuantStudioConfig/QSWebConfig.json`：
+因子库连接配置存储在 **QSGraphDB（Neo4j 图数据库）** 的 `因子库` 节点中，以 FactorDB 实例自动生成的 **QSID** 作为唯一标识。
 
-```json
-{
-  "version": "1.0",
-  "factor_dbs": {
-    "连接ID": {
-      "name": "本地 HDF5 因子库",
-      "db_type": "HDF5DB",
-      "description": "本地因子数据",
-      "args": { "MainDir": "D:/Data/HDF5DB" }
-    }
-  }
-}
+> **注意**：`~/QuantStudioConfig/QSWebConfig.json` 的 `factor_dbs` 节已废弃。如从旧版本升级，请执行下方的迁移脚本。
+
+### 从 QSWebConfig.json 迁移连接
+
+如果之前使用 `QSWebConfig.json` 存储连接配置，请运行迁移脚本将已有连接写入 Neo4j 图数据库：
+
+```bash
+# 预览将要迁移的连接（不实际写入）
+python -m QSWeb.scripts.migrate_connections --dry-run
+
+# 执行迁移（自动备份 QSWebConfig.json）
+python -m QSWeb.scripts.migrate_connections
 ```
 
-- 可手动编辑此文件批量配置因子库，页面加载后自动显示
-- 通过页面创建的连接也会自动保存到此文件
-- `args` 中的参数名与 QuantStudio FactorDB 的构造参数一致
+迁移脚本的行为：
+- 遍历 `QSWebConfig.json` 中 `factor_dbs` 节的每条连接
+- 根据 `db_type` 和 `args` 创建 FactorDB 实例并测试连接
+- 将连接元数据写入 Neo4j 的 `因子库` 节点（QSID 由 FactorDB 实例自动生成）
+- 迁移前自动备份 `QSWebConfig.json` 为 `QSWebConfig.json.bak.<时间戳>`
+- 迁移成功后自动删除 `QSWebConfig.json` 中的 `factor_dbs` 节
+
+**回滚**：如需回滚，恢复备份的 `QSWebConfig.json` 文件即可。代码回退到旧版本会重新从该文件读取连接。
 
 ### 浏览因子数据
 
@@ -254,7 +259,10 @@ QSWeb/
 │   │   │   ├── Layout/        # 主布局（侧边栏 + 内容区）
 │   │   │   ├── Loading/       # 全局 Loading + 骨架屏
 │   │   │   ├── FactorTree/    # 因子树组件
-│   │   │   ├── FactorSelector/# 因子选择器
+│   │   │   ├── FactorSelector/# [已废弃] 因子选择器
+│   │   ├── FactorPoolPanel/# 全局因子池面板
+│   │   ├── FactorDiscover/# 因子发现抽屉（双源浏览）
+│   │   ├── ErrorBoundary/ # 错误边界（页面崩溃恢复）
 │   │   │   ├── FactorDecomposition/ # 因子风险分解组件
 │   │   │   ├── MetadataEditor/# 元数据编辑器
 │   │   │   ├── ModulePicker/  # 回测模块选择器
@@ -342,12 +350,21 @@ export default defineConfig({
 |------|------|------|
 | `/api/connections/` | GET | 获取所有连接 |
 | `/api/connections/` | POST | 创建连接 |
-| `/api/connections/{id}` | PUT | 更新连接 |
-| `/api/connections/{id}` | DELETE | 删除连接 |
-| `/api/connections/{id}/test` | POST | 测试连接 |
+| `/api/connections/{qsid}` | PUT | 更新连接 |
+| `/api/connections/{qsid}` | DELETE | 删除连接（返回影响范围） |
+| `/api/connections/{qsid}?confirm=true` | DELETE | 确认级联删除连接 |
+| `/api/connections/{qsid}/impact` | GET | 查询删除影响范围 |
+| `/api/connections/test` | POST | 测试连接（直接传参） |
+| `/api/connections/health` | POST | QSGraphDB 可用性检测 |
 | `/api/factors/{conn_id}/tables` | GET | 获取因子表列表 |
 | `/api/factors/{conn_id}/tables/{name}/factors` | GET | 获取因子列表 |
 | `/api/factors/{conn_id}/tables/{name}/factors/{factor}/data` | GET | 获取因子数据 |
+| `/api/pool/factors` | POST | 添加因子到全局池 |
+| `/api/pool/factors/{id}` | DELETE | 从全局池移除因子 |
+| `/api/pool/save` | POST | 保存因子池到图数据库 |
+| `/api/pool/load/{name}` | GET | 从图数据库加载因子池 |
+| `/api/pool/list` | GET | 列出已保存的因子池 |
+
 
 ## 技术栈
 

@@ -1,7 +1,7 @@
 /**
  * ModulePicker - 回测模块选择器
  *
- * 从全局因子池中选择因子和价格因子，支持预配置的截面 ID 源。
+ * 从全局因子池（Zustand store）中选择因子和价格因子，支持预配置的截面 ID 源。
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -9,16 +9,32 @@ import { Select, Button, Modal, Form, Input, InputNumber, Switch, Space, message
 import { PlusOutlined } from '@ant-design/icons'
 import type { ModuleInfo, ModuleRunConfig, FactorRef, PriceRef, ParamDef, SectionIdSource } from '../../services/backtest'
 import { getBacktestModules } from '../../services/backtest'
+import { useFactorPoolStore } from '../../stores/factorPoolStore'
+import type { PoolItem } from '../../types/pool'
 
 interface ModulePickerProps {
   onAdd: (config: ModuleRunConfig) => void
-  /** 全局因子池（模块从中选择因子和价格因子） */
-  globalFactors: FactorRef[]
   /** 截面 ID 源列表 */
   sectionSources: SectionIdSource[]
 }
 
-function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProps) {
+/** 将 PoolItem 转换为后端 FactorRef */
+function poolItemToFactorRef(item: PoolItem): FactorRef {
+  if (item.source === 'registry') {
+    return { source: 'registry', name: item.qsid }
+  }
+  return {
+    source: 'db',
+    name: item.label,
+    conn_id: item.ref.conn_id,
+    table_name: item.ref.table_name,
+  }
+}
+
+function ModulePicker({ onAdd, sectionSources }: ModulePickerProps) {
+  const poolItems = useFactorPoolStore((s) => s.items)
+  const selectedIds = useFactorPoolStore((s) => s.selectedIds)
+
   const [modules, setModules] = useState<ModuleInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -26,8 +42,8 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
   const [form] = Form.useForm()
 
   // 本模块选择的因子和价格因子（从全局池中选）
-  const [pickedFactors, setPickedFactors] = useState<string[]>([])
-  const [pickedPriceName, setPickedPriceName] = useState<string | null>(null)
+  const [pickedFactorIds, setPickedFactorIds] = useState<string[]>([])
+  const [pickedPriceId, setPickedPriceId] = useState<string | null>(null)
 
   // 截面模式: 'source' | 'custom' | 'auto'
   const [sectionMode, setSectionMode] = useState<'source' | 'custom' | 'auto'>('auto')
@@ -48,8 +64,8 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
     const mod = modules.find((m) => m.key === moduleKey)
     if (!mod) return
     setSelectedModule(mod)
-    setPickedFactors([])
-    setPickedPriceName(null)
+    setPickedFactorIds([])
+    setPickedPriceId(null)
     setSectionMode('auto')
     setSectionSource(null)
     setCustomIds('')
@@ -64,7 +80,7 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
   const handleConfirm = () => {
     if (!selectedModule) return
     form.validateFields().then((values) => {
-      if (pickedFactors.length === 0) { message.warning('请从全局因子池中选择至少一个因子'); return }
+      if (pickedFactorIds.length === 0) { message.warning('请从全局因子池中选择至少一个因子'); return }
 
       const paramNames = new Set(selectedModule.params.map((p) => p.name))
       const params: Record<string, any> = {}
@@ -73,12 +89,16 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
       }
 
       // 价格因子：从全局因子池中查找
-      const priceFactor = pickedPriceName
-        ? globalFactors.find((f) => f.name === pickedPriceName)
+      const priceItem = pickedPriceId
+        ? poolItems.find((item) => item.id === pickedPriceId)
         : null
       let priceRef: PriceRef | null = null
-      if (selectedModule.requires_price && priceFactor) {
-        priceRef = { conn_id: priceFactor.conn_id!, table_name: priceFactor.table_name!, factor_name: priceFactor.name }
+      if (selectedModule.requires_price && priceItem) {
+        priceRef = {
+          conn_id: priceItem.ref.conn_id || '',
+          table_name: priceItem.ref.table_name || '',
+          factor_name: priceItem.label,
+        }
       } else if (selectedModule.requires_price) {
         message.warning('该模块需要价格因子'); return
       }
@@ -94,10 +114,12 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
       }
       // 'auto': both null → backend auto-detects
 
+      const pickedItems = poolItems.filter((item) => pickedFactorIds.includes(item.id))
+
       const config: ModuleRunConfig = {
         module_key: selectedModule.key,
         instance_label: values._label || '',
-        factor_refs: globalFactors.filter((f) => pickedFactors.includes(f.name)),
+        factor_refs: pickedItems.map(poolItemToFactorRef),
         params,
         price_ref: priceRef,
         descriptor_source: descriptorSource,
@@ -124,6 +146,11 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
   }
 
   // ─── 渲染 ─────────────────────────────────────────────────
+  const factorOptions = poolItems.map((item) => ({
+    value: item.id,
+    label: `${item.label} [${item.source === 'registry' ? '注册中心' : '因子库'}]`,
+  }))
+
   return (
     <>
       <Space>
@@ -153,23 +180,23 @@ function ModulePicker({ onAdd, globalFactors, sectionSources }: ModulePickerProp
             <div style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 4, fontWeight: 500 }}>
                 选择因子
-                {globalFactors.length === 0 && <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>（请先在左侧全局因子池中添加因子）</span>}
+                {poolItems.length === 0 && <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>（请先在左侧全局因子池中添加因子）</span>}
               </div>
               <Select mode="multiple" style={{ width: '100%' }} placeholder="从全局因子池中选择"
-                value={pickedFactors} onChange={setPickedFactors}
-                options={globalFactors.map((f) => ({ value: f.name, label: f.name }))} />
+                value={pickedFactorIds} onChange={setPickedFactorIds}
+                options={factorOptions} />
             </div>
 
-            {/* 从全局价格因子池中选择 */}
+            {/* 从全局因子池中选择价格因子 */}
             {selectedModule.requires_price && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ marginBottom: 4, fontWeight: 500 }}>
                   选择价格因子
-                  {globalFactors.length === 0 && <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>（请先在左侧全局因子池中添加因子）</span>}
+                  {poolItems.length === 0 && <span style={{ color: '#999', fontWeight: 400, fontSize: 12 }}>（请先在左侧全局因子池中添加因子）</span>}
                 </div>
                 <Select style={{ width: '100%' }} placeholder="从全局因子池中选择"
-                  value={pickedPriceName} onChange={setPickedPriceName} allowClear
-                  options={globalFactors.map((f) => ({ value: f.name, label: f.name }))} />
+                  value={pickedPriceId} onChange={setPickedPriceId} allowClear
+                  options={factorOptions} />
               </div>
             )}
 

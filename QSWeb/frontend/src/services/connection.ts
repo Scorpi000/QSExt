@@ -5,12 +5,30 @@
 import api from './api'
 
 export interface Connection {
-  id: string
+  /** QSID 唯一标识（替代旧 UUID id） */
+  qsid: string
   name: string
   db_type: string
   description?: string
   args: Record<string, any>
   status: string
+  created_at?: string
+  updated_at?: string
+}
+
+/** 影响分析结果 */
+export interface ImpactFactor {
+  QSID: string
+  Name: string
+  FactorTableName?: string
+}
+
+export interface ImpactAnalysis {
+  factor_db: Record<string, any> | null
+  direct_factors: ImpactFactor[]
+  indirect_factors: ImpactFactor[]
+  factor_tables: Array<{ QSID: string; Name: string }>
+  total_affected_factors: number
 }
 
 export interface ConnectionCreate {
@@ -54,8 +72,8 @@ export const getConnections = () => {
 }
 
 // 获取单个连接
-export const getConnection = (id: string) => {
-  return api.get<Connection>(`/connections/${id}`)
+export const getConnection = (qsid: string) => {
+  return api.get<Connection>(`/connections/${qsid}`)
 }
 
 // 创建连接
@@ -64,16 +82,38 @@ export const createConnection = (data: ConnectionCreate) => {
 }
 
 // 更新连接
-export const updateConnection = (id: string, data: ConnectionUpdate) => {
-  return api.put<Connection>(`/connections/${id}`, data)
+export const updateConnection = (qsid: string, data: ConnectionUpdate) => {
+  return api.put<Record<string, any>>(`/connections/${qsid}`, data)
 }
 
-// 删除连接
-export const deleteConnection = (id: string) => {
-  return api.delete(`/connections/${id}`)
+// 删除连接（preview mode，返回影响范围）
+export const deleteConnectionPreview = (qsid: string) => {
+  return api.delete<{ action: string; impact: ImpactAnalysis }>(`/connections/${qsid}`)
 }
 
-// 测试连接
-export const testConnection = (id: string) => {
-  return api.post<ConnectionTestResult>(`/connections/${id}/test`)
+// 确认删除连接（级联删除）
+export const deleteConnectionConfirm = (qsid: string) => {
+  return api.delete(`/connections/${qsid}?confirm=true`)
+}
+
+// 获取删除影响范围
+export const getImpact = (qsid: string) => {
+  return api.get<ImpactAnalysis>(`/connections/${qsid}/impact`)
+}
+
+// 测试连接（按 QSID）
+export const testConnection = (qsid: string) => {
+  return api.post<ConnectionTestResult>(`/connections/${qsid}/test`)
+}
+
+// 测试连接（直接传参）
+export const testConnectionDirect = (dbType: string, args: Record<string, any>) => {
+  return api.post<ConnectionTestResult>(
+    `/connections/test?db_type=${encodeURIComponent(dbType)}&args_json=${encodeURIComponent(JSON.stringify(args))}`
+  )
+}
+
+// 健康检查
+export const checkHealth = () => {
+  return api.get<{ status: string; message: string }>('/connections/health')
 }

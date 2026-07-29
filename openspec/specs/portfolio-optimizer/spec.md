@@ -30,6 +30,18 @@ QSWeb 组合优化器模块，支持用户配置优化问题的目标函数和�
 - **WHEN** 优化问题无可行解或求解器报错
 - **THEN** 系统返回错误信息和建议的约束调整方向
 
+### Requirement: 全局因子池集成
+
+系统 SHALL 在组合优化页面中通过 PoolFactorPicker 从全局因子池选择因子作为优化输入（预期收益、Mask、基准权重），PoolFactorPicker 从 Zustand store 读取因子列表。
+
+#### Scenario: 从池中选择优化因子
+- **WHEN** 用户在组合优化页面配置预期收益/Mask/基准权重
+- **THEN** PoolFactorPicker 下拉框展示全局池中所有因子，用户选择后生成 FactorDataRef
+
+#### Scenario: 池变更实时反映
+- **WHEN** 在其他页面向池中添加新因子
+- **THEN** 组合优化页面的 PoolFactorPicker 下拉选项自动包含新因子
+
 ### Requirement: 结果展示
 
 系统 SHALL 支持用户查看优化结果的权重分布和风险分解。

@@ -8,15 +8,15 @@ QSWeb 报告中心模块，支持用户选择报告场景生成报告、浏览�
 
 ### Requirement: 报告生成
 
-系统 SHALL 支持用户选择报告场景、配置参数并生成报告。
+系统 SHALL 支持用户选择报告场景、从全局因子池选择因子、配置参数并生成报告。
 
 #### Scenario: 生成单因子分析报告
-- **WHEN** 用户选择"单因子分析"场景，配置因子、日期范围和格式（HTML/Markdown）
-- **THEN** 系统提交异步生成任务，完成后返回报告 ID
+- **WHEN** 用户选择"单因子分析"场景，从右侧因子池面板勾选被测因子，通过 PoolRefPicker 选取价格/Mask/行业/权重等辅助因子，配置日期范围和格式（HTML/Markdown）
+- **THEN** 系统从 store.selectedIds 读取已选因子构建 FactorRef[]，提交异步生成任务，完成后返回报告 ID
 
 #### Scenario: 报告生成进度
 - **WHEN** 报告生成任务执行中
-- **THEN** 系统通过 WebSocket 推送生成进度
+- **THEN** 系统通过轮询推送生成进度
 
 ### Requirement: 报告浏览
 

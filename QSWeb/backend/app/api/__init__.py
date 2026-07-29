@@ -11,6 +11,7 @@ from app.api.backtest import router as backtest_router
 from app.api.risk import router as risk_router
 from app.api.portfolio import router as portfolio_router
 from app.api.report import router as report_router
+from app.api.pool import router as pool_router
 
 router = APIRouter()
 
@@ -22,3 +23,4 @@ router.include_router(backtest_router, prefix="/backtest", tags=["回测工作�
 router.include_router(risk_router, prefix="/risk", tags=["风险管理"])
 router.include_router(portfolio_router, prefix="/portfolio", tags=["组合优化"])
 router.include_router(report_router, prefix="/reports", tags=["报告中心"])
+router.include_router(pool_router, prefix="/pool", tags=["全局因子池"])

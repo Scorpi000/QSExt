@@ -1869,34 +1869,37 @@ def test_38_extract_fdb_connection_roundtrip():
     conn = json.loads(conn_json_str)
     print(f"  [PASS] _extractFDBConnection 输出合法 JSON")
 
-    # 验证必要字段
-    assert "ClassName" in conn, f"缺少 ClassName 字段"
-    assert conn["ClassName"] == "JYDB", f"ClassName 应为 'JYDB'，实际: {conn['ClassName']}"
-    print(f"  [PASS] ClassName = {conn['ClassName']}")
+    # 验证新格式：__QS_Object__.serialize() 输出
+    assert "__type__" in conn, f"缺少 __type__ 字段"
+    assert conn["__type__"] == "__QS_Object__", f"__type__ 应为 '__QS_Object__'"
+    print(f"  [PASS] __type__ = {conn['__type__']}")
 
-    assert "ModulePath" in conn, f"缺少 ModulePath 字段"
-    assert "JYDB" in conn["ModulePath"], f"ModulePath 应包含 'JYDB'"
-    print(f"  [PASS] ModulePath = {conn['ModulePath']}")
+    assert "__class__" in conn, f"缺少 __class__ 字段"
+    assert conn["__class__"] == "JYDB", f"__class__ 应为 'JYDB'，实际: {conn['__class__']}"
+    print(f"  [PASS] __class__ = {conn['__class__']}")
 
-    assert "ConfigFile" in conn, f"缺少 ConfigFile 字段"
-    assert conn["ConfigFile"] is not None, f"JYDB ConfigFile 不应为 None"
-    assert "JYDBConfig" in conn["ConfigFile"], f"ConfigFile 应包含 'JYDBConfig'"
-    print(f"  [PASS] ConfigFile = {conn['ConfigFile']}")
+    assert "__module__" in conn, f"缺少 __module__ 字段"
+    assert "JYDB" in conn["__module__"], f"__module__ 应包含 'JYDB'"
+    print(f"  [PASS] __module__ = {conn['__module__']}")
 
-    assert "QSArgs" in conn, f"缺少 QSArgs 字段"
-    qs_args = conn["QSArgs"]
-    assert isinstance(qs_args, dict), f"QSArgs 应为 dict"
-    print(f"  [PASS] QSArgs 存在, 包含 {len(qs_args)} 个字段: {sorted(qs_args.keys())}")
+    # _ConfigFile 不再存储，由 __QS_Object__.__init__ 自行查找
+    assert "_ConfigFile" not in conn, f"新格式不应包含 _ConfigFile (由 __init__ 自动查找)"
+    print(f"  [PASS] _ConfigFile 已移除 (由 __init__ 自动查找)")
+
+    assert "__qsargs__" in conn, f"缺少 __qsargs__ 字段"
+    qs_args = conn["__qsargs__"]
+    assert isinstance(qs_args, dict), f"__qsargs__ 应为 dict"
+    print(f"  [PASS] __qsargs__ 存在, 包含 {len(qs_args)} 个字段: {sorted(qs_args.keys())}")
 
     # 验证非敏感参数存在
-    assert "Name" in qs_args, f"QSArgs 应包含 Name"
-    assert qs_args["Name"] == "JYDB", f"QSArgs.Name 应为 'JYDB'"
-    print(f"  [PASS] QSArgs.Name = {qs_args['Name']}")
+    assert "Name" in qs_args, f"__qsargs__ 应包含 Name"
+    assert qs_args["Name"] == "JYDB", f"__qsargs__.Name 应为 'JYDB'"
+    print(f"  [PASS] __qsargs__.Name = {qs_args['Name']}")
 
-    # 验证 exclude=True 的敏感字段不出现在 QSArgs 中
+    # 验证 exclude=True 的敏感字段不出现在 __qsargs__ 中
     sensitive_fields = ["Pwd", "User", "IPAddr", "Port", "DBName", "DBType"]
     for field in sensitive_fields:
-        assert field not in qs_args, f"敏感字段 '{field}' 不应出现在 QSArgs 中 (exclude=True)"
+        assert field not in qs_args, f"敏感字段 '{field}' 不应出现在 __qsargs__ 中 (exclude=True)"
     print(f"  [PASS] 敏感字段已排除: {sensitive_fields}")
 
     # --- HDF5DB 序列化测试 ---
@@ -1910,19 +1913,16 @@ def test_38_extract_fdb_connection_roundtrip():
     conn2_str = gdb._extractFDBConnection(hdb)
     conn2 = json.loads(conn2_str)
 
-    assert conn2["ClassName"] == "HDF5DB"
-    print(f"  [PASS] HDF5DB ClassName = {conn2['ClassName']}")
+    assert conn2["__class__"] == "HDF5DB"
+    print(f"  [PASS] HDF5DB __class__ = {conn2['__class__']}")
 
-    # HDF5DB 未指定 config_file 时，若默认配置文件存在则使用之，否则为 None
-    if conn2["ConfigFile"] is None:
-        print(f"  [PASS] HDF5DB ConfigFile = None (默认配置文件不存在)")
-    else:
-        assert "HDF5DBConfig" in conn2["ConfigFile"], f"ConfigFile 应指向默认配置文件"
-        print(f"  [PASS] HDF5DB ConfigFile = {conn2['ConfigFile']} (默认配置文件)")
+    # _ConfigFile 不再存储
+    assert "_ConfigFile" not in conn2, f"HDF5DB ConnectionJSON 不应包含 _ConfigFile"
+    print(f"  [PASS] HDF5DB _ConfigFile 已移除")
 
-    qs_args2 = conn2["QSArgs"]
-    assert "MainDir" in qs_args2, f"HDF5DB QSArgs 应包含 MainDir"
-    print(f"  [PASS] HDF5DB QSArgs.MainDir 存在")
+    qs_args2 = conn2["__qsargs__"]
+    assert "MainDir" in qs_args2, f"HDF5DB __qsargs__ 应包含 MainDir"
+    print(f"  [PASS] HDF5DB __qsargs__.MainDir 存在")
 
     # 验证 HDF5DB 的 exclude=True 字段被排除
     assert "FileOpenRetryNum" not in qs_args2, f"HDF5DB 的 FileOpenRetryNum 不应出现 (exclude=True)"
@@ -1953,14 +1953,14 @@ def test_39_auto_reconstruct_factor_db():
     assert fdb_name == "JYDB", f"注册应返回 'JYDB'，实际: {fdb_name}"
     print(f"  [PASS] gdb1.registerFactorDB: {fdb_name}")
 
-    # 验证 ConnectionJSON 包含完整信息
+    # 验证 ConnectionJSON 包含完整 serialize() 输出
     fdb_nodes = gdb1.executeCypher(
         "MATCH (d:`因子库` {Name: $name}) RETURN d", {"name": "JYDB"}
     )
     assert len(fdb_nodes) == 1
     conn = json.loads(fdb_nodes[0]["d"].get("ConnectionJSON", "{}"))
-    assert "ClassName" in conn and "ModulePath" in conn and "ConfigFile" in conn and "QSArgs" in conn
-    print(f"  [PASS] ConnectionJSON 包含完整重建信息")
+    assert "__type__" in conn and "__class__" in conn and "__module__" in conn and "__qsargs__" in conn
+    print(f"  [PASS] ConnectionJSON 包含 serialized 重建信息")
 
     # --- 步骤 2: 存储因子表 ---
     ft = jydb.getTable("日行情表")
@@ -2023,9 +2023,188 @@ def test_39_auto_reconstruct_factor_db():
     return True
 
 
-# ============================================================
-# 主入口
-# ============================================================
+def test_40_old_format_compat():
+    """测试 40: 旧格式 ConnectionJSON 兼容性"""
+    print("\n" + "=" * 60)
+    print("测试 40: 旧格式 ConnectionJSON 兼容性")
+    print("=" * 60)
+
+    gdb = QSGraphDB(args=gdb_args)
+    gdb.connect()
+
+    # 构造旧格式 ConnectionJSON（无 __type__ 字段）
+    old_format = {
+        "ClassName": "HDF5DB",
+        "ModulePath": "QuantStudio.Factor.HDF5DB",
+        "ConfigFile": None,
+        "QSArgs": {"Name": "compat_test_db", "MainDir": tempfile.mkdtemp(prefix="qs_old_fmt_")},
+    }
+    # 注入旧格式节点
+    gdb._runCypher(
+        """
+        MERGE (d:`因子库` {Name: $name})
+        SET d += $props
+        """,
+        {"name": "compat_test_db", "props": {
+            "Name": "compat_test_db",
+            "DBType": "HDF5DB",
+            "ConnectionJSON": json.dumps(old_format),
+        }}
+    )
+    print(f"  [PASS] 旧格式 ConnectionJSON 已注入")
+
+    # 触发自动重建
+    fdb_nodes = gdb._runCypher(
+        "MATCH (d:`因子库` {Name: 'compat_test_db'}) RETURN d"
+    )
+    assert len(fdb_nodes) == 1
+    fdb = gdb._autoBuildFactorDB("compat_test_db", fdb_nodes[0]["d"])
+    assert fdb is not None
+    assert fdb.Name == "compat_test_db"
+    print(f"  [PASS] 旧格式自动重建成功: {fdb.Name} ({type(fdb).__name__})")
+
+    # 清理
+    fdb.disconnect()
+    gdb._runCypher("MATCH (d:`因子库` {Name: 'compat_test_db'}) DETACH DELETE d")
+    import shutil
+    shutil.rmtree(old_format["QSArgs"]["MainDir"], ignore_errors=True)
+    gdb.disconnect()
+    return True
+
+
+def test_41_serialize_factor_args_encryption():
+    """测试 41: serializeFactorArgs / serializeOperatorArgs 加密验证"""
+    print("\n" + "=" * 60)
+    print("测试 41: serializeFactorArgs / serializeOperatorArgs 加密")
+    print("=" * 60)
+
+    from QSExt.QSRegistry._serialization import serializeFactorArgs, serializeOperatorArgs
+    from QuantStudio.Factor.api import fo
+
+    # --- 测试 serializeFactorArgs ---
+    factor = DataFactor(data=3.14, args={"Name": "enc_test_factor", "DataType": "double"})
+    json_str = serializeFactorArgs(factor)
+    args = json.loads(json_str)
+    assert "Name" in args, f"Name 应在 QSArgsJSON 中"
+    assert "Operator" not in args, f"Operator 应已被排除"
+    assert "Meta" not in args, f"Meta 应已被排除"
+    print(f"  [PASS] serializeFactorArgs 正确排除 Operator 和 Meta")
+    print(f"  [PASS] QSArgsJSON 字段: {sorted(args.keys())}")
+
+    # --- 测试 serializeOperatorArgs ---
+    op = fo.Log()
+    json_str = serializeOperatorArgs(op)
+    model_args = json.loads(json_str)
+    assert isinstance(model_args, dict), f"ModelArgsJSON 应为 dict"
+    print(f"  [PASS] serializeOperatorArgs 产出 ModelArgsJSON: {model_args}")
+
+    # --- 往返测试: 因子参数 → 序列化 → 反序列化 → 解密 ---
+    from QuantStudio.Factor.Factor import DataFactor as DF
+    serialized = factor._QSArgs.serialize()
+    deserialized = DF.__QS_ArgClass__.deserialize(serialized).model_dump()
+    assert deserialized["Name"] == "enc_test_factor"
+    assert deserialized["DataType"] == "double"
+    print(f"  [PASS] Factor QSArgs 加密往返成功")
+    return True
+
+
+def test_42_riskdb_full_connection():
+    """测试 42: RiskDB ConnectionJSON 完整性"""
+    print("\n" + "=" * 60)
+    print("测试 42: RiskDB ConnectionJSON 完整性")
+    print("=" * 60)
+
+    from QuantStudio.Risk.RiskDB import RiskDB
+    import QuantStudio.api as QS
+
+    gdb = QSGraphDB(args=gdb_args)
+    gdb.connect()
+
+    # 检查 RiskDB 是否可用
+    try:
+        rdb = QS.RiskDB.HDF5RiskDB(args={"MainDir": tempfile.mkdtemp(prefix="qs_riskdb_test_")})
+        rdb.connect()
+    except Exception as e:
+        print(f"  [SKIP] HDF5RiskDB 不可用: {e}")
+        gdb.disconnect()
+        return True
+
+    # 注册
+    name = gdb.registerRiskDB(rdb)
+    assert name == rdb.Name
+    print(f"  [PASS] registerRiskDB: {name}")
+
+    # 验证 ConnectionJSON 格式
+    rdb_nodes = gdb._runCypher(
+        "MATCH (d:`风险库` {Name: $name}) RETURN d", {"name": name}
+    )
+    assert len(rdb_nodes) == 1
+    conn = json.loads(rdb_nodes[0]["d"].get("ConnectionJSON", "{}"))
+    assert "__type__" in conn, f"RiskDB ConnectionJSON 应包含 __type__"
+    assert "__class__" in conn, f"RiskDB ConnectionJSON 应包含 __class__"
+    assert "__module__" in conn, f"RiskDB ConnectionJSON 应包含 __module__"
+    assert "__qsargs__" in conn, f"RiskDB ConnectionJSON 应包含 __qsargs__"
+    print(f"  [PASS] RiskDB ConnectionJSON 包含完整的 serialize() 输出")
+    print(f"  [PASS] __class__ = {conn['__class__']}")
+
+    # 测试自动重建
+    rdb2 = gdb._autoBuildRiskDB(name, rdb_nodes[0]["d"])
+    assert rdb2 is not None
+    assert rdb2.Name == name
+    print(f"  [PASS] _autoBuildRiskDB 成功: {type(rdb2).__name__}")
+
+    # 清理
+    rdb.disconnect()
+    rdb2.disconnect()
+    gdb._runCypher("MATCH (d:`风险库` {Name: $name}) DETACH DELETE d", {"name": name})
+    import shutil
+    shutil.rmtree(rdb._QSArgs.MainDir, ignore_errors=True)
+    gdb.disconnect()
+    return True
+
+
+def test_43_operator_reconstruct_decryption():
+    """测试 43: Operator 重建时 ModelArgs 解密"""
+    print("\n" + "=" * 60)
+    print("测试 43: Operator 重建时 ModelArgs 解密")
+    print("=" * 60)
+
+    from QuantStudio.Factor.api import fo
+
+    gdb = QSGraphDB(args=gdb_args)
+    gdb.connect()
+
+    # 创建使用算子的因子
+    base = DataFactor(data=10.0, args={"Name": "op_decrypt_base", "DataType": "double"})
+    lag_factor = fo.Lag(lag_period=3, factor_args={"Name": "op_decrypt_lag"})(base)
+
+    qsid = gdb.storeFactors([lag_factor], tags={lag_factor.QSID: ["decrypt_test"]})[0]
+    print(f"  [PASS] 因子已存储: {qsid[:16]}...")
+
+    # 获取算子 QSID
+    factor_data = gdb.getFactorByQSID(qsid)
+    op_qsid = factor_data["OperatorQSID"]
+
+    # 验证算子节点中的 ModelArgsJSON 来自 serialize()
+    op_nodes = gdb._runCypher(
+        "MATCH (o:`算子` {QSID: $qsid}) RETURN o", {"qsid": op_qsid}
+    )
+    assert len(op_nodes) == 1
+    model_args_raw = json.loads(op_nodes[0]["o"].get("ModelArgsJSON", "{}"))
+    assert "lag_period" in model_args_raw, f"ModelArgsJSON 应包含 lag_period"
+    print(f"  [PASS] ModelArgsJSON 存在且包含 lag_period: {model_args_raw['lag_period']}")
+
+    # 重建算子
+    op = gdb.reconstructOperator(op_qsid)
+    assert op.QSID == op_qsid
+    assert op._QSArgs.ModelArgs.get("lag_period") == 3
+    print(f"  [PASS] 算子重建成功，ModelArgs.lag_period = {op._QSArgs.ModelArgs['lag_period']}")
+
+    # 清理
+    gdb.deleteFactor(qsid, cascade=True)
+    gdb.deleteFactor(base.QSID)
+    gdb.disconnect()
+    return True
 if __name__ == "__main__":
     tests = [
         ("连接生命周期", test_1_connect),
@@ -2070,6 +2249,11 @@ if __name__ == "__main__":
         # ── FactorDB 自动重建测试 ──
         ("_extractFDBConnection 序列化", test_38_extract_fdb_connection_roundtrip),
         ("FactorDB 自动重建集成", test_39_auto_reconstruct_factor_db),
+        # ── 加密序列化测试 ──
+        ("旧格式兼容性", test_40_old_format_compat),
+        ("serializeFactorArgs/OperatorArgs 加密", test_41_serialize_factor_args_encryption),
+        ("RiskDB 完整连接信息", test_42_riskdb_full_connection),
+        ("Operator 重建时解密", test_43_operator_reconstruct_decryption),
     ]
 
     passed = 0

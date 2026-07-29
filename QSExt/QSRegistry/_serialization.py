@@ -176,6 +176,26 @@ def _serializeCallable(func: Callable) -> dict:
         return {"__str_repr__": True, "value": str(func)}
 
 
+def _decryptArgs(args: dict) -> dict:
+    """解密 args 中以 ``"ENC:"`` 为前缀的字段值
+
+    与 ``__QS_ArgClass__.deserialize()`` 不同，此函数仅逐字段解密，
+    不构造 ArgClass 实例，因此不触发 pydantic 校验。适用于因存储拆分
+    而缺失部分必填字段（如 Operator）的场景。
+
+    Args:
+        args: 待解密的参数字典
+
+    Returns:
+        解密后的参数字典（非加密字段原样返回）
+    """
+    from QuantStudio.Core._encryption import decrypt_value, is_encrypted
+    return {
+        k: decrypt_value(v) if is_encrypted(v) else v
+        for k, v in args.items()
+    }
+
+
 def _deserializeFuncRef(ref: dict) -> Callable:
     """从函数引用字典恢复可调用对象
 
@@ -195,13 +215,16 @@ def _deserializeFuncRef(ref: dict) -> Callable:
 def serializeFactorArgs(factor) -> str:
     """序列化因子的 QSArgs 为 JSON 字符串（排除 Operator 字段）
 
+    使用 ``_QSArgs.serialize()`` 进行序列化，对标记 ``secret=True`` 的
+    敏感字段自动 Fernet 加密为 ``"ENC:<base64>"`` 格式。
+
     Args:
         factor: Factor 实例
 
     Returns:
         JSON 字符串
     """
-    args_dict = factor._QSArgs.model_dump()
+    args_dict = factor._QSArgs.serialize()
     # 排除 Operator（它通过 USES_OPERATOR 关系单独存储）
     args_dict.pop("Operator", None)
     # 排除已排除的字段（Meta 单独存储）
@@ -212,13 +235,17 @@ def serializeFactorArgs(factor) -> str:
 def serializeOperatorArgs(operator) -> str:
     """序列化算子的 ModelArgs 为 JSON 字符串
 
+    使用 ``_QSArgs.serialize()`` 对算子参数集进行序列化，从结果中提取
+    ``ModelArgs`` 字段。敏感字段自动加密。
+
     Args:
         operator: FactorOperator 实例
 
     Returns:
         JSON 字符串
     """
-    model_args = operator._QSArgs.ModelArgs
+    serialized = operator._QSArgs.serialize()
+    model_args = serialized.get("ModelArgs", {})
     return json.dumps(_sanitizeForJSON(model_args), ensure_ascii=False)
 
 

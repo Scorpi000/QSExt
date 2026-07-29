@@ -2,21 +2,33 @@
 
 ## Purpose
 
-QSWeb 回测工作台模块，支持用户从因子库选择因子、配置模块化回测任务、异步执行回测计算，并通过树结构展示结果。
+QSWeb 回测工作台模块，支持用户从全局因子池选择因子、配置模块化回测任务、异步执行回测计算，并通过树结构展示结果。因子选择通过 MainLayout 右侧全局因子池面板完成，ModulePicker 从 Zustand store 读取。
 
 ## Requirements
 
-### Requirement: 因子选择（FactorDB 源）
+### Requirement: 因子选择（全局因子池）
 
-系统 SHALL 支持用户从已连接的因子库中多选因子用于回测。
+系统 SHALL 支持用户从全局因子池中选择因子用于回测。因子池维护在 MainLayout 右侧面板，ModulePicker 从 store 读取因子列表构建模块配置。
 
-#### Scenario: 从因子库浏览并选择因子
-- **WHEN** 用户在回测工作台打开因子选择器，选择因子库 Tab，选择连接和因子表
-- **THEN** 系统展示该表下所有因子列表，用户可多选加入已选列表
+#### Scenario: 从池中选择因子
+- **WHEN** 用户在 ModulePicker 中为回测模块配置因子
+- **THEN** ModulePicker 从全局因子池 Zustand store 读取因子列表，转换为 FactorRef 构建模块配置
 
-#### Scenario: 查看已选因子
-- **WHEN** 用户选择了多个因子
-- **THEN** 系统以 Tag 形式展示已选因子列表，支持点击删除单个因子
+#### Scenario: 添加新因子到池
+- **WHEN** 用户需要池中不存在的因子
+- **THEN** 用户从右侧因子池面板点击"添加"，打开 FactorDiscover Drawer，浏览 FactorDB 或搜索 QSRegistry 添加因子
+
+### Requirement: 因子选择（QSRegistry 源）
+
+系统 SHALL 支持从 QSRegistry 图数据库中搜索因子并添加到全局因子池用于回测，支持关键词搜索和语义搜索。
+
+#### Scenario: 从 QSRegistry 搜索因子
+- **WHEN** 用户在 FactorDiscover 切换到 QSRegistry Tab，选择搜索模式，输入查询
+- **THEN** 系统通过 QSGraphDB 检索因子，展示结果列表（名称、QSID、因子类别、算子名称、相似度）
+
+#### Scenario: QSRegistry 因子重建用于回测
+- **WHEN** 回测任务执行时遇到 source 为 "registry" 的因子
+- **THEN** 系统通过 QSGraphDB.reconstructFactor(qsid) 重建完整 Factor 对象用于回测计算
 
 ### Requirement: 回测模块注册表
 
@@ -36,11 +48,7 @@ QSWeb 回测工作台模块，支持用户从因子库选择因子、配置模�
 
 #### Scenario: 添加回测模块
 - **WHEN** 用户点击"添加模块"，从下拉列表中选择一个模块类型（如"IC 分析"）
-- **THEN** 弹出配置对话框，展示该模块所需的参数表单 + 因子选择，用户配置后点击确认加入待运行列表
-
-#### Scenario: 重复添加同一模块
-- **WHEN** 用户再次添加相同类型的模块
-- **THEN** 系统允许重复添加，每次可配置不同的参数和因子（如用不同因子各跑一次 IC 分析）
+- **THEN** 弹出配置对话框，展示该模块所需的参数表单 + 从池中选择因子，用户配置后点击确认加入待运行列表
 
 #### Scenario: 编辑/删除待运行模块
 - **WHEN** 用户在待运行列表中点击编辑或删除按钮
@@ -48,19 +56,15 @@ QSWeb 回测工作台模块，支持用户从因子库选择因子、配置模�
 
 #### Scenario: 全局配置
 - **WHEN** 用户配置全局参数
-- **THEN** 系统提供日期范围、价格因子选择、截面 ID 输入等全局配置项
+- **THEN** 系统提供日期范围、时点模式（自然日/交易日）等全局配置项
 
 ### Requirement: 异步回测执行
 
-系统 SHALL 通过异步机制执行回测计算，对接 QuantStudio 原生回测模块。
+系统 SHALL 通过异步机制执行回测计算，对接 QuantStudio 原生回测模块。节点构造通过声明式 `_BT_NODE_BUILDERS` 字典 + `_build_node_sync` 通用方法完成。
 
 #### Scenario: 提交回测运行
 - **WHEN** 用户完成所有模块配置，点击"全部运行"
-- **THEN** 后端将请求中的模块配置转换为 QuantStudio BTNode 列表，通过 Engine.run() 执行，返回 `task_id`
-
-#### Scenario: QSBridge 桥接
-- **WHEN** 后端构造回测节点
-- **THEN** 系统通过 FactorDB 获取因子对象，构造对应回测算子（如 CalcIC → IC），打包为 BTReport 提交给计算引擎
+- **THEN** 后端根据 module_key 查找 `_BT_NODE_BUILDERS`，动态 import Calc/Node 类，构造 BTNode 列表，通过 Engine.run() 执行，返回 `task_id`
 
 #### Scenario: 运行时进度推送
 - **WHEN** 回测任务执行过程中
@@ -78,22 +82,10 @@ QSWeb 回测工作台模块，支持用户从因子库选择因子、配置模�
 - **WHEN** 用户点击结果树中的叶子节点
 - **THEN** 系统根据节点 type 渲染：series → Plotly 折线图，dataframe → 表格，scalar → 统计数值
 
-### Requirement: 因子选择（QSRegistry 源，后续扩展）
-
-系统 SHALL 未来支持从 QSRegistry 图数据库中搜索和选择因子。
-
-#### Scenario: 从 QSRegistry 搜索因子
-- **WHEN** 用户在因子选择器切换到 QSRegistry Tab，输入关键词搜索
-- **THEN** 系统通过 QSGraphDB 检索因子，用户可多选加入已选列表
-
-#### Scenario: QSRegistry 因子重建
-- **WHEN** 用户选择了 QSRegistry 中的因子
-- **THEN** 系统通过 QSGraphDB.reconstructFactor(qsid) 重建完整 Factor 对象用于回测
-
 ### Requirement: 后续模块扩展
 
-系统 SHALL 支持逐步添加更多回测模块，包括 IC 衰减、分位数组合、换手率、截面相关性、Fama-MacBeth 回归、策略回测等。
+系统 SHALL 支持通过 `_BT_NODE_BUILDERS` 字典声明式添加更多回测模块，包括 IC 衰减、分位数组合、换手率、截面相关性、Fama-MacBeth 回归等。
 
 #### Scenario: 添加新模块
-- **WHEN** 在 BACKTEST_MODULE_REGISTRY 中注册新模块定义
-- **THEN** 前端模块列表和配置表单自动支持新模块，无需额外前端开发
+- **WHEN** 在 `_BT_NODE_BUILDERS` 中注册新模块定义（calc_module/calc_class/node_module/node_class）
+- **THEN** 前端模块列表和配置表单自动支持新模块，无需额外开发

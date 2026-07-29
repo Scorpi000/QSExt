@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import MainLayout from './components/Layout/MainLayout'
 import Loading from './components/Loading/Loading'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // 页面组件懒加载
 const DataManager = lazy(() => import('./pages/DataManager'))
@@ -20,49 +21,61 @@ function App() {
           <Route
             path="data"
             element={
-              <Suspense fallback={<Loading />}>
-                <DataManager />
-              </Suspense>
+              <ErrorBoundary title="数据管理页面出错">
+                <Suspense fallback={<Loading />}>
+                  <DataManager />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="factor"
             element={
-              <Suspense fallback={<Loading />}>
-                <FactorWorkbench />
-              </Suspense>
+              <ErrorBoundary title="因子工作台页面出错">
+                <Suspense fallback={<Loading />}>
+                  <FactorWorkbench />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="backtest"
             element={
-              <Suspense fallback={<Loading />}>
-                <BacktestStudio />
-              </Suspense>
+              <ErrorBoundary title="回测工作台页面出错">
+                <Suspense fallback={<Loading />}>
+                  <BacktestStudio />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="risk"
             element={
-              <Suspense fallback={<Loading />}>
-                <RiskManager />
-              </Suspense>
+              <ErrorBoundary title="风险管理页面出错">
+                <Suspense fallback={<Loading />}>
+                  <RiskManager />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="portfolio"
             element={
-              <Suspense fallback={<Loading />}>
-                <PortfolioOptimizer />
-              </Suspense>
+              <ErrorBoundary title="组合优化页面出错">
+                <Suspense fallback={<Loading />}>
+                  <PortfolioOptimizer />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route
             path="report"
             element={
-              <Suspense fallback={<Loading />}>
-                <ReportCenter />
-              </Suspense>
+              <ErrorBoundary title="报告中心页面出错">
+                <Suspense fallback={<Loading />}>
+                  <ReportCenter />
+                </Suspense>
+              </ErrorBoundary>
             }
           />
         </Route>

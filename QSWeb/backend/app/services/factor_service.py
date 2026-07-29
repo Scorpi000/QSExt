@@ -24,6 +24,14 @@ class FactorService:
     def __init__(self):
         self._factor_dbs: Dict[str, Any] = {}  # 缓存的 FactorDB 实例
 
+    async def _run_in_executor(self, func, *args, **kwargs):
+        """在默认 executor 中运行同步函数"""
+        import functools
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, functools.partial(func, *args, **kwargs)
+        )
+
     def _create_db_sync(self, db_type: str, args: dict):
         """同步创建并连接 FactorDB 实例（在 executor 中运行）"""
         if db_type == "HDF5DB":
@@ -50,33 +58,37 @@ class FactorService:
         return db
 
     async def _get_factor_db(self, conn_id: str):
-        """获取 FactorDB 实例（connect 阶段在 executor 中运行）"""
+        """获取 FactorDB 实例（优先从缓存获取，否则通过 QSGraphDB 重建）
+
+        现在 conn_id 即因子库的 QSID。
+        """
         if conn_id in self._factor_dbs:
             return self._factor_dbs[conn_id]
 
-        conn = connection_service.get_connection(conn_id)
-        if not conn:
-            raise ValueError(f"连接不存在: {conn_id}")
-
-        loop = asyncio.get_running_loop()
+        # 通过 QSGraphDB 重建 FactorDB 实例
         try:
-            db = await loop.run_in_executor(
-                None,
-                self._create_db_sync,
-                conn.db_type,
-                conn.args
-            )
+            db = await self._run_in_executor(self._reconstruct_db_sync, conn_id)
             self._factor_dbs[conn_id] = db
             return db
         except ImportError as e:
             raise ValueError(f"缺少依赖: {str(e)}")
         except Exception as e:
-            raise ValueError(f"连接失败: {str(e)}")
+            raise ValueError(f"连接失败 (QSID: {conn_id}): {str(e)}")
+
+    def _reconstruct_db_sync(self, qsid: str):
+        """同步从 QSGraphDB 重建 FactorDB 实例"""
+        from QSExt.QSRegistry.QSGraphDB import QSGraphDB
+        gdb = QSGraphDB()
+        gdb.connect()
+        fdb = gdb.reconstructFactorDB(qsid)
+        if fdb is None:
+            raise ValueError(f"图中不存在 QSID 为 {qsid} 的因子库")
+        return fdb
 
     async def get_tables(self, conn_id: str) -> List[FactorTableInfo]:
         """获取因子表列表"""
         db = await self._get_factor_db(conn_id)
-        conn = connection_service.get_connection(conn_id)
+        db_name = db.Name if hasattr(db, 'Name') else conn_id
 
         def _sync():
             tables = []
@@ -85,20 +97,19 @@ class FactorService:
                     ft = db.getTable(table_name)
                     tables.append(FactorTableInfo(
                         name=table_name,
-                        db_name=conn.name,
+                        db_name=db_name,
                         conn_id=conn_id,
                         factor_count=len(ft.FactorNames) if hasattr(ft, 'FactorNames') else None
                     ))
                 except Exception:
                     tables.append(FactorTableInfo(
                         name=table_name,
-                        db_name=conn.name,
+                        db_name=db_name,
                         conn_id=conn_id
                     ))
             return tables
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def get_factors(
         self,
@@ -107,7 +118,7 @@ class FactorService:
     ) -> List[FactorInfo]:
         """获取因子列表"""
         db = await self._get_factor_db(conn_id)
-        conn = connection_service.get_connection(conn_id)
+        db_name = db.Name if hasattr(db, 'Name') else conn_id
 
         def _sync():
             try:
@@ -119,7 +130,7 @@ class FactorService:
                         factors.append(FactorInfo(
                             name=factor_name,
                             table_name=table_name,
-                            db_name=conn.name,
+                            db_name=db_name,
                             conn_id=conn_id,
                             description=meta.get("Description", [None])[0] if meta else None,
                             data_type=meta.get("DataType", [None])[0] if meta else None
@@ -128,15 +139,14 @@ class FactorService:
                         factors.append(FactorInfo(
                             name=factor_name,
                             table_name=table_name,
-                            db_name=conn.name,
+                            db_name=db_name,
                             conn_id=conn_id
                         ))
                 return factors
             except Exception as e:
                 raise ValueError(f"获取因子列表失败: {str(e)}")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def get_factor_data(
         self,
@@ -234,8 +244,7 @@ class FactorService:
             except Exception as e:
                 raise ValueError(f"获取因子数据失败: {str(e)}")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def get_factor_stats(
         self,
@@ -262,8 +271,7 @@ class FactorService:
             except Exception as e:
                 raise ValueError(f"获取因子统计信息失败: {str(e)}")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def get_factor_metadata(
         self,
@@ -288,8 +296,7 @@ class FactorService:
             except Exception as e:
                 raise ValueError(f"获取因子元数据失败: {str(e)}")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def get_table_metadata(
         self,
@@ -311,24 +318,21 @@ class FactorService:
             except Exception as e:
                 raise ValueError(f"获取因子表元数据失败: {str(e)}")
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync)
+        return await self._run_in_executor(_sync)
 
     async def disconnect(self, conn_id: str):
         """断开指定连接并清除缓存"""
         db = self._factor_dbs.pop(conn_id, None)
         if db is not None:
-            loop = asyncio.get_running_loop()
             try:
-                await loop.run_in_executor(None, db.disconnect)
+                await self._run_in_executor(db.disconnect)
             except Exception:
                 pass
 
     async def rename_table(self, conn_id: str, old_name: str, new_name: str) -> Dict[str, Any]:
         """重命名因子表"""
         db = await self._get_factor_db(conn_id)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: db.renameTable(old_name, new_name))
+        await self._run_in_executor(lambda: db.renameTable(old_name, new_name))
         return {"message": f"表 '{old_name}' 已重命名为 '{new_name}'"}
 
     async def delete_tables(self, conn_id: str, table_names: List[str]) -> Dict[str, Any]:
@@ -339,44 +343,38 @@ class FactorService:
             for name in table_names:
                 db.deleteTable(name)
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _sync)
+        await self._run_in_executor(_sync)
         return {"message": f"已删除 {len(table_names)} 个表"}
 
     async def update_table_metadata(self, conn_id: str, table_name: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """更新因子表元数据"""
         db = await self._get_factor_db(conn_id)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: db.setTableMetaData(table_name, meta_data=metadata))
+        await self._run_in_executor(lambda: db.setTableMetaData(table_name, meta_data=metadata))
         return {"message": f"表 '{table_name}' 元数据已更新"}
 
     async def rename_factor(self, conn_id: str, table_name: str, old_name: str, new_name: str) -> Dict[str, Any]:
         """重命名因子"""
         db = await self._get_factor_db(conn_id)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: db.renameFactor(table_name, old_name, new_name))
+        await self._run_in_executor(lambda: db.renameFactor(table_name, old_name, new_name))
         return {"message": f"因子 '{old_name}' 已重命名为 '{new_name}'"}
 
     async def delete_factors(self, conn_id: str, table_name: str, factor_names: List[str]) -> Dict[str, Any]:
         """批量删除因子"""
         db = await self._get_factor_db(conn_id)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: db.deleteFactor(table_name, factor_names))
+        await self._run_in_executor(lambda: db.deleteFactor(table_name, factor_names))
         return {"message": f"已从表 '{table_name}' 删除 {len(factor_names)} 个因子"}
 
     async def update_factor_metadata(self, conn_id: str, table_name: str, factor_name: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """更新因子元数据"""
         db = await self._get_factor_db(conn_id)
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: db.setFactorMetaData(table_name, factor_name, meta_data=metadata))
+        await self._run_in_executor(lambda: db.setFactorMetaData(table_name, factor_name, meta_data=metadata))
         return {"message": f"因子 '{factor_name}' 元数据已更新"}
 
     async def disconnect_all(self):
         """断开所有连接"""
-        loop = asyncio.get_running_loop()
         for db in self._factor_dbs.values():
             try:
-                await loop.run_in_executor(None, db.disconnect)
+                await self._run_in_executor(db.disconnect)
             except Exception:
                 pass
         self._factor_dbs.clear()
