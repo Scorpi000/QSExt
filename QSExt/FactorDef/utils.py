@@ -12,8 +12,8 @@ def expand_glob(pattern: str) -> list:
     使用 pkgutil.iter_modules 遍历包下模块（不扫文件系统）。
 
     模式格式: 'package.subpkg.glob_pattern'
-    例如: 'QSResearch.FactorDef.JY.stock_cn_*'
-      → ['QSResearch.FactorDef.JY.stock_cn_status', ...]
+    例如: 'QSExt.FactorDef.stock_cn_*'
+      → ['QSExt.FactorDef.example_factor', ...]
 
     不含通配符时原样返回。
     """

@@ -124,10 +124,7 @@ QS_TOOLS=-report,-risk_table python mcp/qs_registry.py
 
 ### `get_factor_code(qsid)`
 
-返回定义该因子的 Python 源代码。查找路径：
-
-1. 通过 `属于因子表` → 因子表 → `MetaDataJSON.DefScriptPath`
-2. 回退：通过因子标签 → `importlib.import_module("QSResearch.FactorDef.JY.{tag}")` → `__file__`
+返回定义该因子的 Python 源代码。查找路径：通过 `属于因子表` → 因子表 → `MetaDataJSON.DefScriptPath`
 
 **参数**：
 - `qsid`: 因子的 QSID（唯一标识符）
@@ -269,7 +266,7 @@ QS_TOOLS=-report,-risk_table python mcp/qs_registry.py
       "command": "D:/miniforge/envs/QS312/python.exe",
       "args": ["D:/HST/QSExt/mcp/qs_registry.py"],
       "env": {
-        "PYTHONPATH": "D:/HST/Project/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch",
+        "PYTHONPATH": "D:/HST/Project/QuantStudio;D:/HST/QSExt",
         "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
         "OLLAMA_API_KEY": "ollama",
         "EMBEDDING_MODEL": "bge-m3",
@@ -295,7 +292,7 @@ optimizers = search_optimizers(optimizer_type="CVXPC")
 
 **MCP Inspector**（FastMCP 3.x）：
 ```powershell
-$env:PYTHONPATH = "D:/HST/Project/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch"
+$env:PYTHONPATH = "D:/HST/Project/QuantStudio;D:/HST/QSExt"
 D:/miniforge/envs/QS312/Scripts/fastmcp.exe dev inspector D:/HST/QSExt/mcp/qs_registry.py
 ```
 

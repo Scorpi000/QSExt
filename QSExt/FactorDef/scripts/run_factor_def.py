@@ -9,7 +9,7 @@
     python run_factor_def.py --debug --end-dt 2026-06-30        # 覆盖参数
     python run_factor_def.py --dry-run                           # 仅分析, 不执行
 
-配置文件位于 QSResearch/FactorDef/conf/ 目录，格式为 Python 模块。
+配置文件位于 QSExt/FactorDef/conf/ 目录，格式为 Python 模块。
 """
 import os
 import logging
@@ -270,7 +270,7 @@ def _dry_run(settings: FactorDefSettings):
 def _parse_args():
     """解析命令行参数，返回 (parsed_args, cmd_overrides)"""
     parser = argparse.ArgumentParser(
-        description="QSResearch 因子定义执行脚本",
+        description="QSExt 因子定义执行脚本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:

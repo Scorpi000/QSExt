@@ -83,22 +83,12 @@ export const getFactorDAG = (qsid: string) => {
   return api.get<DAGData>(`/factors/${qsid}/dag`)
 }
 
-// 获取算子列表
+// 获取算子列表（保留用于算子详情展示）
 export const getOperators = (operatorType?: string) => {
   return api.get<OperatorInfo[]>('/operators', { params: { operator_type: operatorType } })
 }
 
-// 获取 QSArgs JSON Schema
+// 获取 QSArgs JSON Schema（保留用于详情展示）
 export const getArgsSchema = (className: string) => {
   return api.get<Record<string, any>>(`/args/${className}/schema`)
-}
-
-// 创建衍生因子
-export const createDerivativeFactor = (params: {
-  name: string
-  operator_qsid: string
-  descriptor_qsids: string
-  factor_args_json?: string
-}) => {
-  return api.post('/factors/derivative', null, { params })
 }

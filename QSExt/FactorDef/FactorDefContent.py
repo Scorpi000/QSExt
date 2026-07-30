@@ -340,15 +340,15 @@ class FactorDefSettings(__QS_Args__):
         """从 Python 模块加载配置
 
         Args:
-            module_path: 模块路径。"settings" 解析为 QSResearch.FactorDef.conf.settings
+            module_path: 模块路径。"settings" 解析为 QSExt.FactorDef.conf.settings
             **cmd_overrides: 命令行覆盖参数，如 debug=True, end_dt="2026-06-30"
 
         Returns:
             FactorDefSettings 实例
         """
         # 解析模块路径
-        if not module_path.startswith("QSResearch") and not os.path.isabs(module_path):
-            module_path = f"QSResearch.FactorDef.conf.{module_path}"
+        if not module_path.startswith("QSExt") and not os.path.isabs(module_path):
+            module_path = f"QSExt.FactorDef.conf.{module_path}"
 
         # 加载模块
         try:
@@ -376,7 +376,7 @@ class FactorDefSettings(__QS_Args__):
 
         # 尝试加载 settings_local 覆盖
         try:
-            local_module = importlib.import_module("QSResearch.FactorDef.conf.settings_local")
+            local_module = importlib.import_module("QSExt.FactorDef.conf.settings_local")
             for key in dir(local_module):
                 if key.isupper() and not key.startswith("_"):
                     settings_dict[key.lower()] = getattr(local_module, key)
@@ -640,12 +640,12 @@ class FactorDefInputBuilder:
 
                 字符串::
 
-                    "QSResearch.FactorDef.JY.stock_cn_status"
+                    "QSExt.FactorDef.example_factor"
 
                 字典::
 
                     {
-                        "module": "QSResearch.FactorDef.JY.industry_cn_factor_from_stock",
+                        "module": "QSExt.FactorDef.example_factor",
                         "model_args": {"industry_factor": "sw2021_code_level1", ...},
                         "factor_meta": {                   # 可选，覆盖 __FACTOR_META__ 字段
                             "TargetTable": "...",
@@ -947,7 +947,7 @@ def build_dep_fd(
     dep_fd 已包含所有声明过的依赖。
 
     依赖名支持两种写法：
-      - 完整路径: "QSResearch.FactorDef.JY.stock_cn_status"
+      - 完整路径: "QSExt.FactorDef.example_factor"
       - 短名（同包下）: "stock_cn_status"
 
     Args:

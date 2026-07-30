@@ -1,7 +1,7 @@
 """
 QSRegistry API
 
-因子搜索、DAG 可视化、算子列表、衍生因子创建等。
+因子搜索、DAG 可视化、算子列表等。
 """
 
 from typing import Optional, List, Dict, Any
@@ -85,29 +85,5 @@ async def get_args_schema(class_name: str):
         return await registry_service.get_args_schema(class_name)
     except ValueError as e:
         raise NotFoundException("类", f"{class_name}（{e}）")
-    except Exception as e:
-        raise ValidationException(str(e))
-
-
-@router.post("/factors/derivative")
-async def create_derivative_factor(
-    name: str = Query(..., description="因子名称"),
-    operator_qsid: str = Query(..., description="算子 QSID"),
-    descriptor_qsids: str = Query(..., description="依赖因子 QSID 列表，逗号分隔"),
-    factor_args_json: Optional[str] = Query(None, description="QSArgs JSON 字符串"),
-):
-    """创建衍生因子"""
-    try:
-        descriptor_list = [d.strip() for d in descriptor_qsids.split(",") if d.strip()]
-        factor_args = None
-        if factor_args_json:
-            import json
-            factor_args = json.loads(factor_args_json)
-        return await registry_service.create_derivative_factor(
-            name=name,
-            operator_qsid=operator_qsid,
-            descriptor_qsids=descriptor_list,
-            factor_args=factor_args,
-        )
     except Exception as e:
         raise ValidationException(str(e))

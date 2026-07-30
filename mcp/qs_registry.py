@@ -318,10 +318,6 @@ def get_factor_code(qsid: str) -> dict:
     def_script_path = _resolve_def_script_path(gdb, qsid)
 
     if not def_script_path:
-        # 通过标签推断脚本路径
-        def_script_path = _infer_script_path_from_tags(gdb, qsid)
-
-    if not def_script_path:
         return {
             "error": f"无法定位因子 '{factor_name}' 的定义脚本",
             "qsid": qsid,
@@ -385,31 +381,6 @@ def _resolve_def_script_path(gdb, qsid: str) -> Optional[str]:
     table_meta = _parse_meta_json(meta_json_str)
     if isinstance(table_meta, dict):
         return table_meta.get("DefScriptPath")
-    return None
-
-
-def _infer_script_path_from_tags(gdb, qsid: str) -> Optional[str]:
-    """通过因子标签推断定义脚本路径（标签名即模块文件名）"""
-    try:
-        tag_results = gdb._runCypher(
-            "MATCH (f:`因子` {QSID: $qsid})-[:`打标签`]->(t:`标签`) RETURN t.Name",
-            {"qsid": qsid}
-        )
-    except Exception:
-        return None
-
-    import importlib
-    for row in tag_results:
-        tag_name = row["t.Name"]
-        # 标签匹配因子定义模块: e.g. "stock_cn_day_bar_nafilled"
-        if not re.match(r'^[a-z][a-z0-9_]*$', tag_name):
-            continue
-        try:
-            mod = importlib.import_module(f"QSResearch.FactorDef.JY.{tag_name}")
-            if hasattr(mod, '__file__') and mod.__file__:
-                return mod.__file__
-        except Exception:
-            continue
     return None
 
 

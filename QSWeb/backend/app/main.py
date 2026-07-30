@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import router as api_router
+from app.api.ai import router as ai_router
 from app.core.config import settings
 from app.core.exceptions import APIException
 from app.tasks.manager import task_manager
@@ -38,6 +39,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(api_router, prefix="/api")
+app.include_router(ai_router)
 
 
 @app.exception_handler(APIException)
@@ -115,6 +117,15 @@ async def root():
 async def health():
     """健康检查端点"""
     return {"status": "healthy"}
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """查询后台任务状态"""
+    task = task_manager.get_task_dict(task_id)
+    if task is None:
+        return JSONResponse(status_code=404, content={"message": "任务不存在"})
+    return task
 
 
 @app.websocket("/ws/tasks/{task_id}")

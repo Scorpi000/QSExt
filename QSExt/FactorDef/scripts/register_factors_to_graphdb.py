@@ -9,11 +9,11 @@
     python register_factors_to_graphdb.py
     python register_factors_to_graphdb.py --settings settings_prod
     python register_factors_to_graphdb.py --debug --dry-run
-    python register_factors_to_graphdb.py --modules QSResearch.FactorDef.JY.stock_cn_factor_value
+    python register_factors_to_graphdb.py --modules QSExt.FactorDef.example_factor
     python register_factors_to_graphdb.py --tags 动量 实验因子
     python register_factors_to_graphdb.py --skip-embedding
 
-配置文件位于 QSResearch/FactorDef/conf/ 目录。
+配置文件位于 QSExt/FactorDef/conf/ 目录。
 """
 import os
 import json
@@ -273,17 +273,83 @@ def _dry_run(settings: FactorDefSettings):
     Logger.info(f"跳过嵌入: {settings.skip_embedding}")
 
 
+def _read_id_type(module_path: str) -> Optional[str]:
+    """从模块的 __FACTOR_META__ 中读取 IDType
+
+    同时支持文件路径 (/path/to/module.py) 和 Python 模块路径 (pkg.module)。
+    加载失败或未声明时返回 None。
+    """
+    try:
+        import importlib
+        module = None
+
+        # 优先按 Python 模块路径导入
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError:
+            pass
+
+        # 回退：按文件路径加载
+        if module is None and os.path.isfile(module_path):
+            import importlib.util
+            modname = os.path.splitext(os.path.basename(module_path))[0]
+            spec = importlib.util.spec_from_file_location(modname, module_path)
+            if spec is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+        if module is None:
+            return None
+
+        meta = getattr(module, "__FACTOR_META__", None)
+        if isinstance(meta, dict) and meta.get("IDType"):
+            Logger.debug(f"  自动检测 IDType: {module_path} → {meta['IDType']}")
+            return meta["IDType"]
+    except Exception as e:
+        Logger.debug(f"  无法读取模块 {module_path} 的 IDType: {e}")
+    return None
+
+
+def _build_profiles_from_modules(module_paths: list, default_id_type: str = "A股") -> list:
+    """按 IDType 分组模块，未声明 IDType 的用 default_id_type
+
+    每个模块尝试通过 __FACTOR_META__["IDType"] 自动检测证券类型，
+    然后将模块按 IDType 分组生成对应的 profile 列表。
+
+    Args:
+        module_paths: 模块路径列表
+        default_id_type: 模块未声明 IDType 时的回退值
+
+    Returns:
+        [{"id_type": "A股", "factor_modules": [...]}, ...]
+    """
+    groups: dict = {}
+    for m in module_paths:
+        id_type = _read_id_type(m) or default_id_type
+        groups.setdefault(id_type, []).append(m)
+
+    profiles = []
+    for idt, mods in groups.items():
+        profiles.append({
+            "id_type": idt,
+            "factor_modules": mods,  # 字符串列表，由 resolve_modules_for 统一处理
+        })
+        Logger.info(f"  Profile [{idt}]: {len(mods)} 个模块")
+
+    return profiles
+
+
 def _parse_args():
     """解析命令行参数，返回 (parsed_args, cmd_overrides)"""
     parser = argparse.ArgumentParser(
-        description="QSResearch 因子图数据库注册脚本",
+        description="QSExt 因子图数据库注册脚本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
   python register_factors_to_graphdb.py
   python register_factors_to_graphdb.py --settings settings_prod
   python register_factors_to_graphdb.py --debug --dry-run
-  python register_factors_to_graphdb.py --modules QSResearch.FactorDef.JY.stock_cn_factor_value
+  python register_factors_to_graphdb.py --modules QSExt.FactorDef.example_factor
   python register_factors_to_graphdb.py --tags 动量 实验因子
   python register_factors_to_graphdb.py --skip-embedding
         """,
@@ -295,6 +361,7 @@ def _parse_args():
     parser.add_argument("--start-dt", default=None, help="起始日期")
     parser.add_argument("--lookback", type=int, default=None, help="回溯天数")
     parser.add_argument("--modules", nargs="*", default=None, help="指定运行的模块名")
+    parser.add_argument("--id-type", default="A股", help="模块未声明 IDType 时的回退值 (默认: A股)")
     parser.add_argument("--tags", "-t", nargs="*", default=None, help="附加标签")
     parser.add_argument("--skip-embedding", action="store_true", default=None, help="跳过向量嵌入")
     parser.add_argument("--no-vector-demo", action="store_true", default=None, help="跳过向量检索演示")
@@ -313,7 +380,9 @@ def _parse_args():
     if args.lookback is not None:
         cmd_overrides["lookback"] = args.lookback
     if args.modules is not None:
-        cmd_overrides["id_profiles"] = [{"id_type": "A股", "factor_modules": [(m, {}, None) for m in args.modules]}]
+        cmd_overrides["id_profiles"] = _build_profiles_from_modules(
+            args.modules, default_id_type=args.id_type
+        )
     if args.skip_embedding is not None:
         cmd_overrides["skip_embedding"] = args.skip_embedding
 

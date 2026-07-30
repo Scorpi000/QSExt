@@ -14,7 +14,7 @@
 #   3. FACTORDEF_* 环境变量
 #   4. 命令行 --xxx 参数
 #
-# 注意：默认加载路径为 QSResearch.FactorDef.conf.settings，
+# 注意：默认加载路径为 QSExt.FactorDef.conf.settings，
 # 若将配置文件放在其他位置，需通过绝对路径或完整模块路径指定：
 #   python run_factor_def.py --settings /path/to/my_settings.py
 
@@ -97,12 +97,12 @@ ID_SOURCE = "JYDB"             # 提供 getStockID 的数据源名称
 #
 # factor_modules 支持两种格式：
 #   字符串 — 模块路径，支持 glob:
-#     "QSResearch.FactorDef.JY.stock_cn_status"
-#     "QSResearch.FactorDef.JY.stock_cn_*"
+#     "QSExt.FactorDef.example_factor"
+#     "QSExt.FactorDef.stock_cn_*"
 #
 #   字典 — 带 model_args 和 factor_meta 覆盖:
 #     {
-#         "module": "QSResearch.FactorDef.JY.industry_cn_factor_from_stock",
+#         "module": "QSExt.FactorDef.example_factor",
 #         "model_args": {"industry_factor": "sw2021_code_level1"},
 #         "factor_meta": {                     # 可选，覆盖 __FACTOR_META__ 字段
 #             "TargetTable": "custom_table_name",
@@ -126,12 +126,12 @@ ID_PROFILES = [
         "id_type": "A股",
         "id_selection": {"type": "all"},
         "factor_modules": [
-            "QSResearch.FactorDef.JY.stock_cn_status",
+            "QSExt.FactorDef.example_Factor",
             # glob 模式:
-            # "QSResearch.FactorDef.JY.stock_cn_factor_*",
+            # "QSExt.FactorDef.stock_cn_factor_*",
             # 带 model_args 的字典格式:
             # {
-            #     "module": "QSResearch.FactorDef.JY.industry_cn_factor_from_stock",
+            #     "module": "QSExt.FactorDef.example_Factor1",
             #     "model_args": {
             #         "industry_factor": "sw2021_code_level1",
             #         "stock_ids": "$stock_ids",
