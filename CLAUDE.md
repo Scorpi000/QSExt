@@ -156,6 +156,59 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 - **Notebook**：基于 ipywidgets 的 Jupyter 交互界面，包含 FactorGraphDlg（cytoscape 因子 DAG 可视化）、FactorDBDlg、BacktestDlg 等
 - **QtGUI**：基于 PyQt 的桌面 GUI
 
+### FactorDef（因子定义框架）
+
+`QSExt/FactorDef/` 提供因子定义的完整框架，包括元信息声明、依赖自动解析、运行时配置管理和执行调度。
+
+```
+QSExt/FactorDef/
+├── FactorDefContent.py           # 核心：FactorDefInput / FactorMeta / FactorDef
+│                                 #       FactorDBPool / FactorDefSettings
+│                                 #       FactorDefInputBuilder / build_dep_fd
+├── utils.py                      # expand_glob()
+├── conf/
+│   └── settings.example.py       # 配置模板
+└── scripts/
+    ├── run_factor_def.py                 # 执行入口
+    └── register_factors_to_graphdb.py    # 图数据库注册
+```
+
+因子定义脚本（业务模块）置于使用项目中，通过 `from QSExt.FactorDef.FactorDefContent import FactorDefInput` 引用框架。
+
+**__FACTOR_META__ 约定**：每个因子模块在顶部声明元信息字典：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `TargetTable` | `str` | 是 | 输出的因子表名 |
+| `IDType` | `str` | 是 | 证券类型，如 `"A股"`、`"ETF"`、`"行业"` |
+| `FactorDeps` | `dict[str, list]` | 否 | 依赖的其他因子定义模块及其因子名 |
+| `DBDeps` | `dict[str, str]` | 否 | 依赖的因子库，键为 `fdi.FDB` 中的逻辑名称，值为用途说明 |
+| `ModelArgs` | `dict[str, str]` | 否 | 期望的模型参数，键为参数名，值为参数说明 |
+| `Author` | `str` | 否 | 作者，默认 `"Anonymous"` |
+| `Description` | `str` | 否 | 模块描述 |
+| `MaxLookBack` | `int` | 否 | 最大回溯天数，默认 365 |
+| `Tags` | `list[str]` | 否 | 检索标签 |
+| `DefScriptPath` | `str` | 否 | 脚本路径，通常为 `__file__` |
+
+**defFactor 规范**：暴露 `defFactor(fdi: FactorDefInput) -> list` 函数，直接返回 `List[Factor]`：
+- 通过 `fdi.FDB["因子库名"].getTable(...)` 访问数据表获取因子
+- 依赖因子通过 `fdi.Factors["因子名"]` 获取——框架根据 `__FACTOR_META__["FactorDeps"]` 预解析并注入
+- 依赖模块需要 `ModelArgs` 时，通过 `"ModelArgs": {"key": "$parent_key"}` 透传（`$` 前缀从父模块 `fdi.ModelArgs` 查找）
+- 框架自动将返回的因子列表包装为 `FactorDef`，模块不需要构造 `FactorDef` 或 `FactorMeta`
+
+关键导入：
+- `from QSExt.FactorDef.FactorDefContent import FactorDefInput` — 输入类型
+- `from QuantStudio.Factor.FactorOperator import ... as fo` — 因子变换算子
+- `from QuantStudio.Factor.BasicOperator import rename` — 因子重命名
+- `from QuantStudio.Factor.FactorOperation import FactorOperatorized` — 自定义算子装饰器
+
+**代理机制**：代理因子库（`role="proxy"`）用于增量更新时复用上次计算结果，通过 `--use-proxy` CLI 参数控制。代理策略在 `settings.py` 的 `ID_PROFILES` 中通过 `proxy_tables` 配置（`"*"` 全部代理，列表指定表名，`None` 不代理）。
+
+**自定义算子**：通过 `@FactorOperatorized(operator_type=..., args={...})` 装饰器定义。三种算子类型：
+- `"Point"` — 点算子，对单个值操作
+- `"Section"` — 截面算子，在单个时点上跨 ID 操作
+- `"Time"` — 时序算子，对单个 ID 跨时间操作
+
 ### 重要架构说明
 
 - **Neo4j 双重用途**：`QSExt/Factor/Neo4jDB.py` 用于存储因子**数据**（因子值），`QSExt/QSRegistry/QSGraphDB.py` 用于存储计算图**元数据**（因子/回测/风险表的注册信息和依赖关系），两者使用不同的 Neo4j 数据库和 Schema
