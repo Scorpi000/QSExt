@@ -2,17 +2,17 @@
  * 因子工作台页面
  *
  * 布局：左侧搜索面板 | 中间 DAG 可视化 | 右侧详情面板
- * 顶部操作区：导入因子脚本、AI 辅助创建
+ * 顶部操作区：导入因子脚本
+ * AI 助手通过全局 FAB / Ctrl+K 唤起（自动感知 /factor 路由使用 factor context）
  */
 
 import { useState } from 'react'
 import { Row, Col, Card, Button, Space, Segmented } from 'antd'
-import { PlusOutlined, ImportOutlined, RobotOutlined } from '@ant-design/icons'
+import { ImportOutlined } from '@ant-design/icons'
 import FactorSearch from '../../components/FactorSearch'
 import DAGViewer from '../../components/DAGViewer'
 import FactorDetail from '../../components/FactorDetail'
 import ImportFactorDialog from '../../components/ImportFactorDialog'
-import AiFactorAssistant from '../../components/AiFactorAssistant'
 import { useFactorWorkbenchStore } from '../../stores/factorWorkbench'
 
 type ViewMode = 'dag' | 'detail'
@@ -20,7 +20,6 @@ type ViewMode = 'dag' | 'detail'
 function FactorWorkbench() {
   const [viewMode, setViewMode] = useState<ViewMode>('dag')
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [aiAssistantOpen, setAiAssistantOpen] = useState(false)
   const { selectedQSID } = useFactorWorkbenchStore()
 
   return (
@@ -59,23 +58,13 @@ function FactorWorkbench() {
             </Space>
           }
           extra={
-            <Space>
-              <Button
-                size="small"
-                icon={<ImportOutlined />}
-                onClick={() => setImportDialogOpen(true)}
-              >
-                导入因子脚本
-              </Button>
-              <Button
-                type="primary"
-                size="small"
-                icon={<RobotOutlined />}
-                onClick={() => setAiAssistantOpen(true)}
-              >
-                AI 辅助创建
-              </Button>
-            </Space>
+            <Button
+              size="small"
+              icon={<ImportOutlined />}
+              onClick={() => setImportDialogOpen(true)}
+            >
+              导入因子脚本
+            </Button>
           }
           bodyStyle={{ padding: 0, height: 'calc(100% - 46px)', overflow: 'auto' }}
         >
@@ -101,12 +90,6 @@ function FactorWorkbench() {
       <ImportFactorDialog
         open={importDialogOpen}
         onClose={() => setImportDialogOpen(false)}
-      />
-
-      {/* AI 因子助手 */}
-      <AiFactorAssistant
-        open={aiAssistantOpen}
-        onClose={() => setAiAssistantOpen(false)}
       />
     </Row>
   )

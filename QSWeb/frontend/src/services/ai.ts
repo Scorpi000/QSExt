@@ -21,6 +21,28 @@ export type AiMessageType =
   | 'error'
   | 'done'
   | 'interrupted'
+  | 'action_card'
+  | 'data_block'
+  | 'ask_user'
+
+export interface ActionCardAction {
+  key: string
+  label: string
+  style: 'primary' | 'default' | 'danger'
+}
+
+export interface ActionCardData {
+  kind: string
+  title: string
+  summary?: Record<string, any>
+  actions: ActionCardAction[]
+  payload?: any
+}
+
+export interface DataBlockData {
+  kind: string  // 'factor_table' | 'chart' | 'dag' | 'risk_heatmap' | etc.
+  payload: any
+}
 
 export interface AiBlock {
   kind: 'text' | 'tool_use' | 'tool_result' | 'thinking'
@@ -39,6 +61,12 @@ export interface AiMessage {
     message?: string
     is_error?: boolean
     raw?: string
+    // action_card / data_block 类型时直接使用顶层字段
+    kind?: string
+    title?: string
+    summary?: Record<string, any>
+    actions?: ActionCardAction[]
+    payload?: any
   }
 }
 
@@ -50,7 +78,7 @@ export class AiChatClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private url: string
   private _isConnected = false
-  private pendingStart: { prompt: string } | null = null
+  private pendingStart: { prompt: string; context?: string } | null = null
 
   constructor(url: string = 'ws://localhost:28000/ws/ai/chat') {
     this.url = url
@@ -77,6 +105,7 @@ export class AiChatClient {
           this.ws!.send(JSON.stringify({
             action: 'start',
             prompt: this.pendingStart.prompt,
+            context: this.pendingStart.context || 'general',
           }))
           this.pendingStart = null
         }
@@ -99,20 +128,37 @@ export class AiChatClient {
         }
       }
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
         this._isConnected = false
+        // 非正常关闭时通知 handlers
+        if (event.code !== 1000 && event.code !== 1005) {
+          const closedMsg: AiMessage = {
+            type: 'error',
+            data: { message: `WebSocket 连接已断开 (code=${event.code})` },
+          }
+          this.handlers.forEach((h) => h(closedMsg))
+        }
       }
     })
   }
 
   /** 启动 Claude 会话并发送初始需求 */
-  async start(prompt: string): Promise<void> {
+  async start(prompt: string, context: string = 'general'): Promise<void> {
     await this.connect()
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ action: 'start', prompt }))
+      this.ws.send(JSON.stringify({ action: 'start', prompt, context }))
     } else {
-      // 如果还没连上，暂存等待 onopen 发送
-      this.pendingStart = { prompt }
+      // 连接后瞬间断开：重连一次
+      if (this.ws && this.ws.readyState > WebSocket.OPEN) {
+        // CLOSING(2) 或 CLOSED(3)
+        this.ws = null
+        await this.connect()
+      }
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ action: 'start', prompt, context }))
+      } else {
+        throw new Error('WebSocket 连接失败，请重试')
+      }
     }
   }
 
@@ -129,6 +175,14 @@ export class AiChatClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ action: 'interrupt' }))
     }
+  }
+
+  /** 回答 AskUserQuestion */
+  sendAnswer(answers: Record<string, string | string[]>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket 未连接')
+    }
+    this.ws.send(JSON.stringify({ action: 'answer', answers }))
   }
 
   /** 注册消息回调，返回取消注册函数 */

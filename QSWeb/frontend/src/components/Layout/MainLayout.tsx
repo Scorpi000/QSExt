@@ -2,9 +2,10 @@
  * MainLayout - 全局布局
  *
  * 左侧导航菜单 + 顶部标题栏 + 内容区 + 右侧全局因子池（hover 召唤）。
+ * 全局 AI 入口：FAB 悬浮按钮 + Ctrl+K 快捷键。
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, theme, Button, Modal, Input, Select, message, Space } from 'antd'
 import {
@@ -17,9 +18,11 @@ import {
   UnorderedListOutlined,
   SaveOutlined,
   FolderOpenOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import FactorPoolPanel from '../FactorPoolPanel'
 import FactorDiscover from '../FactorDiscover'
+import AiChatDrawer from '../AiChatDrawer'
 import { useFactorPoolStore } from '../../stores/factorPoolStore'
 import { savePool, loadPool, listPools, deletePool } from '../../services/factorPool'
 
@@ -32,6 +35,7 @@ const menuItems = [
   { key: '/backtest', icon: <LineChartOutlined />, label: '回测工作台' },
   { key: '/portfolio', icon: <PieChartOutlined />, label: '组合优化' },
   { key: '/report', icon: <FileTextOutlined />, label: '报告中心' },
+  { key: '/ai', icon: <RobotOutlined />, label: 'AI 工作台' },
 ]
 
 const POOL_COLLAPSED_WIDTH = 36
@@ -47,6 +51,24 @@ function MainLayout() {
   const [poolExpanded, setPoolExpanded] = useState(false)
   const [poolPinned, setPoolPinned] = useState(false)
   const [discoverOpen, setDiscoverOpen] = useState(false)
+
+  // AI Drawer 状态
+  const [aiDrawerOpen, setAiDrawerOpen] = useState(false)
+
+  // Ctrl+K / Cmd+K 快捷键
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        // 输入框内不触发
+        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+        if (tag === 'input' || tag === 'textarea') return
+        e.preventDefault()
+        setAiDrawerOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key)
@@ -261,6 +283,29 @@ function MainLayout() {
           />
         </div>
       </Modal>
+
+      {/* 全局 AI 助手 Drawer */}
+      <AiChatDrawer
+        open={aiDrawerOpen}
+        onClose={() => setAiDrawerOpen(false)}
+      />
+
+      {/* FAB 悬浮按钮 */}
+      <Button
+        type="primary"
+        shape="circle"
+        size="large"
+        icon={<RobotOutlined />}
+        onClick={() => setAiDrawerOpen((prev) => !prev)}
+        title="AI 助手 (Ctrl+K)"
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          zIndex: 98,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        }}
+      />
     </Layout>
   )
 }

@@ -1,10 +1,6 @@
-# ai-factor-assistant
+# ai-factor-assistant (Delta)
 
-## Purpose
-
-AI 因子助手模块。底层使用通用 `AiChatPanel` 组件 + `context="factor"` 配置驱动。后端通过 `ClaudeSDKClient`（SDK 模式）调用 Claude，加载 `develop-factor` 技能和 MCP 工具，流式生成符合 FactorDef 框架规范的因子定义脚本。结果通过 `action_card` 协议处理。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Chat 面板
 
@@ -12,8 +8,8 @@ AI 因子助手模块。底层使用通用 `AiChatPanel` 组件 + `context="fact
 
 #### Scenario: 打开 AI 助手
 
-- **WHEN** 用户通过全局 FAB / Ctrl+K 在因子工作台页面唤起 AI 助手
-- **THEN** 系统打开 `AiChatDrawer`，自动感知 `/factor` 路由使用 `"factor"` context
+- **WHEN** 用户在因子工作台点击"AI 辅助创建"按钮
+- **THEN** 系统打开 `AiChatDrawer`（复用全局 Drawer 组件），context 显式指定为 `"factor"`
 
 #### Scenario: 发送初始消息
 
@@ -23,12 +19,12 @@ AI 因子助手模块。底层使用通用 `AiChatPanel` 组件 + `context="fact
 #### Scenario: 多轮追问
 
 - **WHEN** Claude 完成回复后（runState=done），用户输入新消息并发送
-- **THEN** 系统发送 `{"action": "query", "prompt": "..."}`，后端通过 `client.query()` 在同一 session 内发送后续消息
+- **THEN** 系统发送 `{"action": "query", "prompt": "..."}`，后端通过 `--resume` 恢复会话上下文后处理新消息
 
 #### Scenario: 中断 Claude
 
 - **WHEN** 用户点击"停止"按钮
-- **THEN** 系统发送 `{"action": "interrupt"}`，后端终止 Claude 操作，前端显示"已中断"状态
+- **THEN** 系统发送 `{"action": "interrupt"}`，后端终止 Claude 进程，前端显示"已中断"状态
 
 #### Scenario: 新建会话
 
@@ -115,11 +111,11 @@ AI 因子助手模块。底层使用通用 `AiChatPanel` 组件 + `context="fact
 #### Scenario: 因子上下文配置
 
 - **WHEN** 后端处理 `context="factor"` 的 AI 请求
-- **THEN** 使用 `ai_workbench.contexts.factor` 中的 system_prompt、skills、tools 配置（替代旧的 `factor_def.claude` 路径）
+- **THEN** 使用 `ai_workbench.contexts.factor` 中的 system_prompt、skills、tools 配置（替代旧的 `factor_def.claude` 路径，旧路径保持只读兼容）
 
-### Requirement: SDK 模式
+### ADDED: SDK 模式迁移
 
-系统 SHALL 使用 `ClaudeSDKClient`（SDK 模式）调用 Claude，以支持原生多轮对话和 AskUserQuestion。
+系统 SHALL 使用 `ClaudeSDKClient`（SDK 模式）替代 CLI 子进程模式，以支持原生多轮对话和 AskUserQuestion。
 
 #### Scenario: SDK 模式选择
 

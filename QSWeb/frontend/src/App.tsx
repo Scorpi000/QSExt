@@ -11,6 +11,7 @@ const BacktestStudio = lazy(() => import('./pages/BacktestStudio'))
 const RiskManager = lazy(() => import('./pages/RiskManager'))
 const PortfolioOptimizer = lazy(() => import('./pages/PortfolioOptimizer'))
 const ReportCenter = lazy(() => import('./pages/ReportCenter'))
+const AiWorkbench = lazy(() => import('./pages/AiWorkbench'))
 
 function App() {
   return (
@@ -74,6 +75,16 @@ function App() {
               <ErrorBoundary title="报告中心页面出错">
                 <Suspense fallback={<Loading />}>
                   <ReportCenter />
+                </Suspense>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="ai"
+            element={
+              <ErrorBoundary title="AI 工作台页面出错">
+                <Suspense fallback={<Loading />}>
+                  <AiWorkbench />
                 </Suspense>
               </ErrorBoundary>
             }

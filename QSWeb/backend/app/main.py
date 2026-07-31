@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import router as api_router
 from app.api.ai import router as ai_router
+from app.api.ai_sessions import router as ai_sessions_router
 from app.core.config import settings
 from app.core.exceptions import APIException
 from app.tasks.manager import task_manager
@@ -40,6 +41,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(api_router, prefix="/api")
 app.include_router(ai_router)
+app.include_router(ai_sessions_router)
 
 
 @app.exception_handler(APIException)

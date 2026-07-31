@@ -62,7 +62,11 @@ def _remove_path(path: str) -> None:
 
 
 class AiServiceCLI:
-    """AI 因子助手服务 — CLI 子进程方案"""
+    """AI 助手服务 — CLI 子进程方案
+
+    通过 Claude CLI stream-json 协议提供 AI 对话能力。
+    配置由 context_config（来自 QSWebConfig.json ai_workbench）驱动。
+    """
 
     def __init__(self):
         self._process: Optional[subprocess.Popen] = None
@@ -70,35 +74,48 @@ class AiServiceCLI:
         self._stderr_lines: list = []
         self._msg_queue: Optional[queue.Queue] = None
         self._session_id: str = "default"
+        self._context_config: dict = {}
 
     # ------------------------------------------------------------------
     # 公开 API（主线程调用）
     # ------------------------------------------------------------------
 
-    def start(self, prompt: str, scripts_dir: str) -> None:
-        """启动 Claude CLI 子进程（新会话）并发送初始提示"""
+    def start(self, prompt: str, context_config: dict) -> None:
+        """启动 Claude CLI 子进程（新会话）并发送初始提示
+
+        Args:
+            prompt: 用户输入的需求描述
+            context_config: 来自 ai_workbench.contexts.<context> 的完整配置字典
+        """
         if self._process and self._process.poll() is None:
             self.disconnect()
 
         self._msg_queue = queue.Queue()
         self._session_id = str(uuid.uuid4())
-        self._launch(prompt, scripts_dir, resume=False)
+        self._context_config = context_config
+        self._launch(prompt, resume=False)
 
-    def query(self, prompt: str) -> None:
-        """发送后续消息 — 等待旧进程自然退出后，--resume 恢复会话"""
-        claude_cfg = settings.factor_def.get("claude", {})
-        wait_timeout = float(claude_cfg.get("session_persist_wait_sec", 10))
+    def query(self, prompt: str, history: list = None) -> None:
+        """发送后续消息
 
+        - 进程还在运行：直接 stdin 发送后续消息
+        - 进程已退出（-p 模式正常结束）：重新创建会话。
+          -p 模式下 Claude Code 不持久化 session，无法使用 --resume。
+          如需上下文连续性，通过 history 参数传入历史消息。
+        """
         if self._process and self._process.poll() is None:
-            try:
-                self._process.wait(timeout=wait_timeout)
-            except subprocess.TimeoutExpired:
-                self._process.terminate()
-                try:
-                    self._process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    self._process.kill()
-        self._launch(prompt, self._scripts_dir, resume=True)
+            self._send_json({
+                "type": "user",
+                "message": {"role": "user", "content": prompt},
+                "parent_tool_use_id": None,
+                "session_id": self._session_id,
+            })
+            return
+
+        # -p 模式下进程已退出，session 未持久化，启动新会话
+        self._msg_queue = queue.Queue()
+        self._session_id = str(uuid.uuid4())
+        self._launch(prompt, resume=False)
 
     def interrupt(self) -> None:
         """中断 Claude（终止子进程）"""
@@ -122,21 +139,22 @@ class AiServiceCLI:
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _launch(self, prompt: str, scripts_dir: str, resume: bool) -> None:
+    def _launch(self, prompt: str, resume: bool) -> None:
         """启动 Claude CLI 子进程并发送提示
 
         resume=False: 新会话（--session-id <uuid>）
         resume=True:  恢复会话（--resume <uuid>）
         """
-        self._scripts_dir = scripts_dir
         self._stderr_lines = []
-        claude_cfg = settings.factor_def.get("claude", {})
+        ctx = self._context_config
 
-        cli_path = claude_cfg.get("cli_path", "claude")
-        repo_root = claude_cfg.get("repo_root", "D:/HST/QSExt")
+        cli_path = ctx.get("cli_path", "claude")
+        repo_root = ctx.get("repo_root", "D:/HST/QSExt")
 
-        # 确保工作目录就绪
-        self._ensure_workspace(repo_root)
+        # 确保工作目录就绪（按 skills 列表动态链接）
+        skills = ctx.get("skills", [])
+        skill_dir = ctx.get("skill_dir", "")
+        self._ensure_workspace(repo_root, skills, skill_dir)
 
         cmd = [
             cli_path,
@@ -144,10 +162,17 @@ class AiServiceCLI:
             "--verbose",
             "--output-format", "stream-json",
             "--input-format", "stream-json",
-            "--permission-mode", claude_cfg.get("permission_mode", "acceptEdits"),
-            "--max-budget-usd", str(claude_cfg.get("max_budget_usd", 1.0)),
-            "--add-dir", scripts_dir,
+            "--permission-mode", ctx.get("permission_mode", "acceptEdits"),
+            "--max-budget-usd", str(ctx.get("max_budget_usd", 1.0)),
         ]
+
+        # 附加目录（确保 Claude 至少有一个工作目录）
+        if scripts_dir := ctx.get("scripts_dir"):
+            cmd.extend(["--add-dir", scripts_dir])
+        else:
+            cmd.extend(["--add-dir", repo_root])
+        if skill_dir:
+            cmd.extend(["--add-dir", skill_dir])
 
         # 会话管理：新会话用 --session-id，后续用 --resume
         if resume:
@@ -155,20 +180,17 @@ class AiServiceCLI:
         else:
             cmd.extend(["--session-id", self._session_id])
 
-        # skill 目录
-        if skill_dir := settings.factor_def.get("skill_dir"):
-            cmd.extend(["--add-dir", skill_dir])
-
         # MCP 配置
-        mcp_servers = claude_cfg.get("mcp_servers", {})
-        if mcp_servers:
-            mcp_config_path = self._write_mcp_config(mcp_servers)
+        mcp_servers = ctx.get("mcp_servers", {})
+        tools = ctx.get("tools", [])
+        if mcp_servers or tools:
+            mcp_config_path = self._write_mcp_config(mcp_servers, tools)
             cmd.extend(["--mcp-config", mcp_config_path])
             cmd.append("--strict-mcp-config")
 
         # 环境变量
         env = os.environ.copy()
-        env.update(claude_cfg.get("env", {}))
+        env.update(ctx.get("env", {}))
         for server_cfg in mcp_servers.values():
             if isinstance(server_cfg, dict):
                 server_env = server_cfg.get("env", {})
@@ -205,11 +227,15 @@ class AiServiceCLI:
         ).start()
 
         # 发送提示
+        scripts_dir_val = ctx.get("scripts_dir", "")
         self._send_json({
             "type": "user",
             "message": {
                 "role": "user",
-                "content": self._build_prompt(prompt, scripts_dir) if not resume else prompt,
+                "content": (
+                    self._build_prompt(prompt, scripts_dir_val)
+                    if not resume else prompt
+                ),
             },
             "parent_tool_use_id": None,
             "session_id": self._session_id,
@@ -225,14 +251,18 @@ class AiServiceCLI:
 
     def _send_json(self, data: dict) -> None:
         """向子进程 stdin 写入一行 JSON"""
-        if not self._process or self._process.poll() is not None:
+        if not self._process:
+            return
+        if self._process.poll() is not None:
+            stderr_tail = "".join(self._stderr_lines[-20:])
+            self._msg_queue.put(("error", f"Claude 进程已退出 (code={self._process.returncode}): {stderr_tail[:500]}"))
             return
         try:
             line = json.dumps(data, ensure_ascii=False) + "\n"
             self._process.stdin.write(line)
             self._process.stdin.flush()
         except (BrokenPipeError, OSError):
-            pass
+            self._msg_queue.put(("error", "无法向 Claude 发送消息（连接已断开）"))
 
     def _read_stdout(self, proc: subprocess.Popen) -> None:
         """后台线程：读取 stdout 的 JSON 行"""
@@ -256,8 +286,13 @@ class AiServiceCLI:
             if exit_code != 0:
                 stderr_tail = "".join(self._stderr_lines[-20:])
                 logger.warning("Claude CLI 退出 (code=%d): %s", exit_code, stderr_tail)
+                # 通知前端进程异常退出
+                if self._msg_queue:
+                    self._msg_queue.put(("error", f"Claude 异常退出 (code={exit_code}): {stderr_tail[:500]}"))
         except Exception as e:
             logger.warning("读取 Claude 输出失败: %s", e)
+            if self._msg_queue:
+                self._msg_queue.put(("error", f"读取 Claude 输出失败: {e}"))
 
     def _read_stderr(self, proc: subprocess.Popen) -> None:
         """后台线程：收集 stderr 用于错误诊断"""
@@ -327,6 +362,22 @@ class AiServiceCLI:
                         "tool_input": block.get("input", {}),
                         "id": block.get("id", ""),
                     })
+
+            # 检测 action_card 嵌入
+            for blk in blocks:
+                if blk.get("kind") == "text":
+                    action_card = self._extract_action_card(blk.get("content", ""))
+                    if action_card:
+                        # 将 action_card 作为独立消息入队
+                        self._msg_queue.put(("msg", {
+                            "type": "action_card",
+                            "data": action_card,
+                        }))
+                        # 从文本中移除 action_card 内容
+                        blk["content"] = self._strip_action_card(
+                            blk.get("content", "")
+                        )
+
             return {"type": "assistant", "data": {"blocks": blocks}}
 
         elif msg_type == "user":
@@ -365,7 +416,7 @@ class AiServiceCLI:
         # 未识别的消息类型
         return None
 
-    def _write_mcp_config(self, mcp_servers: dict) -> str:
+    def _write_mcp_config(self, mcp_servers: dict, tools: list = None) -> str:
         """将 MCP 服务器配置写入临时 JSON 文件，返回文件路径"""
         config = {"mcpServers": {}}
         for name, server in mcp_servers.items():
@@ -389,8 +440,10 @@ class AiServiceCLI:
         tmp.close()
         return tmp.name
 
-    def _ensure_workspace(self, repo_root: str) -> None:
-        """确保工作目录就绪：git 仓库 + .claude/ + skill 链接"""
+    def _ensure_workspace(
+        self, repo_root: str, skills: list, skill_dir: str
+    ) -> None:
+        """确保工作目录就绪：git 仓库 + .claude/ + 动态链接技能"""
         logger.info("检查工作目录: %s", repo_root)
         claude_dir = os.path.join(repo_root, ".claude")
         skills_dir = os.path.join(claude_dir, "skills")
@@ -407,10 +460,10 @@ class AiServiceCLI:
                 check=False, capture_output=True,
             )
 
-        # 3) 链接 develop-factor 技能
-        skill_dir = settings.factor_def.get("skill_dir", "")
-        if skill_dir:
-            self._link_skill(skills_dir, "develop-factor", skill_dir)
+        # 3) 根据 context_config.skills 列表动态链接技能
+        if skill_dir and skills:
+            for skill_name in skills:
+                self._link_skill(skills_dir, skill_name, skill_dir)
 
     @staticmethod
     def _link_skill(skills_dir: str, skill_name: str, skill_source_parent: str) -> None:
@@ -456,14 +509,88 @@ class AiServiceCLI:
         except Exception as e:
             logger.warning("创建技能链接失败 [%s -> %s]: %s", target, source, e)
 
-    @staticmethod
-    def _build_prompt(user_prompt: str, scripts_dir: str) -> str:
-        """从配置模板构造发送给 Claude 的完整提示词"""
-        claude_cfg = settings.factor_def.get("claude", {})
-        template = claude_cfg.get("system_prompt", "")
+    def _build_prompt(self, user_prompt: str, scripts_dir: str) -> str:
+        """构造发送给 Claude 的初始提示
+
+        system_prompt 作为系统指令通过 --system-prompt 传递，
+        用户消息保持原文。保留 {user_prompt}/{scripts_dir} 兼容旧模板。
+        """
+        template = self._context_config.get("system_prompt", "")
         if not template:
             return user_prompt
-        return template.format(user_prompt=user_prompt, scripts_dir=scripts_dir)
+        if "{user_prompt}" in template:
+            # 旧模板格式（兼容）
+            return template.format(user_prompt=user_prompt, scripts_dir=scripts_dir)
+        # 新格式：system_prompt 不含占位符，单独传递
+        return user_prompt
+
+    @staticmethod
+    def _extract_action_card(text: str) -> Optional[dict]:
+        """从文本中提取 action_card JSON
+
+        支持两种格式：
+        1. 代码块内: ```json\n{ "type": "action_card", ... }\n```
+        2. 纯 JSON 行
+        """
+        import re
+
+        # 匹配 action_card JSON 模式（在代码块中或独立出现）
+        # 查找 JSON 对象包含 "type": "action_card"
+        pattern = r'\{[^{}]*"type"\s*:\s*"action_card"[^{}]*\}'
+        match = re.search(pattern, text)
+        if not match:
+            return None
+
+        try:
+            obj = json.loads(match.group())
+            if obj.get("type") == "action_card":
+                return obj.get("data", obj)
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试更宽松的匹配：提取完整 JSON 对象（可能跨多行且有嵌套）
+        start = text.find('"type": "action_card"')
+        if start == -1:
+            return None
+        # 向前找到第一个 {
+        brace_start = text.rfind('{', 0, start)
+        if brace_start == -1:
+            return None
+        # 从 { 开始找匹配的 }
+        depth = 0
+        i = brace_start
+        while i < len(text):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[brace_start:i + 1])
+                        if obj.get("type") == "action_card":
+                            return obj.get("data", obj)
+                    except json.JSONDecodeError:
+                        pass
+                    break
+            i += 1
+        return None
+
+    @staticmethod
+    def _strip_action_card(text: str) -> str:
+        """从文本中移除 action_card JSON 内容"""
+        import re
+        # 移除 JSON 代码块中的 action_card
+        # 匹配完整的 ```json ... ``` 块中包含 action_card
+        text = re.sub(
+            r'```json\s*\n?\{[^`]*"type"\s*:\s*"action_card"[^`]*\}\s*\n?```',
+            '', text,
+        )
+        # 移除独立 action_card JSON 行
+        text = re.sub(
+            r'\n?\{[^{}]*"type"\s*:\s*"action_card"[^{}]*\}\n?',
+            '', text,
+        )
+        return text.strip()
 
     # format_message 复用 SDK 版本（消息格式一致）
     @staticmethod
