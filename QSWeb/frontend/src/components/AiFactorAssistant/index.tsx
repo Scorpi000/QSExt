@@ -1,7 +1,9 @@
 /**
  * AiFactorAssistant - AI 因子助手 Chat 面板
  *
- * 通过 WebSocket 与后端 AI 服务通信，流式展示 Claude 的思考过程和生成的因子脚本。
+ * 通过 WebSocket 与后端 AI 服务通信（基于 ClaudeSDKClient 双向交互），
+ * 流式展示 Claude 的思考过程和生成的因子脚本。
+ * 支持多轮对话：发送初始需求 → 追问 → 中断。
  * 生成完成后自动调用导入管道获取元信息预览，提供保存/注册/编辑操作。
  */
 
@@ -18,6 +20,7 @@ import {
   Typography,
   Alert,
   Empty,
+  Badge,
 } from 'antd'
 import {
   SendOutlined,
@@ -27,6 +30,7 @@ import {
   ToolOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
 import { AiChatClient } from '../../services/ai'
 import type { AiMessage, AiBlock } from '../../services/ai'
@@ -34,13 +38,13 @@ import { importFactor } from '../../services/import'
 import type { ImportResult } from '../../services/import'
 
 const { TextArea } = Input
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
 interface ChatMessage {
   role: 'user' | 'ai'
   content: string
   blocks?: AiBlock[]
-  isThinking?: boolean
+  thinking?: string  // Claude 的思考过程
   isToolCall?: boolean
   isError?: boolean
   isCode?: boolean
@@ -51,10 +55,13 @@ interface AiFactorAssistantProps {
   onClose: () => void
 }
 
+/** Claude 运行状态 */
+type RunState = 'idle' | 'running' | 'interrupted' | 'done'
+
 function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
+  const [runState, setRunState] = useState<RunState>('idle')
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
   const [generatedFilename, setGeneratedFilename] = useState('factor.py')
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
@@ -70,7 +77,7 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
     }, 100)
   }, [])
 
-  // 初始化 WebSocket
+  // 初始化 WebSocket 客户端和消息处理
   useEffect(() => {
     const client = new AiChatClient()
     clientRef.current = client
@@ -80,16 +87,17 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
         case 'assistant': {
           const blocks = msg.data?.blocks || []
           const textBlocks = blocks.filter((b) => b.kind === 'text')
+          const thinkingBlocks = blocks.filter((b) => b.kind === 'thinking')
           const toolBlocks = blocks.filter((b) => b.kind === 'tool_use' || b.kind === 'tool_result')
           const content = textBlocks.map((b) => b.content).join('\n')
+          const thinking = thinkingBlocks.map((b) => b.content).join('\n')
 
-          if (content) {
+          if (content || thinking) {
             setMessages((prev) => {
               const last = prev[prev.length - 1]
-              // 检测是否为代码（包含 __FACTOR_META__ 或 defFactor）
+              // 检测是否为代码
               const isCode = content.includes('__FACTOR_META__') || content.includes('defFactor')
               if (isCode) {
-                // 提取代码部分
                 const codeMatch = content.match(/```python\n?([\s\S]*?)```/)
                 if (codeMatch) {
                   setGeneratedCode(codeMatch[1])
@@ -100,9 +108,14 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
               }
 
               if (last && last.role === 'ai' && !last.isToolCall && !last.isCode) {
-                return [...prev.slice(0, -1), { ...last, content: last.content + content, isCode: last.isCode || isCode }]
+                return [...prev.slice(0, -1), {
+                  ...last,
+                  content: last.content + content,
+                  thinking: (last.thinking || '') + thinking,
+                  isCode: last.isCode || isCode,
+                }]
               }
-              return [...prev, { role: 'ai', content, isCode }]
+              return [...prev, { role: 'ai', content, thinking, isCode }]
             })
           }
 
@@ -148,12 +161,14 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
           break
 
         case 'result': {
-          const content = msg.data?.content || ''
           const isError = msg.data?.is_error || false
-          setMessages((prev) => [
-            ...prev,
-            { role: 'ai', content: isError ? `❌ ${content}` : content, isError },
-          ])
+          if (isError) {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'ai', content: `❌ ${msg.data?.content || '未知错误'}`, isError: true },
+            ])
+          }
+          setRunState('done')
           scrollToBottom()
           break
         }
@@ -167,12 +182,21 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
               isError: true,
             },
           ])
-          setSending(false)
+          setRunState('done')
+          scrollToBottom()
+          break
+
+        case 'interrupted':
+          setMessages((prev) => [
+            ...prev,
+            { role: 'ai', content: '⏸ 已中断', isError: false },
+          ])
+          setRunState('interrupted')
           scrollToBottom()
           break
 
         case 'done':
-          setSending(false)
+          setRunState('done')
           break
       }
     })
@@ -182,7 +206,7 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
     }
   }, [])
 
-  // 发送消息
+  // 发送初始需求（启动 Claude 会话）
   const handleSend = async () => {
     if (!input.trim()) return
     const client = clientRef.current
@@ -191,32 +215,72 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
       return
     }
 
-    setMessages((prev) => [...prev, { role: 'user', content: input }])
     const userInput = input
+    setMessages((prev) => [...prev, { role: 'user', content: userInput }])
     setInput('')
-    setSending(true)
+    setRunState('running')
     setGeneratedCode(null)
     setImportResult(null)
 
     try {
-      await client.connect()
-      client.send(userInput)
+      // 新协议：start 包含连接 + 初始提示
+      // 如果当前有活跃会话，先断开
+      if (runState === 'running' || runState === 'interrupted') {
+        client.disconnect()
+        // 重新创建 client 和 handler（因为 disconnect 后 ws 关闭）
+        const newClient = new AiChatClient()
+        clientRef.current = newClient
+        newClient.onMessage(client['handlers']?.[0] ? (() => {}) : (() => {})) // handled by effect
+        // 直接用当前 client 的 start
+      }
+      await client.start(userInput)
     } catch (err: any) {
       message.error(`连接失败: ${err.message}`)
-      setSending(false)
+      setRunState('idle')
     }
+  }
+
+  // 发送后续消息
+  const handleSendFollowup = () => {
+    if (!input.trim()) return
+    const client = clientRef.current
+    if (!client) return
+
+    setMessages((prev) => [...prev, { role: 'user', content: input }])
+    const userInput = input
+    setInput('')
+    setRunState('running')
+
+    try {
+      client.sendQuery(userInput)
+    } catch (err: any) {
+      message.error(`发送失败: ${err.message}`)
+      setRunState('idle')
+    }
+  }
+
+  // 中断 Claude
+  const handleInterrupt = () => {
+    const client = clientRef.current
+    if (!client) return
+    client.interrupt()
   }
 
   // 新建会话
   const handleNewSession = () => {
+    const client = clientRef.current
+    if (client) {
+      client.disconnect()
+    }
     setMessages([])
     setGeneratedCode(null)
     setImportResult(null)
+    setRunState('idle')
   }
 
   // AI 生成完成后：自动预览导入
   useEffect(() => {
-    if (!generatedCode || sending) return
+    if (!generatedCode || runState !== 'done') return
     const previewImport = async () => {
       try {
         const result = await importFactor(generatedCode, generatedFilename)
@@ -226,9 +290,9 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
       }
     }
     previewImport()
-  }, [generatedCode, sending])
+  }, [generatedCode, runState])
 
-  // 确认导入（含注册）
+  // 确认导入
   const handleConfirmImport = async () => {
     if (!generatedCode) return
     setImporting(true)
@@ -323,6 +387,19 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
               wordBreak: 'break-word',
             }}
           >
+            {/* 思考过程 — 折叠显示 */}
+            {msg.thinking && (
+              <Collapse
+                size="small"
+                ghost
+                items={[{
+                  key: 'thinking',
+                  label: <span style={{ fontSize: 11, color: '#888' }}>💭 思考过程</span>,
+                  children: <pre style={{ fontSize: 11, color: '#888', whiteSpace: 'pre-wrap', margin: 0, maxHeight: 200, overflow: 'auto' }}>{msg.thinking}</pre>,
+                }]}
+                style={{ marginBottom: msg.content ? 6 : 0, background: 'transparent' }}
+              />
+            )}
             {msg.content}
           </div>
         )}
@@ -330,16 +407,35 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
     )
   }
 
+  const isActive = runState === 'running'
+
   return (
     <Drawer
       title={
         <Space>
           <RobotOutlined />
           <span>AI 因子助手</span>
+          {isActive && (
+            <Badge status="processing" text="运行中" style={{ fontSize: 11 }} />
+          )}
+          {runState === 'interrupted' && (
+            <Badge status="warning" text="已中断" style={{ fontSize: 11 }} />
+          )}
+          {runState === 'done' && (
+            <Badge status="success" text="已完成" style={{ fontSize: 11 }} />
+          )}
         </Space>
       }
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        // 关闭面板时断开 Claude
+        if (isActive) {
+          clientRef.current?.interrupt()
+        }
+        clientRef.current?.disconnect()
+        setRunState('idle')
+        onClose()
+      }}
       width={520}
       extra={
         <Button size="small" icon={<ReloadOutlined />} onClick={handleNewSession}>
@@ -358,7 +454,7 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
         ) : (
           messages.map((msg, idx) => renderMessage(msg, idx))
         )}
-        {sending && (
+        {isActive && (
           <div style={{ textAlign: 'center', padding: 8 }}>
             <Spin size="small" /> <span style={{ fontSize: 12, color: '#888' }}>AI 正在思考...</span>
           </div>
@@ -367,7 +463,7 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
       </div>
 
       {/* 代码生成后的操作区 */}
-      {generatedCode && !sending && (
+      {generatedCode && runState === 'done' && (
         <div style={{ marginBottom: 12 }}>
           <Alert
             type="success"
@@ -434,22 +530,38 @@ function AiFactorAssistant({ open, onClose }: AiFactorAssistantProps) {
           onPressEnter={(e) => {
             if (!e.shiftKey) {
               e.preventDefault()
-              handleSend()
+              if (runState === 'idle') {
+                handleSend()
+              } else {
+                handleSendFollowup()
+              }
             }
           }}
-          placeholder="描述你想要的因子，例如：创建一个 20 日动量因子，A 股，基于日收益率计算..."
-          disabled={sending}
+          placeholder={
+            isActive
+              ? '输入后续消息追问 Claude...'
+              : '描述你想要的因子，例如：创建一个 20 日动量因子，A 股，基于日收益率计算...'
+          }
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          loading={sending}
-          disabled={!input.trim()}
-          style={{ marginTop: 8, float: 'right' }}
-        >
-          发送
-        </Button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+          {isActive && (
+            <Button
+              danger
+              icon={<StopOutlined />}
+              onClick={handleInterrupt}
+            >
+              停止
+            </Button>
+          )}
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={runState === 'idle' ? handleSend : handleSendFollowup}
+            disabled={!input.trim()}
+          >
+            {runState === 'idle' ? '发送' : '追问'}
+          </Button>
+        </div>
       </div>
     </Drawer>
   )

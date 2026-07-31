@@ -2,7 +2,7 @@
 
 ## Purpose
 
-QSWeb 因子工作台模块，支持用户搜索 QSRegistry 中的因子、可视化因子依赖的 DAG、创建衍生因子以及管理因子元信息。
+QSWeb 因子工作台模块，支持用户搜索 QSRegistry 中的因子、可视化因子依赖的 DAG、导入 FactorDef 脚本、AI 辅助创建因子以及管理因子元信息。
 
 ## Requirements
 
@@ -38,25 +38,25 @@ QSWeb 因子工作台模块，支持用户搜索 QSRegistry 中的因子、可�
 - **WHEN** 用户点击"自动布局"按钮
 - **THEN** 系统使用 dagre 算法重新计算节点位置
 
-### Requirement: 衍生因子创建
+### Requirement: 因子创建入口
 
-系统 SHALL 支持用户通过选择算子和依赖因子创建新的衍生因子。
+系统 SHALL 在因子工作台提供两个新的因子创建入口，替代原有的"创建衍生因子"按钮。
 
-#### Scenario: 创建衍生因子
-- **WHEN** 用户选择算子类型、配置依赖因子和参数，点击创建
-- **THEN** 系统创建 `DerivativeFactor` 对象，可选注册到 QSRegistry
+#### Scenario: 导入因子脚本入口
+- **WHEN** 用户在因子工作台点击"导入因子脚本"按钮
+- **THEN** 系统打开导入对话框，支持上传 .py 文件或粘贴代码
 
-#### Scenario: 动态参数表单
-- **WHEN** 用户选择一个算子
-- **THEN** 系统基于算子的 Pydantic QSArgs 类调用 `model_json_schema()` 生成 JSON Schema，前端渲染对应的参数配置表单（`frozen=True` 字段渲染为禁用状态，`exclude=True` 字段不展示）
+#### Scenario: AI 辅助创建入口
+- **WHEN** 用户在因子工作台点击"AI 辅助创建"按钮
+- **THEN** 系统打开 AI 因子助手 Chat 面板
 
 ### Requirement: 因子元信息管理
 
-系统 SHALL 支持用户查看和编辑因子的描述、标签等元信息。
+系统 SHALL 支持用户查看因子的描述、标签等元信息，以及因子的脚本来源（脚本路径或 AI 生成标记）。
 
 #### Scenario: 查看因子详情
 - **WHEN** 用户在搜索结果或 DAG 中点击因子
-- **THEN** 显示因子详情面板：名称、描述、算子类型、依赖因子列表、数据统计
+- **THEN** 显示因子详情面板：名称、描述、算子类型、依赖因子列表、数据统计。若因子有对应的 FactorDef 脚本，额外显示脚本路径和导入时间
 
 #### Scenario: 编辑因子描述
 - **WHEN** 用户修改因子描述并保存
