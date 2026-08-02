@@ -5,11 +5,13 @@
 """
 
 import datetime as dt
-import json
 import logging
 import os
 import uuid
 from typing import Dict, List, Optional, Any
+
+import yaml
+from ruamel.yaml import YAML
 
 from app.models.report import (
     ReportScenario,
@@ -17,19 +19,23 @@ from app.models.report import (
     ReportInfo,
     REPORT_SCENARIO_REGISTRY,
 )
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-QS_CONFIG_PATH = os.path.expanduser("~/QuantStudioConfig/QSWebConfig.json")
+QS_CONFIG_PATH = settings.QS_CONFIG_PATH
 DEFAULT_REPORT_DIR = os.path.expanduser("~/QuantStudioConfig/reports")
+
+_ruamel = YAML()
+_ruamel.preserve_quotes = True
 
 
 def get_report_dir() -> str:
-    """获取报告存储目录（从 QSWebConfig.json 读取，未配置时使用默认值）"""
+    """获取报告存储目录（从 QSWebConfig.yaml 读取，未配置时使用默认值）"""
     if os.path.exists(QS_CONFIG_PATH):
         try:
             with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
+                cfg = yaml.safe_load(f)
             report_cfg = cfg.get("report", {})
             if report_cfg.get("output_dir"):
                 return os.path.expanduser(report_cfg["output_dir"])
@@ -39,20 +45,18 @@ def get_report_dir() -> str:
 
 
 def set_report_dir(path: str):
-    """设置报告存储目录（写入 QSWebConfig.json）"""
-    cfg = {}
+    """设置报告存储目录（写入 QSWebConfig.yaml）"""
     if os.path.exists(QS_CONFIG_PATH):
-        try:
-            with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            pass
+        with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = _ruamel.load(f)
+    else:
+        cfg = _ruamel.load("{}")
     if "report" not in cfg:
         cfg["report"] = {}
     cfg["report"]["output_dir"] = path
     os.makedirs(os.path.dirname(QS_CONFIG_PATH), exist_ok=True)
     with open(QS_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _ruamel.dump(cfg, f)
     os.makedirs(os.path.expanduser(path), exist_ok=True)
 
 
@@ -413,24 +417,32 @@ def keep_factor_service(svc):
         svc._factor_service = fs
 
 
-# ─── 报告元数据持久化（QSWebConfig.json） ────────────────────
+# ─── 报告元数据持久化（QSWebConfig.yaml） ────────────────────
 
 def _load_qs_config() -> dict:
-    """加载 QSWebConfig.json"""
+    """加载 QSWebConfig.yaml"""
     if os.path.exists(QS_CONFIG_PATH):
         try:
             with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                return yaml.safe_load(f)
         except Exception:
             return {}
     return {}
 
 
 def _save_qs_config(cfg: dict):
-    """保存 QSWebConfig.json"""
+    """保存 QSWebConfig.yaml"""
+    if os.path.exists(QS_CONFIG_PATH):
+        with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+            full_cfg = _ruamel.load(f)
+    else:
+        full_cfg = _ruamel.load("{}")
+    # 合并写入（保留文件中其他配置不变）
+    for key, value in cfg.items():
+        full_cfg[key] = value
     os.makedirs(os.path.dirname(QS_CONFIG_PATH), exist_ok=True)
     with open(QS_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        _ruamel.dump(full_cfg, f)
 
 
 def _load_all_report_meta() -> List[dict]:

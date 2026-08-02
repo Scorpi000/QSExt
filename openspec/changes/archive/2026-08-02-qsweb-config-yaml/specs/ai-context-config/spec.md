@@ -1,10 +1,6 @@
 # ai-context-config
 
-## Purpose
-
-基于 `QSWebConfig.yaml` 的 AI 上下文配置系统，定义多个工作场景（general/factor/backtest/risk/portfolio），每个场景配置独立的 system_prompt、skills、MCP tools、placeholder 和路由映射。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 配置结构
 
@@ -33,15 +29,3 @@
 
 - **WHEN** context 未指定 `skills`、`tools`、`max_budget_usd` 等字段
 - **THEN** 使用 `ai_workbench.defaults` 中对应的值
-
-### Requirement: Skills 动态链接
-
-系统 SHALL 根据 context 配置的 `skills` 列表动态链接技能目录（CLI 模式），SDK 模式通过 `ClaudeAgentOptions(skills=...)` 传递。
-
-### Requirement: Tools 过滤
-
-系统 SHALL 根据 context 配置的 `tools` 列表限制可用工具，SDK 模式通过 `ClaudeAgentOptions(allowed_tools=...)` 传递。
-
-### Requirement: 前端配置接口
-
-系统 SHALL 提供 `GET /api/ai/contexts` 返回可用 context 列表（不含完整 system_prompt），包含 `key`、`description`、`placeholder`。

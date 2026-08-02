@@ -2,20 +2,24 @@
 风险管理服务
 
 桥接 QuantStudio RiskDB 和 Web API，管理风险库连接的生命周期。
-配置存储在 QSWebConfig.json 的 risk_dbs 字段中。
+配置存储在 QSWebConfig.yaml 的 risk_dbs 字段中。
 """
 
 import asyncio
-import json
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 import numpy as np
 import pandas as pd
+import yaml
+from ruamel.yaml import YAML
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ConnectionException, ValidationException
+
+_ruamel = YAML()
+_ruamel.preserve_quotes = True
 
 
 class RiskService:
@@ -24,16 +28,16 @@ class RiskService:
     def __init__(self):
         self._risk_dbs: Dict[str, Any] = {}  # 缓存的 RiskDB 实例
         self._config: Dict[str, Any] = {}
-        self._config_path = Path(settings.QS_CONFIG_PATH) / "QSWebConfig.json"
+        self._config_path = Path(settings.QS_CONFIG_PATH)
         self._db_configs: Dict[str, Dict[str, Any]] = {}
         self._load_config()
 
     def _load_config(self):
-        """从 QSWebConfig.json 加载风险库配置"""
+        """从 QSWebConfig.yaml 加载风险库配置"""
         if self._config_path.exists():
             try:
                 with open(self._config_path, "r", encoding="utf-8") as f:
-                    self._config = json.load(f)
+                    self._config = yaml.safe_load(f)
                 self._db_configs = self._config.get("risk_dbs", {})
             except Exception:
                 self._config = {"version": "1.0"}
@@ -42,11 +46,17 @@ class RiskService:
             self._config = {"version": "1.0"}
 
     def _save_config(self):
-        """保存风险库配置到 QSWebConfig.json"""
-        self._config["risk_dbs"] = self._db_configs
+        """保存风险库配置到 QSWebConfig.yaml"""
+        # 使用 ruamel.yaml 保留注释和格式
+        if self._config_path.exists():
+            with open(self._config_path, "r", encoding="utf-8") as f:
+                cfg = _ruamel.load(f)
+        else:
+            cfg = _ruamel.load("{}")
+        cfg["risk_dbs"] = self._db_configs
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._config_path, "w", encoding="utf-8") as f:
-            json.dump(self._config, f, ensure_ascii=False, indent=2)
+            _ruamel.dump(cfg, f)
 
     def list_databases(self) -> List[Dict[str, Any]]:
         """列出已配置的风险库"""

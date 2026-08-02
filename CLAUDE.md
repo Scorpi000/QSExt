@@ -218,7 +218,7 @@ QSExt/FactorDef/
 数据库连接配置存放在 `~/QuantStudioConfig/` 目录：
 - `JYDBConfig.json`：聚源数据库（PostgreSQL）
 - `Neo4jDBConfig.json`：Neo4j 图数据库
-- `QSWebConfig.json`：QSWeb 统一配置（因子库连接等，参数使用 QuantStudio 原生格式）
+- `QSWebConfig.yaml`：QSWeb 统一配置（参数使用 QuantStudio 原生格式）
 - 其他数据库配置文件
 
 MCP 服务配置文件：`.mcp.json.example`（项目根目录），用于配置 MCP 客户端连接 QSRegistry 服务。

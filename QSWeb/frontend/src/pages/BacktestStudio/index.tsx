@@ -156,7 +156,7 @@ function BacktestStudio() {
             <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
               时点模式
               {!tradingDayAvailable && (
-                <Tooltip title="交易日源未配置，请在 QSWebConfig.json 的 backtest.trading_day_source 中配置">
+                <Tooltip title="交易日源未配置，请在 QSWebConfig.yaml 的 backtest.trading_day_source 中配置">
                   <InfoCircleOutlined style={{ marginLeft: 6, color: '#faad14' }} />
                 </Tooltip>
               )}

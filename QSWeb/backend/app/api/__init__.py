@@ -14,6 +14,8 @@ from app.api.portfolio import router as portfolio_router
 from app.api.report import router as report_router
 from app.api.pool import router as pool_router
 
+from app.api.mining import router as mining_router
+
 router = APIRouter()
 
 # 注册子路由
@@ -26,3 +28,4 @@ router.include_router(risk_router, prefix="/risk", tags=["风险管理"])
 router.include_router(portfolio_router, prefix="/portfolio", tags=["组合优化"])
 router.include_router(report_router, prefix="/reports", tags=["报告中心"])
 router.include_router(pool_router, prefix="/pool", tags=["全局因子池"])
+router.include_router(mining_router, prefix="/mining", tags=["因子挖掘"])

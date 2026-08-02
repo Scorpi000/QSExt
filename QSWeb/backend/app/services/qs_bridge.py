@@ -13,6 +13,7 @@ from typing import List, Optional, Dict, Any
 
 import pandas as pd
 import numpy as np
+import yaml
 
 from app.models.backtest import (
     FactorRef,
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # ─── 全局回测配置 ─────────────────────────────────────────────────
 
-QS_CONFIG_PATH = os.path.expanduser("~/QuantStudioConfig/QSWebConfig.json")
+from app.core.config import settings
 
 DEFAULT_BACKTEST_CONFIG = {
     "dtruler_lookback_years": 10,
@@ -36,14 +37,13 @@ DEFAULT_BACKTEST_CONFIG = {
 
 
 def _load_backtest_config() -> dict:
-    """从 QSWebConfig.json 加载回测配置节"""
-    if os.path.exists(QS_CONFIG_PATH):
+    """从 QSWebConfig.yaml 加载回测配置节"""
+    if os.path.exists(settings.QS_CONFIG_PATH):
         try:
-            with open(QS_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
+            with open(settings.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
             bt_cfg = cfg.get("backtest", {})
             merged = {**DEFAULT_BACKTEST_CONFIG, **bt_cfg}
-            # trading_day_source: 配置中为 None/缺失 时表示未启用
             if "trading_day_source" not in bt_cfg:
                 merged["trading_day_source"] = None
             return merged

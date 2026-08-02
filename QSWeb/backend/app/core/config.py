@@ -4,9 +4,10 @@
 从环境变量或 .env 文件加载配置
 """
 
-import json
 import os
 from typing import List, Optional
+
+import yaml
 
 
 # QSWeb 所在目录（即仓库根目录，比 backend/app/core 高 5 级）
@@ -35,22 +36,18 @@ class Settings:
     DATABASE_URL: str = "postgresql://user:pass@localhost:5432/qsweb"
 
     # QuantStudio 配置
-    QS_CONFIG_PATH: str = os.path.expanduser("~/QuantStudioConfig")
+    QS_CONFIG_PATH: str = os.path.join(
+        os.path.expanduser("~/QuantStudioConfig"), "QSWebConfig.yaml"
+    )
 
     @property
     def factor_def(self) -> dict:
-        """从 QSWebConfig.json 读取 factor_def + ai_workbench.contexts.factor
-
-        factor_def.scripts_dir / settings_path 用于因子导入流程，
-        ai_workbench.contexts.factor 用于 AI 因子助手。
-        scripts_dir 优先级：factor_def > ai_workbench.contexts.factor > 默认值
-        """
-        config_path = os.path.join(self.QS_CONFIG_PATH, "QSWebConfig.json")
+        """从 QSWebConfig.yaml 读取 factor_def + ai_workbench.contexts.factor"""
         fd_config = {}
-        if os.path.exists(config_path):
+        if os.path.exists(self.QS_CONFIG_PATH):
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    fd_config = json.load(f).get("factor_def", {})
+                with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    fd_config = yaml.safe_load(f).get("factor_def", {})
             except Exception:
                 pass
 
@@ -85,13 +82,12 @@ class Settings:
 
     @property
     def ai_workbench(self) -> dict:
-        """从 QSWebConfig.json 加载 ai_workbench 配置段"""
-        config_path = os.path.join(self.QS_CONFIG_PATH, "QSWebConfig.json")
-        if not os.path.exists(config_path):
+        """从 QSWebConfig.yaml 加载 ai_workbench 配置段"""
+        if not os.path.exists(self.QS_CONFIG_PATH):
             return self._default_ai_workbench()
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
+            with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
             aw = config.get("ai_workbench", {})
             defaults = self._default_ai_workbench()
 
@@ -149,9 +145,11 @@ class Settings:
                         "1. 理解需求并澄清不明确的部分\n"
                         "2. 通过 jy_base_doc 工具验证数据表和字段\n"
                         "3. 生成符合 FactorDef 框架规范的因子定义脚本\n"
-                        "4. 将脚本保存到正确的目录下\n\n"
+                        "4. 将脚本保存到正确的目录下\n"
+                        "\n"
                         "脚本必须包含 __FACTOR_META__ 和 defFactor(fdi) -> List[Factor]。\n"
-                        "如果用户需求不明确，先使用 AskUserQuestion 工具询问缺失的关键信息。\n\n"
+                        "如果用户需求不明确，先使用 AskUserQuestion 工具询问缺失的关键信息。\n"
+                        "\n"
                         "当你完成脚本生成后，请以 action_card 格式输出结果：\n"
                         '{ "type": "action_card", "data": { "kind": "save_script", '
                         '"title": "因子脚本已生成", "summary": {"TargetTable": "因子表名", '
@@ -174,6 +172,32 @@ class Settings:
                 },
             },
         }
+
+
+    @staticmethod
+    def _default_mining() -> dict:
+        """mining 默认配置"""
+        return {
+            "workspace": os.path.expanduser("~/MiningWorkspace"),
+            "frameworks": {},
+        }
+
+    @property
+    def mining(self) -> dict:
+        """从 QSWebConfig.yaml 加载 mining 配置节"""
+        defaults = self._default_mining()
+        if not os.path.exists(self.QS_CONFIG_PATH):
+            return defaults
+        try:
+            with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            user_mining = config.get("mining", {})
+            return {
+                "workspace": user_mining.get("workspace", defaults["workspace"]),
+                "frameworks": user_mining.get("frameworks", defaults["frameworks"]),
+            }
+        except Exception:
+            return defaults
 
 
 settings = Settings()

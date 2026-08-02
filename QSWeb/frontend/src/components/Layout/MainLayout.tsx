@@ -19,6 +19,7 @@ import {
   SaveOutlined,
   FolderOpenOutlined,
   RobotOutlined,
+  GoldOutlined,
 } from '@ant-design/icons'
 import FactorPoolPanel from '../FactorPoolPanel'
 import FactorDiscover from '../FactorDiscover'
@@ -36,6 +37,7 @@ const menuItems = [
   { key: '/portfolio', icon: <PieChartOutlined />, label: '组合优化' },
   { key: '/report', icon: <FileTextOutlined />, label: '报告中心' },
   { key: '/ai', icon: <RobotOutlined />, label: 'AI 工作台' },
+  { key: '/mining', icon: <GoldOutlined />, label: '因子挖掘' },
 ]
 
 const POOL_COLLAPSED_WIDTH = 36

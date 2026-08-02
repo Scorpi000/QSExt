@@ -12,6 +12,7 @@ const RiskManager = lazy(() => import('./pages/RiskManager'))
 const PortfolioOptimizer = lazy(() => import('./pages/PortfolioOptimizer'))
 const ReportCenter = lazy(() => import('./pages/ReportCenter'))
 const AiWorkbench = lazy(() => import('./pages/AiWorkbench'))
+const MiningStudio = lazy(() => import('./pages/MiningStudio'))
 
 function App() {
   return (
@@ -85,6 +86,16 @@ function App() {
               <ErrorBoundary title="AI 工作台页面出错">
                 <Suspense fallback={<Loading />}>
                   <AiWorkbench />
+                </Suspense>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="mining"
+            element={
+              <ErrorBoundary title="因子挖掘页面出错">
+                <Suspense fallback={<Loading />}>
+                  <MiningStudio />
                 </Suspense>
               </ErrorBoundary>
             }

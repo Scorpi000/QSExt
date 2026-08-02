@@ -34,10 +34,10 @@ from QuantStudio.Factor.FactorOperation import (
 )
 from QSExt.QSRegistry._serialization import (
     _sanitizeForJSON, _desanitizeFromJSON,
-    serializeFactorArgs, serializeOperatorArgs, serializeOperatorCalculateRef,
-    _serializeCallable, _deserializeFuncRef,
+    serializeFactorArgs,
     _decryptArgs,
 )
+from QuantStudio.Factor.FactorOperation import FactorOperator
 
 
 # region Schema 定义
@@ -806,23 +806,15 @@ class QSGraphDB(QSNeo4jObject):
 
     def _serializeOperatorNode(self, op: FactorOperator, now: str) -> dict:
         """序列化算子为节点属性字典（供批量写入复用）"""
-        calc_ref_json, is_custom = serializeOperatorCalculateRef(op)
-        look_back = getattr(op._QSArgs, "LookBack", [])
+        op_data = op.serialize()
         return {
             "Name": op._QSArgs.Name,
             "QSID": op.QSID,
-            "ClassName": op.__class__.__name__,
-            "ModulePath": op.__class__.__module__,
             "OperatorType": op._QSArgs.OperatorType,
             "Arity": op._QSArgs.Arity,
             "DataType": op._QSArgs.DataType,
             "Description": op._QSArgs.Description,
-            "ModelArgsJSON": serializeOperatorArgs(op),
-            "LookBackJSON": json.dumps(_sanitizeForJSON(look_back), ensure_ascii=False),
-            "DTMode": getattr(op._QSArgs, "DTMode", None),
-            "IDMode": getattr(op._QSArgs, "IDMode", None),
-            "CalculateRef": calc_ref_json,
-            "IsCustom": is_custom,
+            "OperatorJSON": json.dumps(op_data, ensure_ascii=False),
             "UpdatedAt": now,
         }
 
@@ -1903,8 +1895,12 @@ class QSGraphDB(QSNeo4jObject):
 
         # 检测格式：新格式包含 __type__ == "__QS_Object__"
         if data.get("__type__") == "__QS_Object__":
-            module_path = data.get("__module__")
-            class_name = data.get("__class__")
+            class_path = data.get("__class__", "")
+            if "." in class_path:
+                module_path, class_name = class_path.rsplit(".", 1)
+            else:
+                module_path = data.get("__module__")
+                class_name = class_path
             qs_args_data = data.get("__qsargs__", {})
         else:
             # 旧格式兼容
@@ -2011,42 +2007,10 @@ class QSGraphDB(QSNeo4jObject):
         if not results:
             raise __QS_Error__(f"图中不存在 QSID 为 {qsid} 的算子")
         op_data = results[0]["o"]
-        # 导入算子类
-        module_path = op_data["ModulePath"]
-        class_name = op_data["ClassName"]
-        module = importlib.import_module(module_path)
-        op_class = getattr(module, class_name)
-        # 解析参数（含解密）
-        model_args = json.loads(op_data.get("ModelArgsJSON", "{}"))
-        model_args = _desanitizeFromJSON(model_args)
-        model_args = _decryptArgs(model_args)
-        look_back = json.loads(op_data.get("LookBackJSON", "[]"))
-        look_back = _desanitizeFromJSON(look_back)
-        args = {
-            "Name": op_data["Name"],
-            "ModelArgs": model_args,
-            "DataType": op_data.get("DataType", "double"),
-            "Arity": op_data.get("Arity"),
-        }
-        if op_data.get("DTMode") is not None:
-            args["DTMode"] = op_data["DTMode"]
-        if op_data.get("IDMode") is not None:
-            args["IDMode"] = op_data["IDMode"]
-        if look_back:
-            args["LookBack"] = look_back
-        # 实例化算子
-        op = op_class(args=args)
-        # 处理自定义算子
-        if op_data.get("IsCustom", False) and op_data.get("CalculateRef"):
-            calc_ref = json.loads(op_data["CalculateRef"])
-            if "__func_ref__" in calc_ref:
-                op.calculate = _deserializeFuncRef(calc_ref["__func_ref__"])
-            elif "__dill__" in calc_ref:
-                import dill
-                op.calculate = dill.loads(base64.b64decode(calc_ref["__dill__"]))
-            elif "__numpy_func__" in calc_ref:
-                op.calculate = getattr(np, calc_ref["name"])
-        return op
+        operator_json = op_data.get("OperatorJSON")
+        if not operator_json:
+            raise __QS_Error__(f"算子 {qsid} 缺少 OperatorJSON 字段")
+        return FactorOperator.deserialize(json.loads(operator_json))
 
     # endregion
 

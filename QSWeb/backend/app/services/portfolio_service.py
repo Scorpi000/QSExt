@@ -7,7 +7,6 @@
 
 import asyncio
 import datetime as dt
-import json
 import os
 import uuid
 from pathlib import Path
@@ -15,7 +14,10 @@ from typing import Dict, List, Optional, Any, Tuple
 
 import numpy as np
 import pandas as pd
+import yaml
+from ruamel.yaml import YAML
 
+from app.core.config import settings
 from app.core.exceptions import NotFoundException, ValidationException
 from app.models.portfolio import (
     FactorDataRef,
@@ -24,6 +26,9 @@ from app.models.portfolio import (
     OptimizeResponse,
     SolutionInfo,
 )
+
+_ruamel = YAML()
+_ruamel.preserve_quotes = True
 
 # ─── 默认优化选项（按求解器类型分别配置）────────────────────
 
@@ -47,17 +52,13 @@ _SOLVER_DEFAULT_OPTIONS: Dict[str, Dict[str, Any]] = {
 _DEFAULT_OPTIONS_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
-def _get_qsweb_config_path() -> Path:
-    return Path(os.path.expanduser("~/QuantStudioConfig/QSWebConfig.json"))
-
-
 def _load_optim_options_from_config() -> Dict[str, Any]:
-    """从 QSWebConfig.json 读取 portfolio.optim_options 节点"""
-    cfg_path = _get_qsweb_config_path()
-    if cfg_path.exists():
+    """从 QSWebConfig.yaml 读取 portfolio.optim_options 节点"""
+    cfg_path = settings.QS_CONFIG_PATH
+    if os.path.exists(cfg_path):
         try:
             with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
+                cfg = yaml.safe_load(f)
             return cfg.get("portfolio", {}).get("optim_options", {})
         except Exception:
             pass
@@ -515,31 +516,29 @@ class PortfolioService:
     # ─── 任务保存/加载 ─────────────────────────────────────────
 
     def _load_saved_tasks(self) -> Dict[str, dict]:
-        """从 QSWebConfig.json 读取已保存的任务"""
-        cfg_path = _get_qsweb_config_path()
-        if cfg_path.exists():
+        """从 QSWebConfig.yaml 读取已保存的任务"""
+        cfg_path = settings.QS_CONFIG_PATH
+        if os.path.exists(cfg_path):
             try:
                 with open(cfg_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
+                    cfg = yaml.safe_load(f)
                 return cfg.get("portfolio", {}).get("saved_tasks", {})
             except Exception:
                 pass
         return {}
 
     def _save_tasks_to_config(self, tasks: Dict[str, dict]):
-        """将任务列表持久化到 QSWebConfig.json"""
-        cfg_path = _get_qsweb_config_path()
-        cfg = {}
-        if cfg_path.exists():
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-            except Exception:
-                pass
+        """将任务列表持久化到 QSWebConfig.yaml"""
+        cfg_path = settings.QS_CONFIG_PATH
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = _ruamel.load(f)
+        else:
+            cfg = _ruamel.load("{}")
         cfg.setdefault("portfolio", {})["saved_tasks"] = tasks
-        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        Path(cfg_path).parent.mkdir(parents=True, exist_ok=True)
         with open(cfg_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
+            _ruamel.dump(cfg, f)
 
     def list_tasks(self) -> List[Dict[str, Any]]:
         """列出所有已保存的任务配置"""

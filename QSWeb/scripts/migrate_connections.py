@@ -1,7 +1,7 @@
 """
 QSWeb 连接配置迁移脚本
 
-将 QSWebConfig.json 中的 ``factor_dbs`` 节迁移到 QSGraphDB 图数据库。
+将 QSWebConfig.yaml 中的 ``factor_dbs`` 节迁移到 QSGraphDB 图数据库。
 
 用法:
     # 预览迁移（dry-run）
@@ -14,15 +14,15 @@ QSWeb 连接配置迁移脚本
     python -m QSWeb.scripts.migrate_connections --config /path/to/QSWebConfig.json
 
 流程:
-    1. 读取 QSWebConfig.json 的 factor_dbs 节
+    1. 读取 QSWebConfig.yaml 的 factor_dbs 节
     2. 为每条连接创建 FactorDB 实例并 connect
     3. 通过 QSGraphDB.registerFactorDB 写入 Neo4j
-    4. 备份原 QSWebConfig.json（后缀 .bak）
+    4. 备份原 QSWebConfig.yaml（后缀 .bak）
     5. 删除 factor_dbs 节并写回
 
 回滚:
     将备份文件恢复即可:
-        cp QSWebConfig.json.bak QSWebConfig.json
+        cp QSWebConfig.yaml.bak QSWebConfig.yaml
 """
 
 import json
@@ -32,12 +32,14 @@ import shutil
 import argparse
 from pathlib import Path
 
+import yaml
+
 
 def get_config_path(custom_path: str = None) -> Path:
-    """获取 QSWebConfig.json 路径"""
+    """获取 QSWebConfig.yaml 路径"""
     if custom_path:
         return Path(custom_path)
-    return Path(os.path.expanduser("~/QuantStudioConfig/QSWebConfig.json"))
+    return Path(os.path.expanduser("~/QuantStudioConfig/QSWebConfig.yaml"))
 
 
 def load_config(config_path: Path) -> dict:
@@ -46,7 +48,7 @@ def load_config(config_path: Path) -> dict:
         print(f"[错误] 配置文件不存在: {config_path}")
         sys.exit(1)
     with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return yaml.safe_load(f)
 
 
 def backup_config(config_path: Path) -> Path:
@@ -92,7 +94,7 @@ def run_migration(config_path: Path, dry_run: bool = False):
     factor_dbs = config.get("factor_dbs", {})
 
     if not factor_dbs:
-        print("[信息] QSWebConfig.json 中无 factor_dbs 节，无需迁移")
+        print("[信息] QSWebConfig.yaml 中无 factor_dbs 节，无需迁移")
         return
 
     print(f"[信息] 发现 {len(factor_dbs)} 条连接配置\n")
@@ -152,13 +154,13 @@ def run_migration(config_path: Path, dry_run: bool = False):
         backup_config(config_path)
         del config["factor_dbs"]
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        print(f"\n[完成] 已从 QSWebConfig.json 移除 factor_dbs 节")
+            yaml.safe_dump(config, f, allow_unicode=True, sort_keys=False)
+        print(f"\n[完成] 已从 QSWebConfig.yaml 移除 factor_dbs 节")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="将 QSWebConfig.json 的 factor_dbs 节迁移到 QSGraphDB"
+        description="将 QSWebConfig.yaml 的 factor_dbs 节迁移到 QSGraphDB"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -166,7 +168,7 @@ def main():
     )
     parser.add_argument(
         "--config", type=str, default=None,
-        help="自定义 QSWebConfig.json 路径"
+        help="自定义 QSWebConfig.yaml 路径"
     )
     args = parser.parse_args()
 

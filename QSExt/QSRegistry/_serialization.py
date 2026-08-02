@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""计算图注册中心序列化/反序列化辅助函数"""
+"""
+计算图注册中心序列化/反序列化辅助函数
+
+.. deprecated::
+    算子相关的序列化/反序列化已迁移到 ``FactorOperator.serialize()`` /
+    ``FactorOperator.deserialize()``。
+    本模块保留 ``_sanitizeForJSON`` / ``_desanitizeFromJSON`` 等通用工具
+    以及 ``serializeFactorArgs`` (因子参数序列化) 等未迁移的函数。
+"""
 import json
 import datetime as dt
 import importlib
@@ -232,42 +240,3 @@ def serializeFactorArgs(factor) -> str:
     return json.dumps(_sanitizeForJSON(args_dict), ensure_ascii=False)
 
 
-def serializeOperatorArgs(operator) -> str:
-    """序列化算子的 ModelArgs 为 JSON 字符串
-
-    使用 ``_QSArgs.serialize()`` 对算子参数集进行序列化，从结果中提取
-    ``ModelArgs`` 字段。敏感字段自动加密。
-
-    Args:
-        operator: FactorOperator 实例
-
-    Returns:
-        JSON 字符串
-    """
-    serialized = operator._QSArgs.serialize()
-    model_args = serialized.get("ModelArgs", {})
-    return json.dumps(_sanitizeForJSON(model_args), ensure_ascii=False)
-
-
-def serializeOperatorCalculateRef(operator) -> tuple:
-    """判定算子的 CalculateRef 和 IsCustom
-
-    Args:
-        operator: FactorOperator 实例
-
-    Returns:
-        (calculate_ref_json: str | None, is_custom: bool)
-    """
-    calculate = getattr(operator, "calculate", None)
-    if calculate is None:
-        return (None, False)
-    # 检查是否为类方法（非自定义）
-    for cls in type(operator).__mro__:
-        if "calculate" in cls.__dict__:
-            # calculate 是类上定义的方法
-            if cls.__dict__["calculate"] is calculate:
-                return (None, False)
-            break
-    # 自定义算子
-    ref = _serializeCallable(calculate)
-    return (json.dumps(ref, ensure_ascii=False), True)

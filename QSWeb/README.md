@@ -213,28 +213,28 @@ npm run dev
 
 因子库连接配置存储在 **QSGraphDB（Neo4j 图数据库）** 的 `因子库` 节点中，以 FactorDB 实例自动生成的 **QSID** 作为唯一标识。
 
-> **注意**：`~/QuantStudioConfig/QSWebConfig.json` 的 `factor_dbs` 节已废弃。如从旧版本升级，请执行下方的迁移脚本。
+> **注意**：`~/QuantStudioConfig/QSWebConfig.yaml` 的 `factor_dbs` 节已废弃。如从旧版本升级，请执行下方的迁移脚本。
 
-### 从 QSWebConfig.json 迁移连接
+### 从 QSWebConfig 迁移连接
 
-如果之前使用 `QSWebConfig.json` 存储连接配置，请运行迁移脚本将已有连接写入 Neo4j 图数据库：
+如果之前使用 `QSWebConfig.yaml` 存储连接配置，请运行迁移脚本将已有连接写入 Neo4j 图数据库：
 
 ```bash
 # 预览将要迁移的连接（不实际写入）
 python -m QSWeb.scripts.migrate_connections --dry-run
 
-# 执行迁移（自动备份 QSWebConfig.json）
+# 执行迁移（自动备份 QSWebConfig.yaml）
 python -m QSWeb.scripts.migrate_connections
 ```
 
 迁移脚本的行为：
-- 遍历 `QSWebConfig.json` 中 `factor_dbs` 节的每条连接
+- 遍历 `QSWebConfig.yaml` 中 `factor_dbs` 节的每条连接
 - 根据 `db_type` 和 `args` 创建 FactorDB 实例并测试连接
 - 将连接元数据写入 Neo4j 的 `因子库` 节点（QSID 由 FactorDB 实例自动生成）
-- 迁移前自动备份 `QSWebConfig.json` 为 `QSWebConfig.json.bak.<时间戳>`
-- 迁移成功后自动删除 `QSWebConfig.json` 中的 `factor_dbs` 节
+- 迁移前自动备份 `QSWebConfig.yaml` 为 `QSWebConfig.yaml.bak.<时间戳>`
+- 迁移成功后自动删除 `QSWebConfig.yaml` 中的 `factor_dbs` 节
 
-**回滚**：如需回滚，恢复备份的 `QSWebConfig.json` 文件即可。代码回退到旧版本会重新从该文件读取连接。
+**回滚**：如需回滚，恢复备份的 `QSWebConfig.yaml` 文件即可。代码回退到旧版本会重新从该文件读取连接。
 
 ### 浏览因子数据
 

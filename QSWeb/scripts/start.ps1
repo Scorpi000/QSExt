@@ -45,9 +45,9 @@ $ErrorActionPreference = "Stop"
 # ============================================================
 
 # Python 解释器路径
-# $PythonExe = "$env:USERPROFILE\Project\PythonEnv\QS\Scripts\python.exe"
-$env:PYTHONPATH = "D:\HST\QSExt;D:\Project\QuantStudio;" + $env:PYTHONPATH
-$PythonExe = "D:\PythonEnv\QS312\Scripts\python.exe"
+$PythonExe = "$env:USERPROFILE\Project\PythonEnv\QSWeb\Scripts\python.exe"
+# $env:PYTHONPATH = "D:\HST\QSExt;D:\Project\QuantStudio;" + $env:PYTHONPATH
+# $PythonExe = "D:\PythonEnv\QS312\Scripts\python.exe"
 
 # 日志输出目录
 $LogDir = "$PSScriptRoot\..\logs"
