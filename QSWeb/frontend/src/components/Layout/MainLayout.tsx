@@ -139,8 +139,12 @@ function MainLayout() {
         theme="light"
         style={{ overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 100 }}
       >
-        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #f0f0f0' }}>
-          <h1 style={{ margin: 0, fontSize: collapsed ? 16 : 20 }}>{collapsed ? 'QSW' : 'QSWeb'}</h1>
+        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #f0f0f0', padding: '8px' }}>
+          {collapsed ? (
+            <img src="/QSIcon.jpg" alt="QS" style={{ width: 64, height: 64, borderRadius: 4 }} />
+          ) : (
+            <img src="/QSLogo.jpg" alt="QSWeb" style={{ maxWidth: '100%', maxHeight: 96, objectFit: 'contain' }} />
+          )}
         </div>
         <Menu mode="inline" selectedKeys={[location.pathname]} items={menuItems} onClick={handleMenuClick} style={{ borderRight: 0 }} />
       </Sider>

@@ -181,24 +181,28 @@ class MiningService:
             for key, info in BACKTEST_MODULE_REGISTRY.items()
             if info.get("category") == "SectionFactor"
         ]
+
+        mining_cfg = settings.mining
+        frameworks_cfg = mining_cfg.get("frameworks", {})
+        gp_cfg = frameworks_cfg.get("gp", {})
         return {
             "operators": list(_DEFAULT_OPERATORS.keys()),
             "default_params": {
-                "population_size": 1000,
-                "n_generations": 20,
-                "tournament_size": 20,
-                "init_depth": [2, 6],
-                "init_method": "half and half",
-                "const_range": [-1.0, 1.0],
-                "p_crossover": 0.9,
-                "p_subtree_mutation": 0.01,
-                "p_hoist_mutation": 0.01,
-                "p_point_mutation": 0.01,
-                "p_point_replace": 0.05,
-                "parsimony_coefficient": 0.0,
+                "population_size": gp_cfg.get("population_size", 20),
+                "n_generations": gp_cfg.get("n_generations", 20),
+                "tournament_size": gp_cfg.get("tournament_size", 20),
+                "init_depth": gp_cfg.get("init_depth", [2, 6]),
+                "init_method": gp_cfg.get("init_method", "half and half"),
+                "const_range": gp_cfg.get("const_range", [-1.0, 1.0]),
+                "p_crossover": gp_cfg.get("p_crossover", 0.9),
+                "p_subtree_mutation": gp_cfg.get("p_subtree_mutation", 0.01),
+                "p_hoist_mutation": gp_cfg.get("p_hoist_mutation", 0.01),
+                "p_point_mutation": gp_cfg.get("p_point_mutation", 0.01),
+                "p_point_replace": gp_cfg.get("p_point_replace", 0.05),
+                "parsimony_coefficient": gp_cfg.get("parsimony_coefficient", 0.0),
             },
             "eval_modules": section_factor_modules,
-            "default_eval": settings.mining.get("default_eval", {
+            "default_eval": gp_cfg.get("default_eval", {
                 "modules": [
                     {"module": "ic", "instance_label": "", "params": {}, "section_mode": "auto"}
                 ],
@@ -280,6 +284,13 @@ class MiningService:
         task_json = self._read_json(os.path.join(self._task_dir(task_id), "task.json"))
         if not task_json:
             return None
+        # 读取最新 run 的配置，用于前端还原表单
+        runs = task_json.get("runs", [])
+        config = None
+        if runs:
+            latest_run_id = runs[-1].get("run_id", "")
+            config = self._read_json(os.path.join(self._run_dir(task_id, latest_run_id), "config.json"))
+        task_json["config"] = config
         return MiningTask(**task_json)
 
     def delete_task(self, task_id: str):
@@ -458,16 +469,19 @@ class MiningService:
             pn_structure = _pn_expr_to_structure(expr, config)
             hall_of_fame.append({
                 "rank": i + 1,
-                "fitness": float(fit),
+                "fitness": float(fit) if not (isinstance(fit, float) and np.isnan(fit)) else 0.0,
                 "expression": toExprStr(expr[0]),
                 "pn_structure": pn_structure,
             })
             hof_factors.append(expr[0])
 
-        gen_best = [float(arr.max()) for arr in fitness_history]
-        gen_avg = [float(arr.mean()) for arr in fitness_history]
+        gen_best = [float(arr.max()) if not np.all(np.isnan(arr)) else 0.0 for arr in fitness_history]
+        gen_avg = [float(arr.mean()) if not np.all(np.isnan(arr)) else 0.0 for arr in fitness_history]
         final_population = populations[-1] if populations else []
         final_fitness = fitness_history[-1] if fitness_history else np.array([])
+        final_fitness_list = []
+        for v in final_fitness.tolist():
+            final_fitness_list.append(float(v) if not (isinstance(v, float) and np.isnan(v)) else 0.0)
 
         return {
             "run_id": run_id,
@@ -476,13 +490,12 @@ class MiningService:
             "gen_start": gen_start,
             "gen_end": gen_start + len(fitness_history),
             "_final_population": final_population,
-            "_final_fitness": final_fitness.tolist(),
+            "_final_fitness": final_fitness_list,
             "_hof_factors": hof_factors,
         }
 
     def _resolve_terminals_sync(self, terminal_refs: List) -> List:
-        """同步解析终端因子为 DataFactor 对象列表，去重"""
-        from QuantStudio.Factor.Factor import DataFactor
+        """同步解析终端因子为 Factor 对象列表，去重"""
         terminals = []
         seen_keys = set()
         for ref in terminal_refs:
@@ -502,17 +515,15 @@ class MiningService:
             if key in seen_keys:
                 continue
             seen_keys.add(key)
-            if conn_id and table_name and factor_name and self._factor_service:
-                try:
-                    db = self._factor_service._reconstruct_db_sync(conn_id)
-                    ft = db.getTable(table_name)
-                    factor = ft.getFactor(factor_name)
-                    terminals.append(factor)
-                except Exception as e:
-                    logger.warning(f"获取终端因子失败 {key}: {e}")
-                    terminals.append(DataFactor(data=factor_name, args={"Name": factor_name}))
-            else:
-                terminals.append(DataFactor(data=factor_name, args={"Name": factor_name}))
+            if not (conn_id and table_name and factor_name and self._factor_service):
+                raise ValueError(f"终端因子参数不完整: {key}")
+            try:
+                db = self._factor_service._reconstruct_db_sync(conn_id)
+                ft = db.getTable(table_name)
+                factor = ft.getFactor(factor_name)
+                terminals.append(factor)
+            except Exception as e:
+                raise ValueError(f"获取终端因子失败 {key}: {e}") from e
         return terminals
 
     def _resolve_seed_factors_sync(self, seed_refs: List, terminals: List) -> List:
@@ -688,14 +699,18 @@ class MiningService:
         """构建适应度函数。
 
         统一批量评估：所有候选因子一次 Engine.run() 完成。
-        价格因子逐模块独立解析。
+        使用 FeatherFactorCache 跨代缓存因子数据。
         """
+        from QuantStudio.Core.CalcEngine import Engine
+        from QuantStudio.Core.Node import DTInitData, DTLocalContext
+        from QuantStudio.Factor.Factor import FactorContext
+        from QuantStudio.Factor.FactorCache import FeatherFactorCache
+
         transform_fn = self._resolve_transform(eval_config.transform)
         if not eval_config.modules:
             raise ValueError("至少需要一个评估模块")
         mod_cfg = eval_config.modules[0]
 
-        # 解析逐模块价格因子
         price_factor = self._resolve_price_sync(
             getattr(mod_cfg, "price_ref", None)
         )
@@ -703,44 +718,12 @@ class MiningService:
         if builder.get("requires_price") and price_factor is None:
             raise ValueError(f"评估模块 '{mod_cfg.module}' 需要价格因子，请在模块配置中指定")
 
-        def fitness_fun(factors: List) -> np.ndarray:
-            if not factors:
-                return np.array([])
-            try:
-                output = self._run_eval(factors, mod_cfg, price_factor, dtruler, dts, section_ids)
-                result = transform_fn(output)
-                # 确保返回的 fitness 数组长度与因子数一致
-                if len(result) != len(factors):
-                    logger.warning(
-                        f"适应度数组长度({len(result)})与因子数({len(factors)})不一致，补齐 NaN"
-                    )
-                    padded = np.full(len(factors), np.nan)
-                    padded[:len(result)] = result
-                    return padded
-                return result
-            except Exception as e:
-                logger.warning(f"批量评估失败: {e}，返回全 NaN")
-                return np.full(len(factors), np.nan)
-
-        return fitness_fun, eval_config.sign
-
-    def _run_eval(self, factors: List, mod_cfg, price_factor,
-                    dtruler: List, dts: List, section_ids: List) -> dict:
-        """运行一次批量评估，返回回测输出 dict。"""
-        from QuantStudio.Core.CalcEngine import Engine
-        from QuantStudio.Core.Node import DTInitData, DTLocalContext
-        from QuantStudio.Factor.Factor import FactorContext
-        from QuantStudio.BackTest.BackTestModel import BTReport
-
-        builder = _BT_NODE_BUILDERS.get(mod_cfg.module)
-        if builder is None:
-            raise ValueError(f"未知的回测模块: {mod_cfg.module}")
         calc_mod = importlib.import_module(builder["calc_module"])
         calc_cls = getattr(calc_mod, builder["calc_class"])
         node_mod = importlib.import_module(builder["node_module"])
         node_cls = getattr(node_mod, builder["node_class"])
 
-        calc_kwargs = {"descriptor_ids": None}
+        calc_kwargs = {"descriptor_ids": section_ids}
         for pname in builder.get("calc_params", []):
             if pname in mod_cfg.params:
                 calc_kwargs[pname] = mod_cfg.params[pname]
@@ -750,19 +733,50 @@ class MiningService:
             if param_key in mod_cfg.params:
                 node_params[node_key] = mod_cfg.params[param_key]
 
-        calc_factor = calc_cls(**calc_kwargs)(*factors, price=price_factor, factor_args={})
-        bt_node = node_cls(calc_factor, args=node_params)
-        report = BTReport(bt_node_list=[bt_node])
-        context = FactorContext(PID="0", PIDList=["0"], DTRuler=dtruler, SectionIDs=section_ids)
+        cache_dir = os.path.join(self.workspace, "eval_cache")
+        os.makedirs(cache_dir, exist_ok=True)
         start_dt = dts[0] if dts else dt.datetime(2000, 1, 1)
         end_dt = dts[-1] if dts else dt.datetime.now()
-        with Engine() as exec_engine:
-            output, = exec_engine.run(
-                [report], context,
-                fwd_data_list=[DTLocalContext(DTs=dts)],
-                init_data_list=[DTInitData(DTRange=(start_dt, end_dt))],
-            )
-        return output
+
+        cache = FeatherFactorCache(args={
+            "DTRuler": dtruler,
+            "PIDs": ["0"],
+            "CacheDir": cache_dir,
+            "StartMode": "new",
+        })
+        cache.start()
+        context = FactorContext(
+            PID="0", PIDList=["0"], DTRuler=dtruler,
+            SectionIDs=section_ids, DataCache=cache,
+        )
+
+        def fitness_fun(factors: List) -> np.ndarray:
+            if not factors:
+                return np.array([])
+            try:
+                calc_factor = calc_cls(**calc_kwargs)(*factors, price=price_factor, factor_args={})
+                bt_node = node_cls(calc_factor, args=node_params)
+                with Engine() as exec_engine:
+                    output, = exec_engine.run(
+                        [bt_node], context,
+                        fwd_data_list=[DTLocalContext(DTs=dts)],
+                        init_data_list=[DTInitData(DTRange=(start_dt, end_dt))],
+                    )
+                result = transform_fn(output)
+                if len(result) != len(factors):
+                    logger.warning(
+                        f"适应度数组长度({len(result)})与因子数({len(factors)})不一致，补齐 NaN"
+                    )
+                    padded = np.full(len(factors), np.nan)
+                    padded[:len(result)] = result
+                    return padded
+                return result
+            except Exception as e:
+                import traceback
+                logger.warning(f"批量评估失败: {e}\n{traceback.format_exc()}")
+                return np.full(len(factors), np.nan)
+
+        return fitness_fun, eval_config.sign
 
     def _resolve_transform(self, transform_spec: str) -> Callable:
         if transform_spec in _BUILTIN_TRANSFORMS:

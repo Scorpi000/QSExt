@@ -89,6 +89,7 @@ export interface MiningTask {
   framework: string
   runs: RunSummary[]
   created_at: string
+  config: GPRunConfig | null
 }
 
 export interface HallOfFameEntry {

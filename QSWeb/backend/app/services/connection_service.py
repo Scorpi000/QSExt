@@ -37,8 +37,11 @@ class ConnectionService:
 
     # ─── FactorDB 工厂 ────────────────────────────────────────────
 
-    def _create_fdb_sync(self, db_type: str, args: dict):
+    def _create_fdb_sync(self, db_type: str, args: dict, name: str = ""):
         """根据 db_type + args 创建并连接 FactorDB 实例"""
+        # Name 在 __QS_ArgClass__ 中是 frozen 字段，必须在构造时传入
+        if name:
+            args = {**args, "Name": name}
         if db_type == "HDF5DB":
             from QuantStudio.Factor.HDF5DB import HDF5DB
             db = HDF5DB(args=args)
@@ -72,7 +75,7 @@ class ConnectionService:
         """异步创建并连接 FactorDB 实例"""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, self._create_fdb_sync, req.db_type, req.args
+            None, self._create_fdb_sync, req.db_type, req.args, req.name
         )
 
     # ─── 连接 CRUD ─────────────────────────────────────────────────
@@ -131,8 +134,7 @@ class ConnectionService:
                 f"请勿重复创建"
             )
 
-        # 设置 Name 和 Description（用户给定的名称覆盖 fdb 默认名）
-        fdb._QSArgs.Name = req.name
+        # 设置 Description（Name 已在构造时传入，为 frozen 字段不可事后赋值）
         if req.description:
             if hasattr(fdb._QSArgs, "Description"):
                 fdb._QSArgs.Description = req.description
@@ -166,7 +168,7 @@ class ConnectionService:
         new_db_type = existing.get("DBType", "")
         new_description = req.description if req.description is not None else existing.get("Description")
 
-        # 用新参数构造 FactorDB 实例
+        # 用新参数构造 FactorDB 实例（Name 在构造时传入）
         create_req = ConnectionCreate(
             name=new_name,
             db_type=new_db_type,
@@ -178,7 +180,6 @@ class ConnectionService:
 
         if new_qsid == qsid:
             # QSID 不变：直接更新节点属性
-            fdb._QSArgs.Name = new_name
             if new_description and hasattr(fdb._QSArgs, "Description"):
                 fdb._QSArgs.Description = new_description
             self.gdb.registerFactorDB(fdb)
@@ -227,9 +228,8 @@ class ConnectionService:
         create_req = ConnectionCreate(
             name=name, db_type=db_type, description=description, args=args
         )
-        # 同步创建 FactorDB
-        fdb = self._create_fdb_sync(db_type, args)
-        fdb._QSArgs.Name = name
+        # 同步创建 FactorDB（Name 在构造时传入）
+        fdb = self._create_fdb_sync(db_type, args, name=name)
         if description and hasattr(fdb._QSArgs, "Description"):
             fdb._QSArgs.Description = description
         self.gdb.registerFactorDB(fdb)

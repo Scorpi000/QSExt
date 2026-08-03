@@ -192,8 +192,10 @@ class Settings:
             with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             user_mining = config.get("mining", {})
-            result = {"workspace": user_mining.get("workspace", defaults["workspace"])}
-            # 透传 default_eval（如果在 YAML 中配置了）
+            result = {
+                "workspace": user_mining.get("workspace", defaults["workspace"]),
+                "frameworks": user_mining.get("frameworks", defaults["frameworks"]),
+            }
             if "default_eval" in user_mining:
                 result["default_eval"] = user_mining["default_eval"]
             return result

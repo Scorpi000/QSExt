@@ -243,26 +243,6 @@ function MiningStudio() {
     loadTasks()
   }, [loadTasks])
 
-  // 选择任务
-  const handleSelectTask = useCallback(async (taskId: string) => {
-    setTaskLoading(true)
-    try {
-      const task = await getTask(taskId) as unknown as MiningTask
-      setActiveTask(task)
-
-      // 默认选择最新完成的 run
-      const completedRuns = (task.runs || []).filter((r) => r.status === 'completed')
-      if (completedRuns.length > 0) {
-        setActiveRunId(completedRuns[completedRuns.length - 1].run_id)
-        loadRunResult(taskId, completedRuns[completedRuns.length - 1].run_id)
-      }
-    } catch {
-      message.error('加载任务失败')
-    } finally {
-      setTaskLoading(false)
-    }
-  }, [])
-
   // 加载 run 结果
   const loadRunResult = useCallback(async (taskId: string, runId: string) => {
     setResultLoading(true)
@@ -275,6 +255,106 @@ function MiningStudio() {
       setResultLoading(false)
     }
   }, [])
+
+  // 加载框架配置（schema，不覆盖表单已有值）
+  const loadFrameworkConfig = useCallback(async (key: string) => {
+    try {
+      const config = await getFrameworkConfig(key) as unknown as Record<string, any>
+      setFrameworkConfig(config)
+      if (!form.getFieldValue('operators')?.length) {
+        form.setFieldsValue({
+          operators: config.operators || [],
+          ...config.default_params,
+        })
+      }
+    } catch {
+      // 静默
+    }
+  }, [form])
+
+  // 选择任务
+  const handleSelectTask = useCallback(async (taskId: string) => {
+    setTaskLoading(true)
+    try {
+      const task = await getTask(taskId) as unknown as MiningTask
+      setActiveTask(task)
+
+      // 默认选择最新完成的 run
+      const completedRuns = (task.runs || []).filter((r) => r.status === 'completed')
+      if (completedRuns.length > 0) {
+        setActiveRunId(completedRuns[completedRuns.length - 1].run_id)
+        loadRunResult(taskId, completedRuns[completedRuns.length - 1].run_id)
+      } else {
+        setRunResult(null)
+      }
+
+      // 还原配置到表单
+      const cfg = task.config
+      if (cfg) {
+        await loadFrameworkConfig(task.framework)
+        // 还原终端因子的级联选择器：取第一个终端因子的 conn/table
+        if (cfg.terminal_factors?.length) {
+          const first = cfg.terminal_factors[0]
+          if (first.conn_id) {
+            setTerminalConnId(first.conn_id)
+            try {
+              const tables = await getTables(first.conn_id) as unknown as { name: string }[]
+              setTerminalTables(tables)
+              if (first.table_name) {
+                setTerminalTable(first.table_name)
+                try {
+                  const factors = await getFactors(first.conn_id, first.table_name) as unknown as FactorInfo[]
+                  setTerminalFactors(factors)
+                } catch { /* 静默 */ }
+              }
+            } catch { /* 静默 */ }
+          }
+        }
+        form.setFieldsValue({
+          framework: task.framework,
+          operators: cfg.operators || [],
+          terminal_factors: cfg.terminal_factors || [],
+          seed_factors: (cfg.seed_factors || []).map((sf: any) => {
+            const key = `${sf.conn_id}/${sf.table_name}/${sf.factor_name}`
+            const existing = poolItems.find((p: any) => p.id === key)
+            if (existing) return key
+            return undefined
+          }).filter(Boolean),
+          population_size: cfg.population_size,
+          n_generations: cfg.n_generations,
+          tournament_size: cfg.tournament_size,
+          init_depth: cfg.init_depth ?? [2, 6],
+          init_method: cfg.init_method ?? 'half and half',
+          const_range: cfg.const_range ?? null,
+          p_crossover: cfg.p_crossover,
+          p_subtree_mutation: cfg.p_subtree_mutation,
+          p_hoist_mutation: cfg.p_hoist_mutation,
+          p_point_mutation: cfg.p_point_mutation,
+          p_point_replace: cfg.p_point_replace,
+          parsimony_coefficient: cfg.parsimony_coefficient,
+        })
+        if (cfg.start_date) {
+          setDateRange([dayjs(cfg.start_date), dayjs(cfg.end_date)])
+        }
+        if (cfg.dt_mode) {
+          setDtMode(cfg.dt_mode as 'natural' | 'trading')
+        }
+        if (cfg.eval) {
+          setEvalConfig({
+            modules: cfg.eval.modules || [],
+            transform: cfg.eval.transform || 'abs_ic_ir',
+            sign: cfg.eval.sign || 'greater',
+          })
+        }
+      } else {
+        await loadFrameworkConfig(task.framework)
+      }
+    } catch {
+      message.error('加载任务失败')
+    } finally {
+      setTaskLoading(false)
+    }
+  }, [poolItems, form, loadRunResult, loadFrameworkConfig])
 
   // 加载因子树
   const handleViewFactorTree = useCallback(async (index: number) => {
@@ -321,7 +401,7 @@ function MiningStudio() {
     }
   }, [activeTask, setTreeNodes, setTreeEdges])
 
-  // 加载框架配置
+  // 加载框架配置（触发默认值覆盖）
   const handleFrameworkChange = useCallback(async (key: string) => {
     try {
       const config = await getFrameworkConfig(key) as unknown as Record<string, any>
@@ -330,7 +410,6 @@ function MiningStudio() {
         operators: config.operators || [],
         ...config.default_params,
       })
-      // 设置默认评估配置
       setEvalConfig({
         modules: config.default_eval?.modules || [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
         transform: config.default_eval?.transform || 'abs_ic_ir',
@@ -392,7 +471,7 @@ function MiningStudio() {
         operators: values.operators || [],
         terminal_factors: values.terminal_factors || [],
         seed_factors: seedFactors,
-        population_size: values.population_size ?? 1000,
+        population_size: values.population_size ?? 20,
         n_generations: values.n_generations ?? 20,
         tournament_size: values.tournament_size ?? 20,
         init_depth: values.init_depth ?? [2, 6],
@@ -593,17 +672,17 @@ function MiningStudio() {
                   initialValues={{
                     framework: 'gp',
                     init_method: 'half and half',
-                    population_size: 1000,
-                    n_generations: 20,
-                    tournament_size: 20,
-                    init_depth: [2, 6],
-                    const_range: [-1.0, 1.0],
-                    p_crossover: 0.9,
-                    p_subtree_mutation: 0.01,
-                    p_hoist_mutation: 0.01,
-                    p_point_mutation: 0.01,
-                    p_point_replace: 0.05,
-                    parsimony_coefficient: 0.0,
+                    population_size: frameworkConfig?.default_params?.population_size ?? 20,
+                    n_generations: frameworkConfig?.default_params?.n_generations ?? 20,
+                    tournament_size: frameworkConfig?.default_params?.tournament_size ?? 20,
+                    init_depth: frameworkConfig?.default_params?.init_depth ?? [2, 6],
+                    const_range: frameworkConfig?.default_params?.const_range ?? [-1.0, 1.0],
+                    p_crossover: frameworkConfig?.default_params?.p_crossover ?? 0.9,
+                    p_subtree_mutation: frameworkConfig?.default_params?.p_subtree_mutation ?? 0.01,
+                    p_hoist_mutation: frameworkConfig?.default_params?.p_hoist_mutation ?? 0.01,
+                    p_point_mutation: frameworkConfig?.default_params?.p_point_mutation ?? 0.01,
+                    p_point_replace: frameworkConfig?.default_params?.p_point_replace ?? 0.05,
+                    parsimony_coefficient: frameworkConfig?.default_params?.parsimony_coefficient ?? 0.0,
                   }}
                 >
                   <Form.Item label="任务名称" name="task_name" hidden={!!activeTask && !isContinue}>

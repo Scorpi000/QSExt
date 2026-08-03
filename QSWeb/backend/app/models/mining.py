@@ -115,6 +115,7 @@ class MiningTask(BaseModel):
     framework: str = Field(..., description="挖掘框架标识")
     runs: List[RunSummary] = Field(default_factory=list, description="运行历史")
     created_at: str = Field(default="", description="创建时间")
+    config: Optional[Dict[str, Any]] = Field(None, description="最新运行配置（用于还原表单）")
 
 
 # ─── 结果模型 ────────────────────────────────────────────────
