@@ -91,22 +91,30 @@ class JsonFileSessionStore(SessionStore):
 
     async def list_sessions(self) -> list:
         """列出所有会话（按 updated_at 降序）"""
-        entries = await self._read_index()
-        entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
-        return entries
+        try:
+            entries = await self._read_index()
+            entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
+            return entries
+        except Exception:
+            logger.exception("list_sessions 失败")
+            return []
 
     async def get_session(self, session_id: str) -> Optional[dict]:
         """获取单个会话的完整数据"""
         session_path = self._session_path(session_id)
-        lock = await self._get_lock(session_id)
-        async with lock:
-            if not os.path.exists(session_path):
-                return None
-            try:
-                with open(session_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                return None
+        try:
+            lock = await self._get_lock(session_id)
+            async with lock:
+                if not os.path.exists(session_path):
+                    return None
+                try:
+                    with open(session_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    return None
+        except Exception:
+            logger.exception("get_session(%s) 失败", session_id)
+            return None
 
     async def save_message(
         self, session_id: str, message: dict, context: str = "general"
@@ -214,6 +222,9 @@ class JsonFileSessionStore(SessionStore):
             logger.error("_read_index 获取 _global_lock 超时")
             if os.path.exists(self._index_path):
                 return self._read_index_nolock()
+            return []
+        except Exception:
+            logger.exception("_read_index 读取索引失败")
             return []
 
     async def _safe_upsert_index(
@@ -324,8 +335,42 @@ _session_store: Optional[SessionStore] = None
 
 
 def get_session_store() -> SessionStore:
-    """获取 SessionStore 单例"""
+    """获取 SessionStore 单例（创建失败时抛明确异常）"""
     global _session_store
     if _session_store is None:
-        _session_store = JsonFileSessionStore()
+        try:
+            _session_store = JsonFileSessionStore()
+        except Exception:
+            logger.exception("创建 JsonFileSessionStore 失败")
+            # 创建内存回退：即使持久化存储不可用，也能正常返回空列表
+            _session_store = _MemorySessionStore()
     return _session_store
+
+
+class _MemorySessionStore(SessionStore):
+    """内存回退存储：当文件系统不可用时使用，数据不持久化"""
+
+    def __init__(self):
+        self._sessions: dict = {}
+        logger.warning("使用内存会话存储（数据不会持久化）")
+
+    async def list_sessions(self) -> list:
+        return list(self._sessions.values())
+
+    async def get_session(self, session_id: str) -> Optional[dict]:
+        return self._sessions.get(session_id)
+
+    async def save_message(self, session_id: str, message: dict, context: str = "general") -> None:
+        if session_id not in self._sessions:
+            self._sessions[session_id] = {
+                "id": session_id, "context": context,
+                "messages": [], "created_at": "", "updated_at": "",
+            }
+        self._sessions[session_id]["messages"].append(message)
+
+    async def delete_session(self, session_id: str) -> bool:
+        return self._sessions.pop(session_id, None) is not None
+
+    async def update_title(self, session_id: str, title: str) -> None:
+        if session_id in self._sessions:
+            self._sessions[session_id]["title"] = title

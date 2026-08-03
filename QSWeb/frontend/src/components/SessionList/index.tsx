@@ -31,7 +31,14 @@ function SessionList({ onSelect, activeSessionId, refreshKey }: SessionListProps
       const data = await listSessions()
       setSessions(data)
     } catch {
-      message.error('加载会话列表失败')
+      // 首次加载失败可能是后端未就绪，延迟重试一次
+      await new Promise((r) => setTimeout(r, 1500))
+      try {
+        const data = await listSessions()
+        setSessions(data)
+      } catch {
+        message.error('加载会话列表失败')
+      }
     } finally {
       setLoading(false)
     }

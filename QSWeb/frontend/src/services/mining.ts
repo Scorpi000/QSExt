@@ -20,7 +20,12 @@ export interface PriceRef {
 
 export interface EvalModuleConfig {
   module: string
+  instance_label?: string
   params: Record<string, any>
+  price_ref?: PriceRef | null
+  section_mode?: 'auto' | 'source' | 'custom'
+  section_source?: string | null
+  section_ids?: string[] | null
 }
 
 export interface EvalConfig {
@@ -45,7 +50,9 @@ export interface GPRunConfig {
   p_point_mutation: number
   p_point_replace: number
   parsimony_coefficient: number
-  price_ref?: PriceRef | null
+  start_date?: string | null
+  end_date?: string | null
+  dt_mode?: 'natural' | 'trading'
   section_id_source?: string
   descriptor_ids?: string[]
   eval: EvalConfig
@@ -73,6 +80,7 @@ export interface RunSummary {
   n_generations: number
   started_at: string | null
   completed_at: string | null
+  error?: string | null
 }
 
 export interface MiningTask {

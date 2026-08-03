@@ -281,10 +281,16 @@ class AiService:
         if isinstance(msg, dict) and "type" in msg:
             return msg
         if isinstance(msg, SystemMessage):
-            return {
-                "type": "system",
-                "data": {"content": getattr(msg, "content", str(msg))},
-            }
+            if msg.subtype == "init":
+                return {
+                    "type": "init",
+                    "data": {
+                        "session_id": msg.data.get("session_id", ""),
+                        "slash_commands": msg.data.get("slash_commands", []),
+                        "model": msg.data.get("model", ""),
+                    },
+                }
+            return None  # 隐藏其他系统消息（thinking_tokens 等）
         elif isinstance(msg, AssistantMessage):
             content_blocks = getattr(msg, "content", [])
             blocks = []

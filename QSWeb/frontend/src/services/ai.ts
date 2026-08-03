@@ -12,6 +12,7 @@
 
 export type AiMessageType =
   | 'system'
+  | 'init'
   | 'assistant'
   | 'user'
   | 'tool_use'

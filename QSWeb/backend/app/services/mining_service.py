@@ -62,16 +62,6 @@ _BT_NODE_BUILDERS = {
         "calc_params": ["lookback", "period_lookback", "corr_method"],
         "default_node_params": {"GenReport": False},
     },
-    "multi_portfolio": {
-        "calc_module": "QuantStudio.BackTest.SectionFactor.QuantilePortfolio",
-        "calc_class": "makeQuantilePortfolio",
-        "node_module": "QuantStudio.BackTest.SectionFactor.QuantilePortfolio",
-        "node_class": "MultiPortfolio",
-        "requires_price": False,
-        "calc_params": ["group_num", "ascending"],
-        "portfolios_mode": True,
-        "default_node_params": {"GenReport": False},
-    },
     "factor_turnover": {
         "calc_module": "QuantStudio.BackTest.SectionFactor.Correlation",
         "calc_class": "CalcFactorTurnover",
@@ -102,13 +92,27 @@ _BT_NODE_BUILDERS = {
     },
 }
 
-# 内置 transform 函数
+def _transform_abs_ic_ir(output: dict, n_factors: int = None) -> "np.ndarray":
+    """取 IC 分析的 IC_IR 绝对值（批量模式）。
+
+    output["统计数据"] 是 DataFrame，index=因子名, columns=[IC_IR, ...]，
+    每行一个候选因子的统计结果。返回 shape=(n_factors,) 的 fitness 数组。
+    """
+    import pandas as pd
+
+    stats = output.get("统计数据", output) if isinstance(output, dict) else output
+    if isinstance(stats, pd.DataFrame) and "IC_IR" in stats.columns:
+        ic_ir = pd.to_numeric(stats["IC_IR"], errors="coerce").fillna(0.0).values
+        return np.abs(ic_ir)
+
+    if isinstance(stats, dict):
+        val = stats.get("IC_IR", 0.0)
+        return np.full(n_factors or 1, float(abs(val)))
+
+    raise ValueError(f"无法从输出中提取 IC_IR，统计数据格式不符合预期: {type(stats)}")
+
 _BUILTIN_TRANSFORMS = {
-    "abs": abs,
-    "neg": lambda x: -x,
-    "square": lambda x: x * x,
-    "sqrt": lambda x: x ** 0.5,
-    "identity": lambda x: x,
+    "abs_ic_ir": _transform_abs_ic_ir,
 }
 
 # 默认可用算子 → QuantStudio 算子对象映射
@@ -117,13 +121,18 @@ _DEFAULT_OPERATORS = {
     "sub": ("QuantStudio.Factor.BasicOperator", "sub"),
     "mul": ("QuantStudio.Factor.BasicOperator", "mul"),
     "div": ("QuantStudio.Factor.BasicOperator", "div"),
-    "abs": ("QuantStudio.Factor.BasicOperator", "abs"),
+    "qs_abs": ("QuantStudio.Factor.BasicOperator", "qs_abs"),
     "neg": ("QuantStudio.Factor.BasicOperator", "neg"),
-    "sign": ("QuantStudio.Factor.BasicOperator", "sign"),
-    "log": ("QuantStudio.Factor.BasicOperator", "log"),
-    "power": ("QuantStudio.Factor.BasicOperator", "power"),
-    "sqrt": ("QuantStudio.Factor.BasicOperator", "sqrt"),
 }
+
+
+# ─── 工具函数 ──────────────────────────────────────────────────
+
+def _parse_dt(date_str):
+    """解析日期字符串为 datetime"""
+    if isinstance(date_str, dt.datetime):
+        return date_str
+    return dt.datetime.strptime(date_str, "%Y-%m-%d")
 
 
 # ─── 挖掘框架注册表 ───────────────────────────────────────────────
@@ -141,10 +150,6 @@ class MiningService:
     def workspace(self) -> str:
         return settings.mining.get("workspace", os.path.expanduser("~/MiningWorkspace"))
 
-    @property
-    def frameworks_config(self) -> dict:
-        return settings.mining.get("frameworks", {})
-
     # ─── 框架 ────────────────────────────────────────────────────
 
     def list_frameworks(self) -> List[FrameworkInfo]:
@@ -155,14 +160,6 @@ class MiningService:
             description="基于遗传编程的因子表达式自动发现",
             config_schema=self._gp_config_schema(),
         ))
-        for key, cfg in self.frameworks_config.items():
-            if key != "gp":
-                frameworks.append(FrameworkInfo(
-                    key=key,
-                    name=cfg.get("name", key),
-                    description=cfg.get("description", ""),
-                    config_schema=cfg,
-                ))
         return frameworks
 
     def get_framework_config(self, name: str) -> dict:
@@ -174,6 +171,16 @@ class MiningService:
         return cfg
 
     def _gp_config_schema(self) -> dict:
+        from app.models.backtest import BACKTEST_MODULE_REGISTRY
+
+        section_factor_modules = [
+            {"key": key, "name": info["name"], "description": info["description"],
+             "params": info.get("params", []),
+             "requires_price": info.get("requires_price", False),
+             "requires_descriptor_ids": info.get("requires_descriptor_ids", True)}
+            for key, info in BACKTEST_MODULE_REGISTRY.items()
+            if info.get("category") == "SectionFactor"
+        ]
         return {
             "operators": list(_DEFAULT_OPERATORS.keys()),
             "default_params": {
@@ -190,7 +197,14 @@ class MiningService:
                 "p_point_replace": 0.05,
                 "parsimony_coefficient": 0.0,
             },
-            "eval_modules": ["ic", "ic_decay", "multi_portfolio", "factor_turnover", "section_correlation", "fama_macbeth"],
+            "eval_modules": section_factor_modules,
+            "default_eval": settings.mining.get("default_eval", {
+                "modules": [
+                    {"module": "ic", "instance_label": "", "params": {}, "section_mode": "auto"}
+                ],
+                "transform": "abs_ic_ir",
+                "sign": "greater",
+            }),
         }
 
     def _resolve_operators(self, operator_names: List[str]) -> List:
@@ -367,7 +381,7 @@ class MiningService:
             logger.exception(f"GP 挖掘失败: {e}")
             status = {"status": "failed", "error": str(e), "completed_at": dt.datetime.now().isoformat()}
             self._write_json(os.path.join(run_dir, "status.json"), status)
-            self._update_run_in_task(task_id, run_id, "failed")
+            self._update_run_in_task(task_id, run_id, "failed", str(e))
             raise
 
     def _run_gp_sync(
@@ -387,6 +401,12 @@ class MiningService:
         if not terminal_factors:
             raise ValueError("至少需要一个终端因子（或种子因子）")
 
+        dtruler, dts, section_ids = self._get_eval_context_sync(
+            terminal_factors, config
+        )
+        if not dtruler or not section_ids:
+            raise ValueError("无法从终端因子获取时点标尺或截面ID，请检查因子数据")
+
         gp_config = GPConfig(
             population_size=config.population_size,
             tournament_size=config.tournament_size,
@@ -401,7 +421,9 @@ class MiningService:
             parsimony_coefficient=config.parsimony_coefficient,
         )
 
-        fitness_fun, _eval_sign = self._build_fitness_fun_sync(config.eval, config.price_ref)
+        fitness_fun, _eval_sign = self._build_fitness_fun_sync(
+            config.eval, dtruler, dts, section_ids,
+        )
 
         learner = GPLearner(
             operator_list=operators,
@@ -555,45 +577,156 @@ class MiningService:
 
         return terminals
 
+    # ─── 评估上下文 ─────────────────────────────────────────────
+
+    def _get_eval_context_sync(
+        self, terminal_factors: List, config: "GPRunConfig"
+    ) -> Tuple[List, List, List]:
+        """从终端因子获取 DTRuler / DTs / SectionIDs
+
+        参照 qs_bridge._get_dtruler_and_dts 的实现方式：
+        - 日期范围优先使用配置中的 start_date/end_date，否则取最近 3 年
+        - DTRuler 根据 dtruler_lookback_years 前推起始时间
+        - 时点模式 dt_mode 决定使用交易日还是自然日
+        """
+        bt_cfg = self._load_backtest_config()
+        lookback_years = bt_cfg.get("dtruler_lookback_years", 10)
+
+        # 确定评估日期范围
+        start_date = getattr(config, "start_date", None) or None
+        end_date = getattr(config, "end_date", None) or None
+        dt_mode = getattr(config, "dt_mode", None) or "natural"
+
+        for tf in terminal_factors:
+            ft = getattr(tf, "_FactorTable", None)
+            if ft is None:
+                continue
+            try:
+                all_dts = sorted(ft.getDateTime(ifactor_name=tf.Name))
+                if not all_dts:
+                    continue
+
+                if start_date and end_date:
+                    start_dt = _parse_dt(start_date)
+                    end_dt = _parse_dt(end_date)
+                else:
+                    start_dt = all_dts[-1] - dt.timedelta(days=365 * 3)
+                    end_dt = all_dts[-1]
+
+                ruler_start = start_dt - dt.timedelta(days=365 * lookback_years + 1)
+
+                # 交易日模式：尝试从 backtest 配置获取交易日源
+                if dt_mode == "trading":
+                    tds = bt_cfg.get("trading_day_source")
+                    if tds and tds.get("conn_id") and self._factor_service:
+                        try:
+                            trading_db = self._factor_service._reconstruct_db_sync(tds["conn_id"])
+                            method = getattr(trading_db, tds.get("method", "getTradeDay"))
+                            method_args = tds.get("method_args", {})
+                            dtruler = method(start_date=ruler_start, end_date=end_dt, **method_args)
+                            dts = method(start_date=start_dt, end_date=end_dt, **method_args)
+                        except Exception as e:
+                            logger.warning(f"交易日源获取失败，回退到自然日模式: {e}")
+                            dtruler = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=ruler_start, end_dt=end_dt)
+                            dts = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=start_dt, end_dt=end_dt)
+                    else:
+                        dtruler = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=ruler_start, end_dt=end_dt)
+                        dts = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=start_dt, end_dt=end_dt)
+                else:
+                    dtruler = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=ruler_start, end_dt=end_dt)
+                    dts = ft.getDateTime(ifactor_name=tf.Name, iid=None, start_dt=start_dt, end_dt=end_dt)
+
+                section_ids = list(ft.getID(ifactor_name=tf.Name))
+                if dtruler and section_ids:
+                    return dtruler, dts, section_ids
+            except Exception as e:
+                logger.warning(f"获取评估上下文失败 ({tf.Name}): {e}")
+                continue
+        return [], [], []
+
+
+    def _resolve_price_sync(self, price_ref) -> Optional[Any]:
+        """解析价格因子引用为 Factor 对象（必须显式配置，无自动回退）"""
+        if price_ref is None:
+            return None
+
+        conn_id = getattr(price_ref, "conn_id", None) or (price_ref.get("conn_id") if isinstance(price_ref, dict) else None)
+        table_name = getattr(price_ref, "table_name", None) or (price_ref.get("table_name") if isinstance(price_ref, dict) else None)
+        factor_name = getattr(price_ref, "factor_name", None) or (price_ref.get("factor_name") if isinstance(price_ref, dict) else "close")
+
+        if not (conn_id and table_name and factor_name):
+            return None
+
+        if self._factor_service:
+            try:
+                db = self._factor_service._reconstruct_db_sync(conn_id)
+                ft = db.getTable(table_name)
+                return ft.getFactor(factor_name)
+            except Exception as e:
+                logger.warning(f"解析价格因子失败 ({conn_id}/{table_name}/{factor_name}): {e}")
+
+        return None
+
+    @staticmethod
+    def _load_backtest_config() -> dict:
+        """加载 QSWebConfig.yaml 的回测配置节（复用 dtruler_lookback_years 等参数）"""
+        import yaml as _yaml
+        cfg_path = settings.QS_CONFIG_PATH
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = _yaml.safe_load(f)
+                return cfg.get("backtest", {})
+            except Exception:
+                pass
+        return {}
+
     # ─── 适应度函数 ─────────────────────────────────────────────
 
-    def _build_fitness_fun_sync(self, eval_config: EvalConfig, price_ref=None) -> Tuple[Callable, str]:
+    def _build_fitness_fun_sync(self, eval_config: EvalConfig,
+                                  dtruler: List, dts: List, section_ids: List) -> Tuple[Callable, str]:
+        """构建适应度函数。
+
+        统一批量评估：所有候选因子一次 Engine.run() 完成。
+        价格因子逐模块独立解析。
+        """
         transform_fn = self._resolve_transform(eval_config.transform)
+        if not eval_config.modules:
+            raise ValueError("至少需要一个评估模块")
+        mod_cfg = eval_config.modules[0]
+
+        # 解析逐模块价格因子
+        price_factor = self._resolve_price_sync(
+            getattr(mod_cfg, "price_ref", None)
+        )
+        builder = _BT_NODE_BUILDERS.get(mod_cfg.module, {})
+        if builder.get("requires_price") and price_factor is None:
+            raise ValueError(f"评估模块 '{mod_cfg.module}' 需要价格因子，请在模块配置中指定")
 
         def fitness_fun(factors: List) -> np.ndarray:
-            fitness_values = np.full(len(factors), np.nan)
-            for i, factor in enumerate(factors):
-                try:
-                    outputs = []
-                    for mod_cfg in eval_config.modules:
-                        output = self._eval_single_factor(factor, mod_cfg, price_ref)
-                        outputs.append(output)
-                    fitness_values[i] = float(transform_fn(outputs))
-                except Exception as e:
-                    logger.warning(f"适应度评估失败 (因子 {i}): {e}")
-                    fitness_values[i] = np.nan
-            return fitness_values
+            if not factors:
+                return np.array([])
+            try:
+                output = self._run_eval(factors, mod_cfg, price_factor, dtruler, dts, section_ids)
+                result = transform_fn(output)
+                # 确保返回的 fitness 数组长度与因子数一致
+                if len(result) != len(factors):
+                    logger.warning(
+                        f"适应度数组长度({len(result)})与因子数({len(factors)})不一致，补齐 NaN"
+                    )
+                    padded = np.full(len(factors), np.nan)
+                    padded[:len(result)] = result
+                    return padded
+                return result
+            except Exception as e:
+                logger.warning(f"批量评估失败: {e}，返回全 NaN")
+                return np.full(len(factors), np.nan)
 
         return fitness_fun, eval_config.sign
 
-    def _resolve_transform(self, transform_spec: str) -> Callable:
-        if transform_spec in _BUILTIN_TRANSFORMS:
-            fn = _BUILTIN_TRANSFORMS[transform_spec]
-            return lambda outputs: fn(outputs[0])
-        if transform_spec.startswith("@"):
-            script_path = transform_spec[1:]
-            script_path = script_path.replace("{workspace}", self.workspace)
-            script_path = os.path.expanduser(script_path)
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("transform", script_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            if not hasattr(mod, "transform"):
-                raise ValueError(f"自定义 transform 脚本缺少 transform 函数: {script_path}")
-            return mod.transform
-        raise ValueError(f"未知的 transform 配置: {transform_spec}")
-
-    def _eval_single_factor(self, factor, mod_cfg: EvalModuleConfig, price_ref) -> dict:
+    def _run_eval(self, factors: List, mod_cfg, price_factor,
+                    dtruler: List, dts: List, section_ids: List) -> dict:
+        """运行一次批量评估，返回回测输出 dict。"""
         from QuantStudio.Core.CalcEngine import Engine
         from QuantStudio.Core.Node import DTInitData, DTLocalContext
         from QuantStudio.Factor.Factor import FactorContext
@@ -606,6 +739,7 @@ class MiningService:
         calc_cls = getattr(calc_mod, builder["calc_class"])
         node_mod = importlib.import_module(builder["node_module"])
         node_cls = getattr(node_mod, builder["node_class"])
+
         calc_kwargs = {"descriptor_ids": None}
         for pname in builder.get("calc_params", []):
             if pname in mod_cfg.params:
@@ -615,19 +749,36 @@ class MiningService:
         for node_key, param_key in builder.get("node_params_map", {}).items():
             if param_key in mod_cfg.params:
                 node_params[node_key] = mod_cfg.params[param_key]
-        calc_factor = calc_cls(**calc_kwargs)(factor, price=price_ref, factor_args={})
+
+        calc_factor = calc_cls(**calc_kwargs)(*factors, price=price_factor, factor_args={})
         bt_node = node_cls(calc_factor, args=node_params)
         report = BTReport(bt_node_list=[bt_node])
-        dtruler = None
-        section_ids = []
-        context = FactorContext(PID="0", PIDList=["0"], DTRuler=dtruler or [], SectionIDs=section_ids)
+        context = FactorContext(PID="0", PIDList=["0"], DTRuler=dtruler, SectionIDs=section_ids)
+        start_dt = dts[0] if dts else dt.datetime(2000, 1, 1)
+        end_dt = dts[-1] if dts else dt.datetime.now()
         with Engine() as exec_engine:
             output, = exec_engine.run(
                 [report], context,
-                fwd_data_list=[DTLocalContext(DTs=dtruler or [])],
-                init_data_list=[DTInitData(DTRange=(dt.datetime(2000, 1, 1), dt.datetime.now()))],
+                fwd_data_list=[DTLocalContext(DTs=dts)],
+                init_data_list=[DTInitData(DTRange=(start_dt, end_dt))],
             )
         return output
+
+    def _resolve_transform(self, transform_spec: str) -> Callable:
+        if transform_spec in _BUILTIN_TRANSFORMS:
+            return _BUILTIN_TRANSFORMS[transform_spec]
+        if transform_spec.startswith("@"):
+            script_path = transform_spec[1:]
+            script_path = script_path.replace("{workspace}", self.workspace)
+            script_path = os.path.expanduser(script_path)
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("transform", script_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if not hasattr(mod, "transform"):
+                raise ValueError(f"自定义 transform 脚本缺少 transform 函数: {script_path}")
+            return mod.transform
+        raise ValueError(f"未知的 transform 配置: {transform_spec}")
 
     # ─── 持久化 ──────────────────────────────────────────────────
 
@@ -681,12 +832,14 @@ class MiningService:
         task_json["runs"] = runs
         self._write_json(os.path.join(self._task_dir(task_id), "task.json"), task_json)
 
-    def _update_run_in_task(self, task_id: str, run_id: str, status: str):
+    def _update_run_in_task(self, task_id: str, run_id: str, status: str, error: str = None):
         task_json = self._read_json(os.path.join(self._task_dir(task_id), "task.json"))
         for run in task_json.get("runs", []):
             if run["run_id"] == run_id:
                 run["status"] = status
                 run["completed_at"] = dt.datetime.now().isoformat()
+                if error:
+                    run["error"] = error
                 break
         self._write_json(os.path.join(self._task_dir(task_id), "task.json"), task_json)
 
@@ -737,6 +890,10 @@ class MiningService:
 
 # 全局单例
 mining_service = MiningService()
+
+# 注入 FactorService 依赖（延迟导入避免循环引用）
+from app.services.factor_service import factor_service as _fs  # noqa: E402
+mining_service._factor_service = _fs
 
 from QuantStudio.Factor.FactorOperation import DerivativeFactor
 from QuantStudio.Factor.Factor import DataFactor

@@ -17,7 +17,21 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:28000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            // 后端未就绪时返回 503 而非静默断开
+            if (res && 'writeHead' in res) {
+              const srvRes = res as any
+              srvRes.writeHead(503, { 'Content-Type': 'application/json' })
+              srvRes.end(JSON.stringify({
+                code: 'BACKEND_NOT_READY',
+                message: '后端服务未就绪，请稍后刷新重试',
+              }))
+            }
+          })
+        },
       },
     },
+    allowedHosts: ['qsweb.cpolar.top'],
   },
 })

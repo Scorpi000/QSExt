@@ -49,7 +49,10 @@ api.interceptors.response.use(
         }
         break
       case 500:
-        message.error('服务器内部错误，请稍后重试')
+        message.error(msg)
+        break
+      case 503:
+        // 后端未就绪，不弹错误提示（组件层会静默重试）
         break
       default:
         message.error(msg)

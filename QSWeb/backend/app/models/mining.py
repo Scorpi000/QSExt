@@ -27,25 +27,21 @@ class PriceRef(BaseModel):
 # ─── 评估配置 ─────────────────────────────────────────────────
 
 class EvalModuleConfig(BaseModel):
-    """单个评估模块配置"""
-    module: str = Field(..., description="回测模块标识，如 ic、multi_portfolio")
+    """单个评估模块配置（与回测工作台 ModuleRunConfig 对齐）"""
+    module: str = Field(..., description="回测模块标识，如 ic、ic_decay")
+    instance_label: str = Field(default="", description="实例标签")
     params: Dict[str, Any] = Field(default_factory=dict, description="模块参数")
+    price_ref: Optional[PriceRef] = Field(None, description="价格因子引用（该模块需要价格时必填）")
+    section_mode: Literal["auto", "source", "custom"] = Field(default="auto", description="截面 ID 模式")
+    section_source: Optional[str] = Field(None, description="截面 ID 源名称（section_mode=source 时使用）")
+    section_ids: Optional[List[str]] = Field(None, description="自定义截面 ID 列表（section_mode=custom 时使用）")
 
 
 class EvalConfig(BaseModel):
     """适应度评估配置"""
     modules: List[EvalModuleConfig] = Field(..., min_length=1, description="评估模块列表")
-    transform: str = Field(default="identity", description="transform 函数：内置函数名 或 @path/to/script.py")
+    transform: str = Field(default="abs_ic_ir", description="transform 函数：内置函数名 或 @path/to/script.py")
     sign: Literal["greater", "less"] = Field(default="greater", description="greater=越大越好, less=越小越好")
-
-    @classmethod
-    def from_simplified(cls, module: str, metric: str, transform: str = "abs", sign: str = "greater", params: dict = None) -> "EvalConfig":
-        """从简化格式构造完整 EvalConfig"""
-        return cls(
-            modules=[EvalModuleConfig(module=module, params=params or {})],
-            transform=transform,
-            sign=sign,
-        )
 
 
 # ─── 挖掘配置 ─────────────────────────────────────────────────
@@ -71,8 +67,12 @@ class GPRunConfig(BaseModel):
     p_point_replace: float = Field(default=0.05, ge=0.0, le=1.0, description="点变异中每个节点被替换的概率")
     parsimony_coefficient: float = Field(default=0.0, ge=0.0, description="复杂度惩罚系数")
 
+    # 时点范围（参照回测工作台全局配置，用于生成 DTRuler / DTs）
+    start_date: Optional[str] = Field(None, description="开始日期 (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="结束日期 (YYYY-MM-DD)")
+    dt_mode: Literal["natural", "trading"] = Field(default="natural", description="时点模式：natural=自然日, trading=交易日")
+
     # 运行时
-    price_ref: Optional[PriceRef] = Field(None, description="价格因子引用（评估模块需要价格时必填）")
     section_id_source: Optional[str] = Field(None, description="截面 ID 源名称")
     descriptor_ids: Optional[List[str]] = Field(None, description="自定义截面 ID 列表")
 
@@ -95,6 +95,7 @@ class RunSummary(BaseModel):
     n_generations: int = Field(default=0, description="进化代数")
     started_at: Optional[str] = Field(None, description="开始时间")
     completed_at: Optional[str] = Field(None, description="完成时间")
+    error: Optional[str] = Field(None, description="错误信息（失败时）")
 
 
 class MiningTaskSummary(BaseModel):

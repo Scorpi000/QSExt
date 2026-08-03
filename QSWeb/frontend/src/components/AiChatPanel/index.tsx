@@ -383,6 +383,70 @@ function AskUserPanel({ questions, onSubmit, clientRef }: AskUserPanelProps) {
 }
 
 // ---------------------------------------------------------------------------
+// SlashCommandPalette 子组件
+// ---------------------------------------------------------------------------
+
+interface SlashCommandPaletteProps {
+  commands: string[]
+  filterPrefix: string
+  visible: boolean
+  selectedIndex: number
+  onSelect: (command: string) => void
+}
+
+function SlashCommandPalette({
+  commands,
+  filterPrefix,
+  visible,
+  selectedIndex,
+  onSelect,
+}: SlashCommandPaletteProps) {
+  const filtered = commands.filter((cmd) =>
+    cmd.toLowerCase().startsWith(filterPrefix.toLowerCase())
+  )
+
+  if (!visible || filtered.length === 0) return null
+
+  return (
+    <div
+      className="slash-command-palette"
+      style={{
+        position: 'absolute',
+        bottom: '100%',
+        left: 0,
+        right: 0,
+        marginBottom: 4,
+        background: '#fff',
+        border: '1px solid #d9d9d9',
+        borderRadius: 8,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        maxHeight: 200,
+        overflow: 'auto',
+        zIndex: 1000,
+      }}
+    >
+      {filtered.map((cmd, idx) => (
+        <div
+          key={cmd}
+          onMouseDown={(e) => {
+            e.preventDefault()
+            onSelect(cmd)
+          }}
+          style={{
+            padding: '6px 12px',
+            cursor: 'pointer',
+            background: idx === selectedIndex ? '#e6f7ff' : 'transparent',
+            fontSize: 13,
+          }}
+        >
+          <span style={{ fontWeight: 500, color: '#1677ff' }}>/{cmd}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // 主组件
 // ---------------------------------------------------------------------------
 
@@ -398,6 +462,15 @@ function AiChatPanel({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages || [])
   const [input, setInput] = useState('')
   const [runState, setRunState] = useState<RunState>('idle')
+  const [slashCommands, setSlashCommands] = useState<string[]>([
+    'compact', 'clear', 'context', 'usage',
+  ])
+  const [slashActive, setSlashActive] = useState(false)
+  const [slashPrefix, setSlashPrefix] = useState('')
+  const [slashStartIdx, setSlashStartIdx] = useState(-1)
+  const [slashSelectedIdx, setSlashSelectedIdx] = useState(0)
+
+  const textareaRef = useRef<any>(null)
 
   const clientRef = useRef<AiChatClient | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -408,6 +481,56 @@ function AiChatPanel({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, 100)
   }, [])
+
+  // Slash 命令检测：判断光标前最近的 `/` 是否触发命令面板
+  const scanSlashTrigger = useCallback(
+    (value: string, cursorPos: number) => {
+      const before = value.slice(0, cursorPos)
+      const slashIdx = before.lastIndexOf('/')
+      if (slashIdx === -1) return { active: false, prefix: '', startIdx: -1 }
+      // `/` 必须在行首或空格后
+      if (slashIdx > 0 && before[slashIdx - 1] !== ' ') {
+        return { active: false, prefix: '', startIdx: -1 }
+      }
+      const prefix = before.slice(slashIdx + 1)
+      return { active: true, prefix, startIdx: slashIdx }
+    },
+    []
+  )
+
+  // 选择 slash 命令后替换输入文本
+  const handleSelectSlashCommand = useCallback(
+    (cmd: string) => {
+      const before = input.slice(0, slashStartIdx)
+      const afterSlash = input.slice(slashStartIdx + 1 + slashPrefix.length)
+      const newValue = before + '/' + cmd + ' ' + afterSlash
+      setInput(newValue)
+      setSlashActive(false)
+      // 恢复焦点并将光标放在命令后
+      const cursorTarget = before.length + cmd.length + 2 // after "/cmd "
+      setTimeout(() => {
+        const el = textareaRef.current?.resizableTextArea?.textArea
+        if (el) {
+          el.focus()
+          el.setSelectionRange(cursorTarget, cursorTarget)
+        }
+      }, 0)
+    },
+    [input, slashStartIdx, slashPrefix]
+  )
+
+  // 点击面板外部关闭
+  useEffect(() => {
+    if (!slashActive) return
+    const handleClick = (e: MouseEvent) => {
+      const palette = document.querySelector('.slash-command-palette')
+      if (palette && !palette.contains(e.target as Node)) {
+        setSlashActive(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [slashActive])
 
   // initialMessages 变化时同步到 messages（支持会话恢复）
   useEffect(() => {
@@ -431,6 +554,14 @@ function AiChatPanel({
 
     client.onMessage((msg: AiMessage) => {
       switch (msg.type) {
+        case 'init': {
+          const cmds = msg.data?.slash_commands
+          if (Array.isArray(cmds)) {
+            setSlashCommands(cmds)
+          }
+          break
+        }
+
         case 'assistant': {
           const blocks = msg.data?.blocks || []
           const textBlocks = blocks.filter((b) => b.kind === 'text')
@@ -984,12 +1115,88 @@ function AiChatPanel({
       </div>
 
       {/* 输入区 */}
-      <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, flexShrink: 0 }}>
+      <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 12, flexShrink: 0, position: 'relative' }}>
+        <SlashCommandPalette
+          commands={slashCommands}
+          filterPrefix={slashPrefix}
+          visible={slashActive}
+          selectedIndex={slashSelectedIdx}
+          onSelect={handleSelectSlashCommand}
+        />
         <TextArea
+          ref={textareaRef}
           rows={3}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value)
+            const result = scanSlashTrigger(
+              e.target.value,
+              (e.target as HTMLTextAreaElement).selectionStart || 0
+            )
+            setSlashActive(result.active)
+            setSlashPrefix(result.prefix)
+            setSlashStartIdx(result.startIdx)
+            if (result.active) setSlashSelectedIdx(0)
+          }}
+          onKeyDown={(e) => {
+            if (!slashActive) return
+            const filtered = slashCommands.filter((c) =>
+              c.toLowerCase().startsWith(slashPrefix.toLowerCase())
+            )
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setSlashSelectedIdx((prev) =>
+                Math.min(prev + 1, filtered.length - 1)
+              )
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setSlashSelectedIdx((prev) => Math.max(prev - 1, 0))
+            } else if (e.key === 'Enter') {
+              e.preventDefault()
+              e.stopPropagation()
+              const cmd = filtered[slashSelectedIdx]
+              if (cmd) handleSelectSlashCommand(cmd)
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              setSlashActive(false)
+            } else if (e.key === 'Tab') {
+              e.preventDefault()
+              // 计算所有匹配命令的最长公共前缀
+              let common = filtered.length > 0 ? filtered[0] : ''
+              for (let i = 1; i < filtered.length; i++) {
+                while (!filtered[i].toLowerCase().startsWith(common.toLowerCase())) {
+                  common = common.slice(0, -1)
+                  if (!common) break
+                }
+                if (!common) break
+              }
+              // 公共前缀比当前输入长 → 补全到公共前缀
+              if (common.length > slashPrefix.length) {
+                const before = input.slice(0, slashStartIdx)
+                const afterSlash = input.slice(slashStartIdx + 1 + slashPrefix.length)
+                const newValue = before + '/' + common + afterSlash
+                setInput(newValue)
+                setSlashPrefix(common)
+                setSlashSelectedIdx(0)
+                // 光标定位到补全内容末尾
+                const cursorPos = slashStartIdx + 1 + common.length
+                setTimeout(() => {
+                  const el = textareaRef.current?.resizableTextArea?.textArea
+                  if (el) {
+                    el.focus()
+                    el.setSelectionRange(cursorPos, cursorPos)
+                  }
+                }, 0)
+              } else if (filtered.length > 0) {
+                // 公共前缀已达上限，循环切换选中命令
+                setSlashSelectedIdx((prev) =>
+                  (prev + 1) % filtered.length
+                )
+              }
+            }
+          }}
           onPressEnter={(e) => {
+            if (slashActive) return
             if (!e.shiftKey) {
               e.preventDefault()
               if (runState === 'idle') {

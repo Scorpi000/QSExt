@@ -45,9 +45,9 @@ $ErrorActionPreference = "Stop"
 # ============================================================
 
 # Python 解释器路径
-$PythonExe = "$env:USERPROFILE\Project\PythonEnv\QSWeb\Scripts\python.exe"
-# $env:PYTHONPATH = "D:\HST\QSExt;D:\Project\QuantStudio;" + $env:PYTHONPATH
-# $PythonExe = "D:\PythonEnv\QS312\Scripts\python.exe"
+# $PythonExe = "$env:USERPROFILE\Project\PythonEnv\QSWeb\Scripts\python.exe"
+$env:PYTHONPATH = "D:\HST\QSExt;D:\Project\QuantStudio;" + $env:PYTHONPATH
+$PythonExe = "D:\PythonEnv\QS312\Scripts\python.exe"
 
 # 日志输出目录
 $LogDir = "$PSScriptRoot\..\logs"
@@ -128,6 +128,36 @@ if (-not $NoBackend) {
             -ArgumentList @("app.main:app", "--host", "0.0.0.0", "--port", $BackendPort, "--reload") `
             -WorkingDirectory $BackendDir `
             -LogFile $BackendLog
+    }
+}
+
+# --- 等待后端就绪（TCP 端口检测，不依赖 HTTP 客户端） ---
+if (-not $NoBackend -and -not $NoFrontend) {
+    $MaxWaitSec = 30
+    $StartTime = Get-Date
+
+    Write-LogAndConsole "等待后端就绪 (端口 $BackendPort) ..." "Cyan"
+    do {
+        try {
+            $Tcp = [System.Net.Sockets.TcpClient]::new()
+            $Conn = $Tcp.BeginConnect("127.0.0.1", $BackendPort, $null, $null)
+            if ($Conn.AsyncWaitHandle.WaitOne(2000)) {
+                $Tcp.EndConnect($Conn)
+                $Tcp.Dispose()
+                Write-LogAndConsole ("后端已就绪 (耗时 {0:N0}ms)" -f ((Get-Date) - $StartTime).TotalMilliseconds) "Green"
+                break
+            }
+            $Tcp.Dispose()
+        } catch {
+            # 后端尚未就绪，继续等待
+        }
+        Write-Host "." -NoNewline
+        Start-Sleep -Milliseconds 500
+    } while (((Get-Date) - $StartTime).TotalSeconds -lt $MaxWaitSec)
+    Write-Host ""
+
+    if (((Get-Date) - $StartTime).TotalSeconds -ge $MaxWaitSec) {
+        Write-Host "警告: 后端 $MaxWaitSec 秒内未就绪，继续启动前端（页面可能需要刷新）" -ForegroundColor Yellow
     }
 }
 

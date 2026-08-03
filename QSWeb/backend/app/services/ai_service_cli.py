@@ -319,10 +319,13 @@ class AiServiceCLI:
         if msg_type == "system":
             subtype = data.get("subtype", "")
             if subtype == "init":
-                # 初始化消息，前端可忽略
                 return {
-                    "type": "system",
-                    "data": {"content": f"session: {data.get('session_id', '?')}"},
+                    "type": "init",
+                    "data": {
+                        "session_id": data.get("session_id", ""),
+                        "slash_commands": data.get("slash_commands", []),
+                        "model": data.get("model", ""),
+                    },
                 }
             return None  # 隐藏其他系统消息（thinking_tokens 等）
 

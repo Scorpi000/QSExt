@@ -6,8 +6,8 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { Layout, Select } from 'antd'
-import { RobotOutlined } from '@ant-design/icons'
+import { Layout, Select, Button } from 'antd'
+import { RobotOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import AiChatPanel from '../../components/AiChatPanel'
 import SessionList from '../../components/SessionList'
 import { listContexts, getSession } from '../../services/session'
@@ -23,6 +23,7 @@ function AiWorkbench() {
   const [activeSession, setActiveSession] = useState<SessionMeta | null>(null)
   const [initialMessages, setInitialMessages] = useState<ChatMessage[] | undefined>()
   const [refreshKey, setRefreshKey] = useState(0)
+  const [collapsed, setCollapsed] = useState(true)
 
   // 加载可用的 context 列表
   useEffect(() => {
@@ -90,18 +91,21 @@ function AiWorkbench() {
   return (
     <Layout style={{ height: 'calc(100vh - 160px)', background: '#fff' }}>
       <Sider
-        width={280}
+        width={collapsed ? 0 : 280}
         style={{
           background: '#fafafa',
-          borderRight: '1px solid #f0f0f0',
+          borderRight: collapsed ? 'none' : '1px solid #f0f0f0',
           overflow: 'hidden',
+          transition: 'width 0.2s',
         }}
       >
-        <SessionList
-          onSelect={handleSelectSession}
-          activeSessionId={activeSession?.id}
-          refreshKey={refreshKey}
-        />
+        {!collapsed && (
+          <SessionList
+            onSelect={handleSelectSession}
+            activeSessionId={activeSession?.id}
+            refreshKey={refreshKey}
+          />
+        )}
       </Sider>
       <Content style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column' }}>
         {/* 上下文选择器 */}
@@ -114,6 +118,12 @@ function AiWorkbench() {
             flexShrink: 0,
           }}
         >
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+            title={collapsed ? '展开会话列表' : '折叠会话列表'}
+          />
           <RobotOutlined />
           <Select
             value={currentContext}
