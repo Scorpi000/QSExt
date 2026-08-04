@@ -14,6 +14,7 @@ interface FitnessChartProps {
 
 function FitnessChart({ data }: FitnessChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -54,14 +55,24 @@ function FitnessChart({ data }: FitnessChartProps) {
       legend: { x: 0.02, y: 0.98, xanchor: 'left', yanchor: 'top', bgcolor: '#ffffffaa' },
     }
 
-    Plotly.newPlot(containerRef.current, traces, layout, {
-      responsive: true,
-      displayModeBar: false,
-    })
+    if (mountedRef.current) {
+      // 增量更新，避免闪烁
+      Plotly.react(containerRef.current, traces, layout, {
+        responsive: true,
+        displayModeBar: false,
+      })
+    } else {
+      Plotly.newPlot(containerRef.current, traces, layout, {
+        responsive: true,
+        displayModeBar: false,
+      })
+      mountedRef.current = true
+    }
 
     return () => {
       if (containerRef.current) {
         Plotly.purge(containerRef.current)
+        mountedRef.current = false
       }
     }
   }, [data])

@@ -153,7 +153,7 @@ class ReportService:
                 from QSExt.ReportGenerator.scenarios.single_factor.scenario import (
                     SingleFactorReport,
                 )
-                from QuantStudio.Core.CalcEngine import Engine
+                from app.services.global_config_service import resolve_engine
                 from QuantStudio.Core.Node import DTInitData, DTLocalContext
                 from QuantStudio.Factor.Factor import FactorContext
 
@@ -179,14 +179,16 @@ class ReportService:
                 start_dt = dts[0] if isinstance(dts[0], dt.datetime) else dt.datetime.combine(dts[0], dt.time.min) if hasattr(dts[0], 'date') else dts[0]
                 end_dt = dts[-1] if isinstance(dts[-1], dt.datetime) else dt.datetime.combine(dts[-1], dt.time.min) if hasattr(dts[-1], 'date') else dts[-1]
 
+                EngineClass, pid_list, _ = resolve_engine()
+
                 context = FactorContext(
                     PID="0",
-                    PIDList=["0"],
+                    PIDList=pid_list,
                     DTRuler=dtruler,
                     SectionIDs=ids,
                 )
 
-                with Engine() as exec_engine:
+                with EngineClass() as exec_engine:
                     output, = exec_engine.run(
                         [report_node],
                         context,

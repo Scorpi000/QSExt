@@ -1,0 +1,13 @@
+{
+  "method": "TPE",
+  "n_trials": 200,
+  "cv_folds": 3,
+  "early_stop_rounds": 30,
+  "best_params": {
+    "LookBack": 0
+  },
+  "best_is_rankic": null,
+  "search_space": {},
+  "optimization_history": [],
+  "note": "PE_TTM 无需超参数搜索，此示例仅展示目录结构"
+}

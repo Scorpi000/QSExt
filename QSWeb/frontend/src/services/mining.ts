@@ -100,6 +100,9 @@ export interface HallOfFameEntry {
 
 export interface RunResult {
   run_id: string
+  framework?: string
+  data?: Record<string, any>
+  // deprecated — 保留向后兼容
   hall_of_fame: HallOfFameEntry[]
   fitness_history: {
     gen_best: number[]
@@ -107,6 +110,41 @@ export interface RunResult {
   }
   gen_start: number
   gen_end: number
+  is_partial?: boolean
+}
+
+// ─── LLMFactor 类型 ─────────────────────────────────────────
+
+export interface LLMFactorRunConfig {
+  target: string
+  market: string
+  frequency: string
+  mode: 'skill' | 'graph'
+  max_rounds: number
+  max_hours: number
+  max_turns_hypothesis: number
+  max_turns_development: number
+  stages: string[]
+  clear_cache: boolean
+  direction?: string | null
+}
+
+export interface RunLogResponse {
+  lines: string[]
+  next_offset: number
+  eof: boolean
+  status: string
+}
+
+export interface EvalFactorMetrics {
+  name: string
+  status: string
+  metrics: Record<string, number | null>
+}
+
+export interface EvalMetricsResponse {
+  factors: EvalFactorMetrics[]
+  updated_at: string | null
 }
 
 export interface FactorTreeNode {
@@ -151,8 +189,8 @@ export const deleteTask = (taskId: string) => {
   return api.delete(`/mining/tasks/${taskId}`)
 }
 
-export const submitRun = (taskId: string, config: GPRunConfig) => {
-  return api.post<{ run_id: string }>(`/mining/tasks/${taskId}/run`, { config })
+export const submitRun = (taskId: string, config: GPRunConfig | LLMFactorRunConfig | Record<string, any>, framework?: string) => {
+  return api.post<{ run_id: string }>(`/mining/tasks/${taskId}/run`, { config, framework })
 }
 
 export const continueMining = (taskId: string, config: GPRunConfig) => {
@@ -171,6 +209,16 @@ export const exportFactor = (taskId: string, targetDir?: string) => {
   return api.post<{ message: string; path: string }>(`/mining/tasks/${taskId}/export`, {
     target_dir: targetDir || null,
   })
+}
+
+export const getRunLog = (taskId: string, runId: string, offset: number = 0, tail: number = 200) => {
+  return api.get<RunLogResponse>(`/mining/tasks/${taskId}/runs/${runId}/log`, {
+    params: { offset, tail },
+  })
+}
+
+export const getEvalMetrics = (taskId: string, runId: string) => {
+  return api.get<EvalMetricsResponse>(`/mining/tasks/${taskId}/runs/${runId}/eval-metrics`)
 }
 
 export const importFactorsFromScript = (scriptPath: string) => {

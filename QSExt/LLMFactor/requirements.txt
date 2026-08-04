@@ -1,0 +1,5 @@
+claude-agent-sdk
+streamlit
+streamlit-autorefresh
+plotly
+pyyaml

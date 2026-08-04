@@ -1,0 +1,17 @@
+{
+  "syntax": "passed",
+  "execution": "passed",
+  "leak_test": "passed",
+  "unit_consistency": "passed",
+  "semantic_review": "passed",
+  "details": {
+    "syntax": "AST 解析通过，import 路径正确",
+    "execution": "defFactor() 正常执行，FactorDef 对象正确构建，readData() 输出 shape 符合预期",
+    "leak_test": "财务数据使用 CalcType='最新'(公告时点)，无未来信息泄漏",
+    "unit_consistency": "科创板总市值(元) / 10000 → 万元，与主板统一",
+    "semantic_review": "代码逻辑与假设文档一致"
+  },
+  "issues": [],
+  "auto_fix_count": 0,
+  "validated_at": "2025-07-01T12:00:00"
+}

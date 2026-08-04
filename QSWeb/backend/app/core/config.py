@@ -179,7 +179,19 @@ class Settings:
         """mining 默认配置"""
         return {
             "workspace": os.path.expanduser("~/MiningWorkspace"),
-            "frameworks": {},
+            "frameworks": {
+                "gp": {
+                    "population_size": 20,
+                    "n_generations": 20,
+                },
+                "llm_factor": {
+                    "mode": "skill",
+                    "max_rounds": 1,
+                    "max_hours": 8.0,
+                    "max_turns_hypothesis": 50,
+                    "max_turns_development": 80,
+                },
+            },
         }
 
     @property
@@ -199,6 +211,40 @@ class Settings:
             if "default_eval" in user_mining:
                 result["default_eval"] = user_mining["default_eval"]
             return result
+        except Exception:
+            return defaults
+
+    @staticmethod
+    def _default_global() -> dict:
+        """global 默认配置"""
+        return {
+            "cache_dir": os.path.expanduser("~/QSCache"),
+            "use_temp_cache": True,
+            "engine": {
+                "type": "CalcEngine",
+                "params": {},
+            },
+        }
+
+    @property
+    def global_config(self) -> dict:
+        """从 QSWebConfig.yaml 加载 global 配置节"""
+        defaults = self._default_global()
+        if not os.path.exists(self.QS_CONFIG_PATH):
+            return defaults
+        try:
+            with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            user_global = config.get("global", {})
+            user_engine = user_global.get("engine", {})
+            return {
+                "cache_dir": user_global.get("cache_dir", defaults["cache_dir"]),
+                "use_temp_cache": user_global.get("use_temp_cache", defaults["use_temp_cache"]),
+                "engine": {
+                    "type": user_engine.get("type", defaults["engine"]["type"]),
+                    "params": user_engine.get("params", defaults["engine"]["params"]),
+                },
+            }
         except Exception:
             return defaults
 

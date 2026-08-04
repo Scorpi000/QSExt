@@ -1,0 +1,46 @@
+# 因子评测阶段配置
+#
+# 字段直接对应 EvalConfig，详见 evaluation/config.py
+
+# 时间区间
+in_sample_start: "2015-01"
+in_sample_end: "2022-12"
+oos_start: "2023-01"
+oos_end: "2025-12"
+
+# 股票池筛选
+exclude_st: true
+min_listing_days: 60
+
+# IC 计算
+corr_method: "spearman"
+ic_lookback: 31
+period_lookback: 1
+ic_decay_periods: [1, 2, 3, 6, 12]
+
+# 分组回测
+group_num: 5
+rebalance_freq: "monthly"
+
+# 入库决策阈值
+min_alpha_t: 3.0
+min_composite_score: 0.60
+min_incremental_ic_t: 2.0
+min_oos_rankic: 0.02
+corr_warning_threshold: 0.7
+
+# 评分权重
+score_weights:
+  effectiveness: 0.25
+  stability: 0.20
+  turnover: 0.15
+  diversity: 0.20
+  overfitting_risk: 0.20
+
+# 输出
+save_to_mining_log: true
+
+# 缓存配置
+cache_enabled: true               # 是否启用因子数据缓存
+cache_dir: "D:/HST/QSExt/local/cache"  # 固定缓存目录，跨次运行复用
+cache_start_mode: "continue"     # "new" 每次清空缓存，"continue" 复用已有缓存

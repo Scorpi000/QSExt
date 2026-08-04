@@ -1,0 +1,24 @@
+# 因子开发阶段配置
+#
+# 字段直接对应 DevelopmentConfig，详见 development/config.py
+
+# 代码生成
+llm_model: "claude-sonnet-5"
+llm_temperature: 0.1
+
+# 验证
+max_auto_fixes: 3
+enable_leak_test: true
+enable_unit_check: true
+enable_semantic_review: true
+
+# 参数搜索
+enable_param_search: false
+max_trials: 200
+cv_folds: 3
+early_stop_rounds: 30
+optimization_objective: "rankic"
+
+# Claude Agent 权限模式
+# bypassPermissions: 跳过授权（默认）, auto: 自动确认, default: 手动授权
+permission_mode: "bypassPermissions"

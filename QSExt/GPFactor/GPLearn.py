@@ -485,6 +485,7 @@ class GPLearner:
         parent_fitness: np.ndarray | None = None,
         n_jobs: int = 1,
         verbose: int = 0,
+        progress_callback: Callable | None = None,
     ) -> Tuple[list, list, dict]:
         """执行完整的进化循环。
 
@@ -494,6 +495,7 @@ class GPLearner:
             parent_fitness: 初始种群适应度。None 则自动计算
             n_jobs: 并行任务数 (当前未启用)
             verbose: 日志详细程度
+            progress_callback: 逐代进度回调，签名为 ``callback(gen_idx, fitness, hall_of_fame)``
 
         Returns:
             ``(populations, fitness_history, ancestry)``
@@ -529,6 +531,9 @@ class GPLearner:
             Fitness.append(iFitness)
             Ancestry.update(iAncestry)
             self._update_hall_of_fame(iFitness, iPopulation)
+
+            if progress_callback:
+                progress_callback(i, Fitness, self.hall_of_fame)
 
             if verbose > 0:
                 best_fit = Fitness[-1].max()

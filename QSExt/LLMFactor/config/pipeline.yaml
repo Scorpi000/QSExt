@@ -1,0 +1,32 @@
+# 因子挖掘流水线 — 全局配置
+#
+# 此文件仅包含流水线级别的全局设置。
+# 各阶段（Phase 1/2/3）的专属配置在各自的 YAML 文件中管理。
+
+# 项目根目录
+# "auto": 自动查找（QSExt/ 的父目录，要求含 .mcp.json）
+# 绝对路径: 如 "D:\HST\QSExt"
+# project_root: auto
+project_root: "D:/HST/QSExt/local/workspace"
+
+# Claude CLI 配置
+# "auto": 从 PATH 或已知路径自动查找
+# 绝对路径: 如 "C:\Users\xxx\.local\bin\claude.exe"
+claude_cli: auto
+
+# 产出物输出基础目录
+# 支持绝对路径或相对于项目根目录的路径
+# 实际输出目录会自动追加 FM_<时间戳> 子目录
+# 例: "workspace" → <项目根>/workspace/FM_20260710_143000/
+workspace_dir: "D:/HST/QSExt/local/workspace"
+
+# Agent 最大轮次（命令行参数 --max-turns-phase1/2 可覆盖）
+max_turns_hypothesis: 50
+max_turns_development: 80
+
+# 数据上下文（构建因子对象和评测参数时使用）
+data:
+  trade_day_start: "2000-01-01"
+  trade_day_end: "2025-12-31"
+  stock_date: "2025-06-30"
+  max_stocks: 1000

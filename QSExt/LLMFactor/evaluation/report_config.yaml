@@ -1,0 +1,118 @@
+# 因子评测报告布局配置
+#
+# 数据引用格式：data: { source: "模块名", key: "数据键" }
+# 对应 DataContext.get(source, key)
+#
+# 模块名约定（与 BTReport output key 对齐）：
+#   "0-Rank IC 分析", "1-IC 衰减分析", "2-分位数组合", "3-因子换手率"
+#   "增量 IC 检验", "规模分层 Alpha", "子期稳健性"（自定义节点，无编号前缀）
+
+report:
+  page_title: "因子评测报告 — {factor_name}"
+
+  sections:
+    # ── 一、IC 分析 ──
+    - id: ic_analysis
+      title: "一、Rank IC 分析"
+      children:
+        - component: stat_grid
+          data: { source: "0-Rank IC 分析", key: "统计数据" }
+          params:
+            highlights: ["平均值", "IC_IR", "t统计量", "胜率"]
+        - component: chart
+          data: { source: "0-Rank IC 分析", key: "IC" }
+          params: { type: ic_bar, title: "Rank IC 序列" }
+        - component: data_table
+          data: { source: "0-Rank IC 分析", key: "统计数据" }
+          params: { title: "IC 统计汇总", precision: 4, transpose: true }
+
+    # ── 二、IC 衰减分析 ──
+    - id: ic_decay
+      title: "二、IC 衰减分析"
+      children:
+        - component: chart
+          data: { source: "1-IC 衰减分析", key: "IC衰减" }
+          params: { type: ic_decay_bar, title: "IC 衰减曲线" }
+        - component: data_table
+          data: { source: "1-IC 衰减分析", key: "统计数据" }
+          params: { title: "IC 衰减统计", precision: 4 }
+
+    # ── 三、分位数组合回测 ──
+    - id: portfolio
+      title: "三、分位数组合回测"
+      children:
+        - component: chart
+          data: { source: "2-分位数组合", key: "超额净值" }
+          params: { type: long_excess_nav, title: "多头超额净值" }
+        - component: data_table
+          data: { source: "2-分位数组合", key: "统计数据" }
+          params: { title: "分位数组合统计", precision: 4 }
+
+    # ── 四、因子换手率 ──
+    - id: turnover
+      title: "四、因子换手率"
+      children:
+        - component: chart
+          data: { source: "3-因子换手率", key: "换手率" }
+          params: { type: turnover_area, title: "因子换手率" }
+        - component: data_table
+          data: { source: "3-因子换手率", key: "统计数据" }
+          params: { title: "换手率统计", precision: 4 }
+
+    # ── 五、组合增量 IC 检验（多样性主关卡）──
+    - id: incremental_ic
+      title: "五、组合增量 IC 检验"
+      children:
+        - component: stat_grid
+          data: { source: "增量 IC 检验", key: "统计数据" }
+          params:
+            highlights: ["增量IC均值", "增量IC t统计量", "最大相关性均值"]
+        - component: chart
+          data: { source: "增量 IC 检验", key: "IC" }
+          params: { type: ic_bar, title: "增量 IC 序列" }
+        - component: data_table
+          data: { source: "增量 IC 检验", key: "统计数据" }
+          params: { title: "增量 IC 统计", precision: 4, transpose: true }
+
+    # ── 六、规模分层 Alpha 检验 ──
+    - id: size_stratified
+      title: "六、规模分层 Alpha 检验"
+      children:
+        - component: data_table
+          data: { source: "规模分层 Alpha", key: "统计数据" }
+          params: { title: "各规模组 Alpha 检验", precision: 4 }
+
+    # ── 七、子期稳健性 ──
+    - id: sub_period
+      title: "七、子期稳健性"
+      children:
+        - component: data_table
+          data: { source: "子期稳健性", key: "统计数据" }
+          params: { title: "子期统计", precision: 4 }
+        - component: data_table
+          data: { source: "子期稳健性", key: "汇总" }
+          params: { title: "子期一致性汇总", precision: 4 }
+
+    # ── 八、五维度评分 ──
+    - id: scoring
+      title: "八、五维度评分"
+      children:
+        - component: stat_grid
+          data: { source: "custom", key: "scores" }
+          params:
+            highlights: ["综合评分"]
+        - component: data_table
+          data: { source: "custom", key: "scores" }
+          params: { title: "评分明细", precision: 4 }
+
+    # ── 九、入库决策 ──
+    - id: decision
+      title: "九、入库决策"
+      children:
+        - component: stat_grid
+          data: { source: "custom", key: "decision" }
+          params:
+            highlights: ["决策", "决策原因"]
+        - component: data_table
+          data: { source: "custom", key: "decision_checks" }
+          params: { title: "检查详情", precision: 4 }

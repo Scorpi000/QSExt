@@ -11,6 +11,7 @@ from app.models.mining import (
     ContinueRunRequest,
     CreateTaskRequest,
     ExportRequest,
+    RunLogResponse,
     RunResult,
     RunSummary,
     SubmitRunRequest,
@@ -139,11 +140,35 @@ async def submit_continue(task_id: str, req: ContinueRunRequest):
 
 @router.get("/tasks/{task_id}/runs/{run_id}/result")
 async def get_run_result(task_id: str, run_id: str):
-    """获取指定运行的结果"""
+    """获取指定运行的结果（运行中返回中间结果，未生成时返回 null）"""
     result = mining_service.get_run_result(task_id, run_id)
     if result is None:
-        raise HTTPException(status_code=404, detail="结果不存在或任务尚未完成")
+        return None
     return result.model_dump()
+
+
+# ─── 日志与评测指标 ─────────────────────────────────────────
+
+@router.get("/tasks/{task_id}/runs/{run_id}/log")
+async def get_run_log(task_id: str, run_id: str, offset: int = 0, tail: int = 200):
+    """获取运行日志（增量轮询）
+
+    - **offset**: 文件字节偏移量，0 表示从头开始
+    - **tail**: 最多返回行数（默认 200）
+    """
+    task = mining_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return mining_service.get_run_log(task_id, run_id, offset, tail).model_dump()
+
+
+@router.get("/tasks/{task_id}/runs/{run_id}/eval-metrics")
+async def get_eval_metrics(task_id: str, run_id: str):
+    """获取运行评测指标"""
+    task = mining_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    return mining_service.get_run_eval_metrics(task_id, run_id).model_dump()
 
 
 @router.get("/tasks/{task_id}/factor-tree/{index}")
@@ -151,11 +176,31 @@ async def get_factor_tree(task_id: str, index: int):
     """获取因子树 DAG 数据"""
     dag = mining_service.get_factor_tree(task_id, index)
     if dag is None:
-        raise HTTPException(status_code=404, detail="因子树数据不可用")
+        return None
     return dag.model_dump()
 
 
 # ─── 导出 ─────────────────────────────────────────────────────
+
+@router.get("/tasks/{task_id}/download")
+async def download_factor_script(task_id: str):
+    """下载挖掘产出的因子定义脚本"""
+    from fastapi.responses import FileResponse
+
+    task = mining_service.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    src = os.path.join(mining_service._task_dir(task_id), "factors.py")
+    if not os.path.exists(src):
+        raise HTTPException(status_code=404, detail="因子脚本尚未生成，请等待挖掘完成")
+
+    return FileResponse(
+        src,
+        media_type="text/x-python",
+        filename=f"mining_{task_id}.py",
+    )
+
 
 @router.post("/tasks/{task_id}/export")
 async def export_factor(task_id: str, req: ExportRequest = None):

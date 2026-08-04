@@ -1,0 +1,26 @@
+{
+  "factor_name": "pe_ttm",
+  "category": "估值",
+  "market": "A股",
+  "frequency": "日频",
+  "description": "A股滚动市盈率 (PE_TTM) 因子，PE_TTM = 总市值(元) / 归属于母公司股东的净利润(TTM)(元)",
+  "formula": "TotalMV * 10000 / NP_TTM",
+  "data_sources": {
+    "主板": {
+      "归母净利润(TTM)": {"table": "公司衍生报表数据_新会计准则(新)", "args": {"CalcType": "最新"}},
+      "总市值": {"table": "股票行情表现", "args": {"LookBack": 0}}
+    },
+    "科创板": {
+      "归母净利润(TTM)": {"table": "科创板衍生报表数据", "args": {"CalcType": "最新"}},
+      "总市值": {"table": "科创板行情表现", "args": {"LookBack": 0}}
+    }
+  },
+  "unit_conversions": {
+    "总市值": {"主板": "万元", "科创板": "元", "换算": "科创板 / 10000 → 万元"}
+  },
+  "hypothesis_id": null,
+  "qsid": null,
+  "status": "demo",
+  "tags": ["估值", "PE", "TTM", "财务"],
+  "created": "2025-07-01"
+}

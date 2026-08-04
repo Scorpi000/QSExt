@@ -73,6 +73,7 @@ class TaskManager:
         self._max_history = max_history
         self._running: Dict[str, asyncio.Task] = {}
         self._subscribers: Dict[str, Set[Callable]] = {}  # task_id -> set of callbacks
+        self._on_cancel_callbacks: Dict[str, Callable] = {}  # task_id -> cancel callback
 
     def subscribe(self, task_id: str, callback: Callable):
         """注册状态变更回调（WebSocket 推送用）"""
@@ -213,7 +214,15 @@ class TaskManager:
         return task.result
 
     def cancel(self, task_id: str) -> bool:
-        """取消任务"""
+        """取消任务。先调用 on_cancel 回调（如有），再取消 asyncio Task。"""
+        # 先执行 on_cancel 回调（如 LLMFactor 的 proc.kill()）
+        on_cancel = self._on_cancel_callbacks.pop(task_id, None)
+        if on_cancel is not None:
+            try:
+                on_cancel()
+            except Exception:
+                pass
+
         running = self._running.get(task_id)
         if running is not None:
             running.cancel()
@@ -224,6 +233,10 @@ class TaskManager:
                 task.completed_at = dt_mod.datetime.now(dt_mod.timezone.utc).isoformat()
             return True
         return False
+
+    def set_on_cancel(self, task_id: str, callback: Callable):
+        """注册取消回调（框架级清理逻辑，如 proc.kill()）"""
+        self._on_cancel_callbacks[task_id] = callback
 
 
 # 全局实例

@@ -30,6 +30,7 @@ CLAUDE.local.md
 .claude/skills/quantstudio
 .mcp.json
 output/
+local/
 
 # QSWeb
 QSWeb/frontend/node_modules/

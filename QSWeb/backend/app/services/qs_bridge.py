@@ -523,13 +523,16 @@ class QSBridge:
         rebalance_dts: Optional[List[dt.datetime]],
     ) -> ResultNode:
         """同步执行回测（在 executor 中运行）"""
-        from QuantStudio.Core.CalcEngine import Engine
+        from app.services.global_config_service import resolve_engine
         from QuantStudio.Core.Node import DTInitData, DTLocalContext
         from QuantStudio.Factor.Factor import FactorContext
         from QuantStudio.BackTest.BackTestModel import BTReport
 
         if not dts:
             raise ValueError("计算时点列表为空，请检查日期范围")
+
+        # 解析引擎配置
+        EngineClass, pid_list, _ = resolve_engine()
 
         # 构造 BTNode 列表（每个模块用自己的 price 和 section_ids）
         bt_nodes = []
@@ -567,13 +570,13 @@ class QSBridge:
         # 构建 Context
         context = FactorContext(
             PID="0",
-            PIDList=["0"],
+            PIDList=pid_list,
             DTRuler=dtruler,
             SectionIDs=list(all_section_ids) if all_section_ids else section_ids,
         )
 
         # 执行
-        with Engine() as exec_engine:
+        with EngineClass() as exec_engine:
             output, = exec_engine.run(
                 [report],
                 context,

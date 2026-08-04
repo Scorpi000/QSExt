@@ -1,7 +1,7 @@
 /**
  * MainLayout - 全局布局
  *
- * 左侧导航菜单 + 顶部标题栏 + 内容区 + 右侧全局因子池（hover 召唤）。
+ * 左侧导航菜单 + 顶部标题栏 + 内容区 + 右侧全局面板（因子池 | 全局配置，hover 召唤）。
  * 全局 AI 入口：FAB 悬浮按钮 + Ctrl+K 快捷键。
  */
 
@@ -20,11 +20,15 @@ import {
   FolderOpenOutlined,
   RobotOutlined,
   GoldOutlined,
+  SettingOutlined,
+  PushpinOutlined,
 } from '@ant-design/icons'
 import FactorPoolPanel from '../FactorPoolPanel'
 import FactorDiscover from '../FactorDiscover'
+import GlobalConfigPanel from '../GlobalConfigPanel'
 import AiChatDrawer from '../AiChatDrawer'
 import { useFactorPoolStore } from '../../stores/factorPoolStore'
+import { useGlobalConfigStore } from '../../stores/globalConfigStore'
 import { savePool, loadPool, listPools, deletePool } from '../../services/factorPool'
 
 const { Header, Sider, Content } = Layout
@@ -49,10 +53,16 @@ function MainLayout() {
   const location = useLocation()
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken()
 
-  // 右侧因子池状态
+  // 右侧面板状态
   const [poolExpanded, setPoolExpanded] = useState(false)
   const [poolPinned, setPoolPinned] = useState(false)
+  const [rightPanelTab, setRightPanelTab] = useState<'pool' | 'config'>('pool')
   const [discoverOpen, setDiscoverOpen] = useState(false)
+
+  // 启动时加载全局配置
+  useEffect(() => {
+    useGlobalConfigStore.getState().fetchConfig()
+  }, [])
 
   // AI Drawer 状态
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false)
@@ -172,7 +182,7 @@ function MainLayout() {
         </Content>
       </Layout>
 
-      {/* 右侧全局因子池 — hover 召唤 */}
+      {/* 右侧全局面板 — hover 召唤（因子池 | 全局配置） */}
       <div
         onMouseEnter={handlePoolMouseEnter}
         onMouseLeave={handlePoolMouseLeave}
@@ -195,24 +205,51 @@ function MainLayout() {
         {/* 折叠态：竖向标签 */}
         {!poolExpanded && !poolPinned && (
           <div style={{
-            writingMode: 'vertical-rl',
-            textOrientation: 'mixed',
             height: '100%',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#999',
-            fontSize: 13,
-            letterSpacing: 4,
+            flexDirection: 'column',
             cursor: 'default',
             userSelect: 'none',
           }}>
-            <UnorderedListOutlined style={{ marginBottom: 8, fontSize: 16 }} />
-            因子池
+            <div
+              onClick={() => { setRightPanelTab('pool'); setPoolExpanded(true) }}
+              style={{
+                flex: 1,
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#999',
+                fontSize: 13,
+                letterSpacing: 4,
+                borderBottom: '1px solid #f0f0f0',
+              }}
+            >
+              <UnorderedListOutlined style={{ marginBottom: 8, fontSize: 16 }} />
+              因子池
+            </div>
+            <div
+              onClick={() => { setRightPanelTab('config'); setPoolExpanded(true) }}
+              style={{
+                flex: 1,
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#999',
+                fontSize: 13,
+                letterSpacing: 4,
+              }}
+            >
+              <SettingOutlined style={{ marginBottom: 8, fontSize: 16 }} />
+              配置
+            </div>
           </div>
         )}
 
-        {/* 展开态：因子池面板 */}
+        {/* 展开态：Tab 切换面板 */}
         {(poolExpanded || poolPinned) && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <div style={{
@@ -225,40 +262,65 @@ function MainLayout() {
               flexWrap: 'wrap',
               gap: 4,
             }}>
-              <span style={{ fontWeight: 500, fontSize: 14 }}>全局因子池</span>
-              <Space size={4}>
-                <Button type="text" size="small" icon={<SaveOutlined />}
-                  onClick={() => setSaveModalOpen(true)} title="保存到图库" />
-                <Select
+              <Space size={0}>
+                <Button
+                  type={rightPanelTab === 'pool' ? 'primary' : 'text'}
                   size="small"
-                  style={{ width: 24 }}
-                  value={undefined}
-                  placeholder={<FolderOpenOutlined />}
-                  onDropdownVisibleChange={(open) => { if (open) handleLoadPools() }}
-                  onChange={handleLoadPool}
-                  loading={loadingPool}
-                  dropdownStyle={{ minWidth: 200 }}
-                  options={savedPools.map((p) => ({
-                    value: p.Name,
-                    label: (
-                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                        <span>{p.Name} ({p.FactorCount} 因子)</span>
-                        <Button type="link" size="small" danger
-                          onClick={(e) => { e.stopPropagation(); handleDeletePool(p.Name) }}>删除</Button>
-                      </Space>
-                    ),
-                  }))}
-                  popupMatchSelectWidth={false}
-                />
+                  onClick={() => setRightPanelTab('pool')}
+                >
+                  因子池
+                </Button>
+                <Button
+                  type={rightPanelTab === 'config' ? 'primary' : 'text'}
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => setRightPanelTab('config')}
+                >
+                  配置
+                </Button>
+              </Space>
+              <Space size={4}>
+                {rightPanelTab === 'pool' && (
+                  <>
+                    <Button type="text" size="small" icon={<SaveOutlined />}
+                      onClick={() => setSaveModalOpen(true)} title="保存到图库" />
+                    <Select
+                      size="small"
+                      style={{ width: 24 }}
+                      value={undefined}
+                      placeholder={<FolderOpenOutlined />}
+                      onDropdownVisibleChange={(open) => { if (open) handleLoadPools() }}
+                      onChange={handleLoadPool}
+                      loading={loadingPool}
+                      dropdownStyle={{ minWidth: 200 }}
+                      options={savedPools.map((p) => ({
+                        value: p.Name,
+                        label: (
+                          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                            <span>{p.Name} ({p.FactorCount} 因子)</span>
+                            <Button type="link" size="small" danger
+                              onClick={(e) => { e.stopPropagation(); handleDeletePool(p.Name) }}>删除</Button>
+                          </Space>
+                        ),
+                      }))}
+                      popupMatchSelectWidth={false}
+                    />
+                  </>
+                )}
                 <Button type="text" size="small"
-                  style={{ color: poolPinned ? '#1677ff' : '#999', fontSize: 12 }}
-                  onClick={() => setPoolPinned(!poolPinned)}>
-                  {poolPinned ? '📌' : '📌'}
+                  style={{ color: poolPinned ? '#1677ff' : '#999' }}
+                  onClick={() => setPoolPinned(!poolPinned)}
+                  title={poolPinned ? '取消固定' : '固定面板'}>
+                  <PushpinOutlined />
                 </Button>
               </Space>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-              <FactorPoolPanel compact onAddClick={() => setDiscoverOpen(true)} />
+              {rightPanelTab === 'pool' ? (
+                <FactorPoolPanel compact onAddClick={() => setDiscoverOpen(true)} />
+              ) : (
+                <GlobalConfigPanel />
+              )}
             </div>
           </div>
         )}

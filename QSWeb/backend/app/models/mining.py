@@ -129,12 +129,17 @@ class HallOfFameEntry(BaseModel):
 
 
 class RunResult(BaseModel):
-    """一次运行的结果"""
+    """一次运行的结果（多态：GP 返回 hall_of_fame + fitness_history，LLMFactor 返回 factors + metrics）"""
     run_id: str = Field(..., description="运行 ID")
-    hall_of_fame: List[HallOfFameEntry] = Field(default_factory=list, description="Hall of Fame")
-    fitness_history: Dict[str, List[float]] = Field(default_factory=dict, description="适应度历史: {gen_best: [...], gen_avg: [...]}")
+    framework: str = Field(default="gp", description="挖掘框架标识")
+    # 新多态字段
+    data: Dict[str, Any] = Field(default_factory=dict, description="框架特定结果数据")
+    # 旧字段 — deprecated，保留向后兼容，GP 框架同时写入
+    hall_of_fame: List[HallOfFameEntry] = Field(default_factory=list, description="[deprecated] Hall of Fame，使用 data.hall_of_fame")
+    fitness_history: Dict[str, List[float]] = Field(default_factory=dict, description="[deprecated] 适应度历史，使用 data.fitness_history")
     gen_start: int = Field(default=0, description="本次运行的起始代数（接续时 > 0）")
     gen_end: int = Field(default=0, description="本次运行的结束代数")
+    is_partial: bool = Field(default=False, description="是否为中间结果（运行中）")
 
 
 # ─── DAG 模型 ────────────────────────────────────────────────
@@ -167,8 +172,9 @@ class CreateTaskRequest(BaseModel):
 
 
 class SubmitRunRequest(BaseModel):
-    """提交运行请求"""
-    config: GPRunConfig = Field(..., description="运行配置")
+    """提交运行请求（多态配置，由各框架自行解析校验）"""
+    config: Dict[str, Any] = Field(..., description="运行配置，各框架自行定义结构")
+    framework: str = Field(default="gp", description="挖掘框架标识（向后兼容，同时从 task.json 读取）")
 
 
 class ContinueRunRequest(BaseModel):
@@ -189,3 +195,43 @@ class FrameworkInfo(BaseModel):
     name: str = Field(..., description="框架名称")
     description: str = Field(default="", description="框架描述")
     config_schema: Dict[str, Any] = Field(default_factory=dict, description="配置模板（前端据此渲染表单）")
+
+
+# ─── LLMFactor 模型 ──────────────────────────────────────────
+
+class LLMFactorRunConfig(BaseModel):
+    """LLMFactor 运行配置（允许额外字段透传，表单可覆盖所有阶段参数）"""
+    model_config = {"extra": "allow"}
+
+    target: str = Field(..., description="研究方向描述")
+    market: str = Field(default="A股", description="目标市场")
+    frequency: str = Field(default="日频", description="数据频率")
+    mode: Literal["skill", "graph"] = Field(default="skill", description="运行模式")
+    max_rounds: int = Field(default=1, ge=1, description="最大轮次 (1=单次)")
+    max_hours: float = Field(default=8.0, gt=0, description="最大运行时长")
+    max_turns_hypothesis: int = Field(default=50, ge=1, description="假设阶段最大轮次")
+    max_turns_development: int = Field(default=80, ge=1, description="开发阶段最大轮次")
+    stages: List[str] = Field(default=["hypothesis", "development", "evaluation"], description="运行阶段")
+    clear_cache: bool = Field(default=True, description="是否清空评测缓存")
+    direction: Optional[str] = Field(None, description="指定方向（可选，跳过方向探索）")
+
+
+class RunLogResponse(BaseModel):
+    """运行日志响应"""
+    lines: List[str] = Field(default_factory=list, description="日志行")
+    next_offset: int = Field(default=0, description="下次请求的 offset")
+    eof: bool = Field(default=False, description="是否已到文件末尾")
+    status: str = Field(default="unknown", description="运行状态")
+
+
+class EvalFactorMetrics(BaseModel):
+    """单个因子的评测指标"""
+    name: str = Field(..., description="因子名称")
+    status: str = Field(default="unknown", description="因子状态")
+    metrics: Dict[str, Optional[float]] = Field(default_factory=dict, description="评测指标")
+
+
+class EvalMetricsResponse(BaseModel):
+    """评测指标响应"""
+    factors: List[EvalFactorMetrics] = Field(default_factory=list, description="因子评测列表")
+    updated_at: Optional[str] = Field(None, description="数据更新时间")

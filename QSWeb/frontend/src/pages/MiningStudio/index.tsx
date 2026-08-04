@@ -5,7 +5,7 @@
  * 支持新建任务、接续挖掘、结果浏览、因子树可视化和因子导出。
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Layout,
   Button,
@@ -28,6 +28,7 @@ import {
   Row,
   Col,
   Card,
+  Collapse,
 } from 'antd'
 import {
   PlusOutlined,
@@ -38,16 +39,8 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import ReactFlow, {
-  Node,
-  Edge,
-  Background,
-  Controls,
-  MarkerType,
-  useNodesState,
-  useEdgesState,
-} from 'reactflow'
-import 'reactflow/dist/style.css'
+import { Node, Edge } from 'reactflow'
+import DAGFlow, { DEFAULT_NODE_COLORS } from '../../components/DAGFlow'
 import {
   listTasks,
   getTask,
@@ -57,7 +50,6 @@ import {
   continueMining,
   getRunResult,
   getFactorTree,
-  exportFactor,
   importFactorsFromScript,
   listFrameworks,
   getFrameworkConfig,
@@ -68,21 +60,19 @@ import {
   type RunResult,
   type FactorTreeDAG,
   type HallOfFameEntry,
+  type LLMFactorRunConfig,
 } from '../../services/mining'
 import { getTables, getFactors, type FactorInfo } from '../../services/factor'
 import { useFactorPoolStore } from '../../stores/factorPoolStore'
+import { useGlobalConfigStore } from '../../stores/globalConfigStore'
 import EvalModulePicker, { type EvalPickerValue } from '../../components/EvalModulePicker'
 import FitnessChart from '../../components/FitnessChart'
+import LogViewer from '../../components/LogViewer'
+import EvalMetrics from '../../components/EvalMetrics'
 import { getBacktestConfig, getSectionIdSources, type SectionIdSource } from '../../services/backtest'
 
 const { Sider, Content } = Layout
 const { RangePicker } = DatePicker
-
-// 因子树节点着色
-const NODE_COLORS: Record<string, string> = {
-  operator: '#4682b4',
-  terminal: '#91caff',
-}
 
 function MiningStudio() {
   // 任务列表
@@ -103,8 +93,12 @@ function MiningStudio() {
   // 因子树
   const [selectedFactorIndex, setSelectedFactorIndex] = useState<number | null>(null)
   const [factorDAG, setFactorDAG] = useState<FactorTreeDAG | null>(null)
-  const [treeNodes, setTreeNodes, onTreeNodesChange] = useNodesState([])
-  const [treeEdges, setTreeEdges, onTreeEdgesChange] = useEdgesState([])
+
+  // Tab 切换
+  const [activeTab, setActiveTab] = useState('config')
+
+  // 全局配置
+  const globalConfig = useGlobalConfigStore((s) => s.config)
 
   // 全局配置（参照回测工作台）
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
@@ -122,6 +116,9 @@ function MiningStudio() {
 
   // 提交状态
   const [submitting, setSubmitting] = useState(false)
+
+  // 当前选中框架
+  const [activeFramework, setActiveFramework] = useState<string>('gp')
 
   const [form] = Form.useForm()
 
@@ -256,6 +253,38 @@ function MiningStudio() {
     }
   }, [])
 
+  // ─── 轮询：任务运行时自动刷新状态和结果 ──────────────────────
+  useEffect(() => {
+    if (!activeTask) return
+
+    const hasRunning = (activeTask.runs || []).some((r) => r.status === 'running')
+    if (!hasRunning) return
+
+    // 自动切换到结果页
+    setActiveTab('result')
+
+    const timer = setInterval(async () => {
+      try {
+        const updated = await getTask(activeTask.task_id) as unknown as MiningTask
+        setActiveTask(updated)
+
+        // 加载中间结果（运行中）或最终结果（已完成）
+        const latestRun = (updated.runs || []).slice(-1)[0]
+        if (latestRun) {
+          setActiveRunId(latestRun.run_id)
+          loadRunResult(activeTask.task_id, latestRun.run_id)
+        }
+
+        // 刷新任务列表（更新侧边栏状态标签）
+        loadTasks()
+      } catch {
+        // 轮询失败静默处理
+      }
+    }, 2000)
+
+    return () => clearInterval(timer)
+  }, [activeTask])
+
   // 加载框架配置（schema，不覆盖表单已有值）
   const loadFrameworkConfig = useCallback(async (key: string) => {
     try {
@@ -360,61 +389,70 @@ function MiningStudio() {
   const handleViewFactorTree = useCallback(async (index: number) => {
     if (!activeTask) return
     setSelectedFactorIndex(index)
+    setActiveTab('factorTree')
     try {
       const dag = await getFactorTree(activeTask.task_id, index) as unknown as FactorTreeDAG
       setFactorDAG(dag)
-
-      const nodes: Node[] = (dag.nodes || []).map((n, i) => ({
-        id: n.id,
-        data: {
-          label: (
-            <div
-              style={{
-                padding: '4px 10px',
-                borderRadius: 4,
-                background: NODE_COLORS[n.type] || '#d9d9d9',
-                color: n.type === 'operator' ? '#fff' : '#333',
-                fontSize: 12,
-                fontWeight: 500,
-              }}
-            >
-              {n.name}
-            </div>
-          ),
-        },
-        position: { x: i * 60, y: 0 },
-      }))
-
-      const edges: Edge[] = (dag.edges || []).map((e, i) => ({
-        id: `e-${i}`,
-        source: e.source,
-        target: e.target,
-        type: 'smoothstep',
-        style: { stroke: '#91caff', strokeWidth: 1.5 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#91caff' },
-      }))
-
-      setTreeNodes(nodes)
-      setTreeEdges(edges)
     } catch {
       setFactorDAG(null)
     }
-  }, [activeTask, setTreeNodes, setTreeEdges])
+  }, [activeTask])
+
+  // 转换为 ReactFlow 格式（布局由 DAGFlow 的 dagre 自动计算）
+  const { flowNodes, flowEdges } = useMemo(() => {
+    if (!factorDAG) return { flowNodes: [], flowEdges: [] }
+
+    const nodes: Node[] = (factorDAG.nodes || []).map((n) => ({
+      id: n.id,
+      data: {
+        nodeType: n.type,
+        label: (
+          <div
+            style={{
+              padding: '4px 10px',
+              borderRadius: 4,
+              background: DEFAULT_NODE_COLORS[n.type] || '#d9d9d9',
+              color: n.type === 'operator' ? '#fff' : '#333',
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+          >
+            {n.name}
+          </div>
+        ),
+      },
+      position: { x: 0, y: 0 },  // 由 dagre 布局覆盖
+    }))
+
+    const edges: Edge[] = (factorDAG.edges || []).map((e, i) => ({
+      id: `e-${i}`,
+      source: e.source,
+      target: e.target,
+    }))
+
+    return { flowNodes: nodes, flowEdges: edges }
+  }, [factorDAG])
 
   // 加载框架配置（触发默认值覆盖）
   const handleFrameworkChange = useCallback(async (key: string) => {
+    setActiveFramework(key)
     try {
       const config = await getFrameworkConfig(key) as unknown as Record<string, any>
       setFrameworkConfig(config)
-      form.setFieldsValue({
-        operators: config.operators || [],
-        ...config.default_params,
-      })
-      setEvalConfig({
-        modules: config.default_eval?.modules || [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
-        transform: config.default_eval?.transform || 'abs_ic_ir',
-        sign: config.default_eval?.sign || 'greater',
-      })
+      if (key === 'gp') {
+        form.setFieldsValue({
+          operators: config.operators || [],
+          ...config.default_params,
+        })
+        setEvalConfig({
+          modules: config.default_eval?.modules || [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
+          transform: config.default_eval?.transform || 'abs_ic_ir',
+          sign: config.default_eval?.sign || 'greater',
+        })
+      } else {
+        // LLMFactor: 按分组设置所有默认值
+        form.setFieldsValue({ ...config.defaults })
+      }
     } catch {
       // 静默
     }
@@ -425,24 +463,36 @@ function MiningStudio() {
     setActiveTask(null)
     setRunResult(null)
     setFactorDAG(null)
-    setFrameworkConfig(null)
     setIsContinue(false)
-    setEvalConfig({
-      modules: [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
-      transform: 'abs_ic_ir',
-      sign: 'greater',
-    })
     setDateRange([dayjs().subtract(3, 'year'), dayjs()])
     setDtMode(tradingDayAvailable ? 'trading' : 'natural')
+    setActiveFramework('gp')
     form.resetFields()
-    // resetFields 后恢复框架配置的默认值
+    // 重置后恢复框架默认值
     if (frameworkConfig) {
-      form.setFieldsValue({
-        operators: frameworkConfig.operators || [],
-        ...frameworkConfig.default_params,
-      })
+      if (activeFramework === 'gp') {
+        form.setFieldsValue({
+          operators: frameworkConfig.operators || [],
+          ...frameworkConfig.default_params,
+        })
+        if (frameworkConfig.default_eval) {
+          setEvalConfig({
+            modules: frameworkConfig.default_eval.modules || [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
+            transform: frameworkConfig.default_eval.transform || 'abs_ic_ir',
+            sign: frameworkConfig.default_eval.sign || 'greater',
+          })
+        } else {
+          setEvalConfig({
+            modules: [{ module: 'ic', instance_label: '', params: {}, section_mode: 'auto' }],
+            transform: 'abs_ic_ir',
+            sign: 'greater',
+          })
+        }
+      } else {
+        form.setFieldsValue({ ...frameworkConfig.defaults })
+      }
     }
-  }, [form, tradingDayAvailable, frameworkConfig])
+  }, [form, tradingDayAvailable, frameworkConfig, activeFramework])
 
   // 接续挖掘
   const handleContinue = useCallback(() => {
@@ -456,41 +506,62 @@ function MiningStudio() {
       const values = await form.validateFields()
       setSubmitting(true)
 
-      // 构建配置
-      // 解析种子因子为 TerminalFactorRef 格式
-      const seedFactors = (values.seed_factors || []).map((id: string) => {
-        const item = poolItems.find((p: any) => p.id === id)
-        return {
-          conn_id: item?.ref?.conn_id || '',
-          table_name: item?.ref?.table_name || '',
-          factor_name: item?.ref?.factor_name || '',
-        }
-      })
+      const framework = values.framework || 'gp'
+      let config: any
 
-      const config: GPRunConfig = {
-        operators: values.operators || [],
-        terminal_factors: values.terminal_factors || [],
-        seed_factors: seedFactors,
-        population_size: values.population_size ?? 20,
-        n_generations: values.n_generations ?? 20,
-        tournament_size: values.tournament_size ?? 20,
-        init_depth: values.init_depth ?? [2, 6],
-        init_method: values.init_method ?? 'half and half',
-        const_range: values.const_range ?? null,
-        p_crossover: values.p_crossover ?? 0.9,
-        p_subtree_mutation: values.p_subtree_mutation ?? 0.01,
-        p_hoist_mutation: values.p_hoist_mutation ?? 0.01,
-        p_point_mutation: values.p_point_mutation ?? 0.01,
-        p_point_replace: values.p_point_replace ?? 0.05,
-        parsimony_coefficient: values.parsimony_coefficient ?? 0.0,
-        start_date: dateRange?.[0]?.format('YYYY-MM-DD') || null,
-        end_date: dateRange?.[1]?.format('YYYY-MM-DD') || null,
-        dt_mode: dtMode,
-        eval: {
-          modules: evalConfig.modules,
-          transform: evalConfig.transform || 'abs',
-          sign: evalConfig.sign || 'greater',
-        },
+      if (framework === 'llm_factor') {
+        // LLMFactor 配置 — 默认值 + 表单覆盖（所有字段透传）
+        const defaults = frameworkConfig?.defaults || {}
+        // 将 dayjs 对象转为字符串
+        const monthFields = ['in_sample_start', 'in_sample_end', 'oos_start', 'oos_end']
+        const formValues = { ...values }
+        monthFields.forEach((k) => {
+          if (formValues[k] && dayjs.isDayjs?.(formValues[k])) {
+            formValues[k] = formValues[k].format('YYYY-MM')
+          }
+        })
+        config = {
+          ...defaults,
+          ...formValues,
+          // 确保 stages 不为空
+          stages: values.stages?.length ? values.stages : defaults.stages || ['hypothesis', 'development', 'evaluation'],
+        } as LLMFactorRunConfig
+      } else {
+        // GP 配置
+        const seedFactors = (values.seed_factors || []).map((id: string) => {
+          const item = poolItems.find((p: any) => p.id === id)
+          return {
+            conn_id: item?.ref?.conn_id || '',
+            table_name: item?.ref?.table_name || '',
+            factor_name: item?.ref?.factor_name || '',
+          }
+        })
+
+        config = {
+          operators: values.operators || [],
+          terminal_factors: values.terminal_factors || [],
+          seed_factors: seedFactors,
+          population_size: values.population_size ?? 20,
+          n_generations: values.n_generations ?? 20,
+          tournament_size: values.tournament_size ?? 20,
+          init_depth: values.init_depth ?? [2, 6],
+          init_method: values.init_method ?? 'half and half',
+          const_range: values.const_range ?? null,
+          p_crossover: values.p_crossover ?? 0.9,
+          p_subtree_mutation: values.p_subtree_mutation ?? 0.01,
+          p_hoist_mutation: values.p_hoist_mutation ?? 0.01,
+          p_point_mutation: values.p_point_mutation ?? 0.01,
+          p_point_replace: values.p_point_replace ?? 0.05,
+          parsimony_coefficient: values.parsimony_coefficient ?? 0.0,
+          start_date: dateRange?.[0]?.format('YYYY-MM-DD') || null,
+          end_date: dateRange?.[1]?.format('YYYY-MM-DD') || null,
+          dt_mode: dtMode,
+          eval: {
+            modules: evalConfig.modules,
+            transform: evalConfig.transform || 'abs',
+            sign: evalConfig.sign || 'greater',
+          },
+        } as GPRunConfig
       }
 
       let targetTaskId: string
@@ -499,17 +570,17 @@ function MiningStudio() {
         // 新建任务
         const task = await createTask({
           name: values.task_name || '挖掘任务',
-          framework: values.framework || 'gp',
+          framework: framework,
         }) as unknown as MiningTask
         targetTaskId = task.task_id
         setActiveTask(task)
-        await submitRun(task.task_id, config)
+        await submitRun(task.task_id, config, framework)
       } else if (isContinue) {
         targetTaskId = activeTask.task_id
         await continueMining(activeTask.task_id, config)
       }
 
-      // 运行完成后刷新任务详情（状态、runs 等已更新）
+      // 运行完成后刷新任务详情
       if (targetTaskId!) {
         const updated = await getTask(targetTaskId) as unknown as MiningTask
         setActiveTask(updated)
@@ -523,18 +594,12 @@ function MiningStudio() {
       message.error('提交失败，请检查配置')
       setSubmitting(false)
     }
-  }, [form, activeTask, isContinue, loadTasks, evalConfig, dateRange, dtMode, poolItems])
+  }, [form, activeTask, isContinue, loadTasks, evalConfig, dateRange, dtMode, poolItems, frameworkConfig])
 
-  // 导出
-  const handleExport = useCallback(async () => {
-    if (!activeTask) return
-    try {
-      const result = await exportFactor(activeTask.task_id)
-      message.success((result as unknown as { message: string }).message)
-    } catch {
-      message.error('导出失败')
-    }
-  }, [activeTask])
+  // 下载因子脚本的 URL
+  const factorScriptUrl = activeTask
+    ? `/api/mining/tasks/${activeTask.task_id}/download`
+    : null
 
   // 删除任务
   const handleDeleteTask = useCallback(async (taskId: string) => {
@@ -628,7 +693,12 @@ function MiningStudio() {
                 }
                 description={
                   <Space size={4}>
-                    <span style={{ fontSize: 11 }}>{task.framework}</span>
+                    <Tag
+                      color={task.framework === 'llm_factor' ? 'green' : 'blue'}
+                      style={{ fontSize: 10, lineHeight: '16px', margin: 0 }}
+                    >
+                      {task.framework === 'llm_factor' ? 'LLM' : 'GP'}
+                    </Tag>
                     <span style={{ fontSize: 11, color: '#999' }}>
                       {task.current_run} runs
                     </span>
@@ -660,11 +730,14 @@ function MiningStudio() {
       {/* 右侧：内容 */}
       <Content style={{ padding: '16px 24px', overflow: 'auto' }}>
         <Tabs
-          items={[
-            {
-              key: 'config',
-              label: '配置',
-              children: (
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={(() => {
+            const items: any[] = [
+              {
+                key: 'config',
+                label: '配置',
+                children: (
                 <Form
                   form={form}
                   layout="vertical"
@@ -700,202 +773,312 @@ function MiningStudio() {
                     />
                   </Form.Item>
 
-                  <Form.Item label="算子" name="operators">
-                    <Select
-                      mode="multiple"
-                      placeholder="选择算子"
-                      disabled={isContinue}
-                      options={
-                        frameworkConfig?.operators?.map((op: string) => ({
-                          value: op,
-                          label: op,
-                        })) || []
-                      }
-                    />
-                  </Form.Item>
-
-                  <Card title="终端因子" size="small" style={{ marginBottom: 12 }}>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <Select
-                        style={{ width: '100%' }}
-                        placeholder="选择因子库"
-                        onChange={handleConnChange}
-                        disabled={isContinue}
-                        allowClear
-                        options={terminalConns.map((c) => ({ value: c.id, label: c.name }))}
-                      />
-                      <Select
-                        style={{ width: '100%' }}
-                        placeholder="选择因子表"
-                        value={terminalTable}
-                        onChange={handleTableChange}
-                        disabled={isContinue || !terminalConnId}
-                        allowClear
-                        options={terminalTables.map((t) => ({ value: t.name, label: t.name }))}
-                      />
-                      <Form.Item
-                        name="terminal_factors"
-                        noStyle
-                        getValueFromEvent={(names: string[]) =>
-                          names.map((name) => ({
-                            conn_id: terminalConnId || '',
-                            table_name: terminalTable || '',
-                            factor_name: name,
-                          }))
-                        }
-                        getValueProps={(refs: any[]) => ({
-                          value: (refs || []).map((r: any) =>
-                            typeof r === 'string' ? r : r?.factor_name || ''
-                          ),
-                        })}
-                      >
+                  {/* ─── GP 框架配置（硬编码，保持不变） ─── */}
+                  {activeFramework === 'gp' && (
+                    <>
+                      <Form.Item label="算子" name="operators">
                         <Select
                           mode="multiple"
-                          placeholder="选择终端因子"
-                          disabled={isContinue || !terminalTable}
-                          dropdownMatchSelectWidth={false}
-                          style={{ width: '100%' }}
-                          options={terminalFactors.map((f) => ({
-                            value: f.name,
-                            label: f.name,
-                          }))}
-                          optionFilterProp="label"
-                          showSearch
-                        />
-                      </Form.Item>
-                    </Space>
-                  </Card>
-
-                  <Row gutter={12} style={{ marginBottom: 12 }}>
-                    <Col span={12}>
-                      <Form.Item label="种子因子（可选）" name="seed_factors" style={{ marginBottom: 0 }}>
-                        <Select
-                          mode="multiple"
-                          placeholder="从全局因子池选择"
-                          options={poolItems.map((item) => ({
-                            value: item.id,
-                            label: `${item.label} (${item.ref?.factor_name || ''})`,
-                          }))}
-                          optionFilterProp="label"
-                          showSearch
-                          notFoundContent={
-                            <Empty description="因子池为空" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                          placeholder="选择算子"
+                          disabled={isContinue}
+                          options={
+                            frameworkConfig?.operators?.map((op: string) => ({
+                              value: op,
+                              label: op,
+                            })) || []
                           }
                         />
                       </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label="导入因子定义脚本" style={{ marginBottom: 0 }}>
-                        <Button
-                          icon={<ImportOutlined />}
-                          onClick={() => setImportOpen(true)}
-                          disabled={isContinue}
-                        >
-                          从脚本导入
-                        </Button>
-                      </Form.Item>
-                    </Col>
-                  </Row>
 
-                  <Card title="GP 参数" size="small" style={{ marginBottom: 12 }}>
-                    <Row gutter={[16, 0]}>
-                      <Col span={12}>
-                        <Form.Item label="种群大小" name="population_size">
-                          <InputNumber min={10} max={100000} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="进化代数" name="n_generations">
-                          <InputNumber min={1} max={1000} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="锦标赛大小" name="tournament_size">
-                          <InputNumber min={2} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="初始深度范围" style={{ marginBottom: 0 }}>
-                          <Space>
-                            <Form.Item name={['init_depth', 0]} noStyle>
-                              <InputNumber min={1} max={20} placeholder="最小" />
-                            </Form.Item>
-                            <span>—</span>
-                            <Form.Item name={['init_depth', 1]} noStyle>
-                              <InputNumber min={1} max={20} placeholder="最大" />
-                            </Form.Item>
-                          </Space>
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="交叉概率" name="p_crossover">
-                          <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="子树变异概率" name="p_subtree_mutation">
-                          <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="提升变异概率" name="p_hoist_mutation">
-                          <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="点变异概率" name="p_point_mutation">
-                          <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item label="复杂度惩罚系数" name="parsimony_coefficient">
-                          <InputNumber min={0} step={0.01} style={{ width: '100%' }} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Card>
+                      <Card title="终端因子" size="small" style={{ marginBottom: 12 }}>
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Select
+                            style={{ width: '100%' }}
+                            placeholder="选择因子库"
+                            onChange={handleConnChange}
+                            disabled={isContinue}
+                            allowClear
+                            options={terminalConns.map((c) => ({ value: c.id, label: c.name }))}
+                          />
+                          <Select
+                            style={{ width: '100%' }}
+                            placeholder="选择因子表"
+                            value={terminalTable}
+                            onChange={handleTableChange}
+                            disabled={isContinue || !terminalConnId}
+                            allowClear
+                            options={terminalTables.map((t) => ({ value: t.name, label: t.name }))}
+                          />
+                          <Form.Item
+                            name="terminal_factors"
+                            noStyle
+                            getValueFromEvent={(names: string[]) =>
+                              names.map((name) => ({
+                                conn_id: terminalConnId || '',
+                                table_name: terminalTable || '',
+                                factor_name: name,
+                              }))
+                            }
+                            getValueProps={(refs: any[]) => ({
+                              value: (refs || []).map((r: any) =>
+                                typeof r === 'string' ? r : r?.factor_name || ''
+                              ),
+                            })}
+                          >
+                            <Select
+                              mode="multiple"
+                              placeholder="选择终端因子"
+                              disabled={isContinue || !terminalTable}
+                              dropdownMatchSelectWidth={false}
+                              style={{ width: '100%' }}
+                              options={terminalFactors.map((f) => ({
+                                value: f.name,
+                                label: f.name,
+                              }))}
+                              optionFilterProp="label"
+                              showSearch
+                            />
+                          </Form.Item>
+                        </Space>
+                      </Card>
 
-                  <Card title="评估配置" size="small" style={{ marginBottom: 12 }}>
-                    <Row gutter={[16, 8]}>
-                      <Col span={12}>
-                        <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>日期范围</div>
-                        <RangePicker
-                          style={{ width: '100%' }}
-                          value={dateRange}
-                          onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs])}
-                          disabled={isContinue}
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
-                          时点模式
-                          {!tradingDayAvailable && (
-                            <Tooltip title="交易日源未配置，请在 QSWebConfig.yaml 的 backtest.trading_day_source 中配置">
-                              <InfoCircleOutlined style={{ marginLeft: 6, color: '#faad14' }} />
-                            </Tooltip>
-                          )}
+                      <Row gutter={12} style={{ marginBottom: 12 }}>
+                        <Col span={12}>
+                          <Form.Item label="种子因子（可选）" name="seed_factors" style={{ marginBottom: 0 }}>
+                            <Select
+                              mode="multiple"
+                              placeholder="从全局因子池选择"
+                              options={poolItems.map((item) => ({
+                                value: item.id,
+                                label: `${item.label} (${item.ref?.factor_name || ''})`,
+                              }))}
+                              optionFilterProp="label"
+                              showSearch
+                              notFoundContent={
+                                <Empty description="因子池为空" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                              }
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                          <Form.Item label="导入因子定义脚本" style={{ marginBottom: 0 }}>
+                            <Button
+                              icon={<ImportOutlined />}
+                              onClick={() => setImportOpen(true)}
+                              disabled={isContinue}
+                            >
+                              从脚本导入
+                            </Button>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Card title="GP 参数" size="small" style={{ marginBottom: 12 }}>
+                        <Row gutter={[16, 0]}>
+                          <Col span={12}>
+                            <Form.Item label="种群大小" name="population_size">
+                              <InputNumber min={10} max={100000} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="进化代数" name="n_generations">
+                              <InputNumber min={1} max={1000} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="锦标赛大小" name="tournament_size">
+                              <InputNumber min={2} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="初始深度范围" style={{ marginBottom: 0 }}>
+                              <Space>
+                                <Form.Item name={['init_depth', 0]} noStyle>
+                                  <InputNumber min={1} max={20} placeholder="最小" />
+                                </Form.Item>
+                                <span>—</span>
+                                <Form.Item name={['init_depth', 1]} noStyle>
+                                  <InputNumber min={1} max={20} placeholder="最大" />
+                                </Form.Item>
+                              </Space>
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="交叉概率" name="p_crossover">
+                              <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="子树变异概率" name="p_subtree_mutation">
+                              <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="提升变异概率" name="p_hoist_mutation">
+                              <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="点变异概率" name="p_point_mutation">
+                              <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={12}>
+                            <Form.Item label="复杂度惩罚系数" name="parsimony_coefficient">
+                              <InputNumber min={0} step={0.01} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Card>
+
+                      <Card title="评估配置" size="small" style={{ marginBottom: 12 }}>
+                        <Row gutter={[16, 8]}>
+                          <Col span={12}>
+                            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>日期范围</div>
+                            <RangePicker
+                              style={{ width: '100%' }}
+                              value={dateRange}
+                              onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs])}
+                              disabled={isContinue}
+                            />
+                          </Col>
+                          <Col span={12}>
+                            <div style={{ marginBottom: 4, fontSize: 12, color: '#666' }}>
+                              时点模式
+                              {!tradingDayAvailable && (
+                                <Tooltip title="交易日源未配置，请在 QSWebConfig.yaml 的 backtest.trading_day_source 中配置">
+                                  <InfoCircleOutlined style={{ marginLeft: 6, color: '#faad14' }} />
+                                </Tooltip>
+                              )}
+                            </div>
+                            <Radio.Group
+                              value={dtMode}
+                              onChange={(e) => setDtMode(e.target.value)}
+                              optionType="button"
+                              size="small"
+                              disabled={isContinue}
+                            >
+                              <Radio.Button value="natural">自然日</Radio.Button>
+                              <Radio.Button value="trading" disabled={!tradingDayAvailable}>交易日</Radio.Button>
+                            </Radio.Group>
+                          </Col>
+                        </Row>
+                        <div style={{ marginTop: 12 }}>
+                          <EvalModulePicker
+                            disabled={isContinue}
+                            value={evalConfig}
+                            onChange={setEvalConfig}
+                            sectionSources={sectionSources}
+                          />
                         </div>
-                        <Radio.Group
-                          value={dtMode}
-                          onChange={(e) => setDtMode(e.target.value)}
-                          optionType="button"
-                          size="small"
-                          disabled={isContinue}
-                        >
-                          <Radio.Button value="natural">自然日</Radio.Button>
-                          <Radio.Button value="trading" disabled={!tradingDayAvailable}>交易日</Radio.Button>
-                        </Radio.Group>
-                      </Col>
-                    </Row>
-                    <div style={{ marginTop: 12 }}>
-                      <EvalModulePicker
-                        disabled={isContinue}
-                        value={evalConfig}
-                        onChange={setEvalConfig}
-                        sectionSources={sectionSources}
-                      />
-                    </div>
-                  </Card>
+                      </Card>
+                    </>
+                  )}
+
+                  {/* ─── LLMFactor 框架配置（分组可折叠面板） ─── */}
+                  {activeFramework === 'llm_factor' && frameworkConfig?.groups && (
+                    <Collapse
+                      size="small"
+                      defaultActiveKey={['task']}
+                      style={{ marginBottom: 12 }}
+                      items={frameworkConfig.groups.map((group: any) => ({
+                        key: group.key,
+                        label: group.label,
+                        children: (
+                          <Row gutter={[16, 0]}>
+                            {group.fields.map((field: any) => {
+                              const colSpan = (field.type === 'text') ? 24 : 12
+                              const renderField = () => {
+                                switch (field.type) {
+                                  case 'text':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : undefined}
+                                        extra={field.tooltip} style={{ marginBottom: 8 }}
+                                      >
+                                        <Input placeholder={field.placeholder} />
+                                      </Form.Item>
+                                    )
+                                  case 'select':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        rules={field.required ? [{ required: true, message: `请选择${field.label}` }] : undefined}
+                                        style={{ marginBottom: 8 }}
+                                      >
+                                        <Select
+                                          options={(field.options || []).map((opt: any) =>
+                                            typeof opt === 'string'
+                                              ? { value: opt, label: opt }
+                                              : { value: opt.value, label: opt.label }
+                                          )}
+                                        />
+                                      </Form.Item>
+                                    )
+                                  case 'number':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        extra={field.tooltip} style={{ marginBottom: 8 }}
+                                      >
+                                        <InputNumber
+                                          min={field.min}
+                                          max={field.max}
+                                          step={field.step}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    )
+                                  case 'multi-select':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        style={{ marginBottom: 8 }}
+                                      >
+                                        <Select
+                                          mode="multiple"
+                                          options={(field.options || []).map((opt: any) =>
+                                            typeof opt === 'string'
+                                              ? { value: opt, label: opt }
+                                              : { value: opt.value, label: opt.label }
+                                          )}
+                                        />
+                                      </Form.Item>
+                                    )
+                                  case 'month':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        style={{ marginBottom: 8 }}
+                                        getValueProps={(v: string) => ({ value: v ? dayjs(v) : undefined })}
+                                      >
+                                        <DatePicker picker="month" style={{ width: '100%' }} format="YYYY-MM" />
+                                      </Form.Item>
+                                    )
+                                  case 'switch':
+                                    return (
+                                      <Form.Item key={field.key} label={field.label} name={field.key}
+                                        style={{ marginBottom: 8 }}
+                                      >
+                                        <Select
+                                          options={[
+                                            { value: true, label: '是' },
+                                            { value: false, label: '否' },
+                                          ]}
+                                        />
+                                      </Form.Item>
+                                    )
+                                  default:
+                                    return null
+                                }
+                              }
+                              return (
+                                <Col span={colSpan} key={field.key}>
+                                  {renderField()}
+                                </Col>
+                              )
+                            })}
+                          </Row>
+                        ),
+                      }))}
+                    />
+                  )}
 
                   <Form.Item>
                     <Button
@@ -947,71 +1130,143 @@ function MiningStudio() {
 
                   {runResult ? (
                     <>
-                      {/* 运行信息 */}
-                      {activeTask && (
-                        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6, fontSize: 13 }}>
-                          <Space wrap size={[16, 4]}>
-                            <span>代数: <b>{runResult.gen_start} – {runResult.gen_end}</b></span>
-                            {(() => {
-                              const run = (activeTask.runs || []).find((r) => r.run_id === activeRunId)
-                              return run ? (
-                                <>
-                                  <span>开始: {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}</span>
-                                  <span>完成: {run.completed_at ? new Date(run.completed_at).toLocaleString() : '-'}</span>
-                                </>
-                              ) : null
-                            })()}
-                          </Space>
-                        </div>
-                      )}
-
-                      {/* 错误信息（失败时） */}
-                      {runResult.hall_of_fame?.length === 0 && activeTask && (() => {
-                        const run = (activeTask.runs || []).find((r) => r.run_id === activeRunId)
-                        if (run?.status === 'failed') return null // 由下方错误显示处理
-                        return null
-                      })()}
-
-                      {/* 失败 Runs 的错误信息 */}
-                      {(activeTask?.runs || []).filter((r) => r.status === 'failed').length > 0 && (
-                        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff2f0', borderRadius: 6, border: '1px solid #ffccc7' }}>
-                          <div style={{ fontWeight: 500, color: '#cf1322', marginBottom: 4 }}>运行失败</div>
-                          {(activeTask?.runs || []).filter((r) => r.status === 'failed').map((r) => (
-                            <div key={r.run_id} style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                              <b>{r.run_id}</b>: {((r as any).error) || '未知错误'}
+                      {/* ─── GP 结果面板 ─── */}
+                      {activeTask?.framework === 'gp' && (
+                        <>
+                          {/* 运行信息 */}
+                          {activeTask && (
+                            <div style={{
+                              marginBottom: 16,
+                              padding: '8px 12px',
+                              background: runResult.is_partial ? '#fff7e6' : '#f6f8fa',
+                              borderRadius: 6,
+                              fontSize: 13,
+                              border: runResult.is_partial ? '1px solid #ffd591' : undefined,
+                            }}>
+                              <Space wrap size={[16, 4]}>
+                                {runResult.is_partial && (
+                                  <Tag color="processing">实时更新中</Tag>
+                                )}
+                                <span>代数: <b>{runResult.gen_start} – {runResult.gen_end}</b></span>
+                                {(() => {
+                                  const run = (activeTask.runs || []).find((r) => r.run_id === activeRunId)
+                                  return run ? (
+                                    <>
+                                      <span>开始: {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}</span>
+                                      <span>完成: {run.completed_at ? new Date(run.completed_at).toLocaleString() : '-'}</span>
+                                    </>
+                                  ) : null
+                                })()}
+                              </Space>
                             </div>
-                          ))}
-                        </div>
+                          )}
+
+                          {/* 失败 Runs */}
+                          {(activeTask?.runs || []).filter((r) => r.status === 'failed').length > 0 && (
+                            <div style={{ marginBottom: 16, padding: '8px 12px', background: '#fff2f0', borderRadius: 6, border: '1px solid #ffccc7' }}>
+                              <div style={{ fontWeight: 500, color: '#cf1322', marginBottom: 4 }}>运行失败</div>
+                              {(activeTask?.runs || []).filter((r) => r.status === 'failed').map((r) => (
+                                <div key={r.run_id} style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                                  <b>{r.run_id}</b>: {((r as any).error) || '未知错误'}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Hall of Fame */}
+                          {runResult.hall_of_fame?.length > 0 && (
+                            <>
+                              <h4>Hall of Fame</h4>
+                              <Table
+                                columns={hofColumns}
+                                dataSource={runResult.hall_of_fame || []}
+                                rowKey="rank"
+                                size="small"
+                                pagination={false}
+                                style={{ marginBottom: 16 }}
+                              />
+                              {factorScriptUrl && (
+                                <Space style={{ marginBottom: 16 }}>
+                                  <Button icon={<ExportOutlined />} href={factorScriptUrl} target="_blank">
+                                    下载因子定义脚本
+                                  </Button>
+                                </Space>
+                              )}
+                            </>
+                          )}
+
+                          {/* 适应度曲线 */}
+                          {runResult.fitness_history?.gen_best?.length > 0 && (
+                            <>
+                              <h4>适应度进化曲线</h4>
+                              <FitnessChart data={runResult.fitness_history} />
+                            </>
+                          )}
+
+                          {!runResult.hall_of_fame?.length && !runResult.fitness_history?.gen_best?.length && (
+                            <Empty description="暂无结果数据" />
+                          )}
+                        </>
                       )}
 
-                      {/* Hall of Fame */}
-                      {runResult.hall_of_fame?.length > 0 && (
-                        <>
-                          <h4>Hall of Fame</h4>
-                          <Table
-                            columns={hofColumns}
-                            dataSource={runResult.hall_of_fame || []}
-                            rowKey="rank"
-                            size="small"
-                            pagination={false}
-                            style={{ marginBottom: 16 }}
+                      {/* ─── LLMFactor 结果面板 ─── */}
+                      {(activeTask?.framework === 'llm_factor' || runResult.framework === 'llm_factor') && (
+                        <div>
+                          {/* 运行信息 */}
+                          <div style={{
+                            marginBottom: 16,
+                            padding: '8px 12px',
+                            background: runResult.is_partial ? '#fff7e6' : '#f6f8fa',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            border: runResult.is_partial ? '1px solid #ffd591' : undefined,
+                          }}>
+                            <Space wrap size={[16, 4]}>
+                              {runResult.is_partial && <Tag color="processing">实时更新中</Tag>}
+                              {(() => {
+                                const run = (activeTask.runs || []).find((r) => r.run_id === activeRunId)
+                                return run ? (
+                                  <>
+                                    <span>开始: {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}</span>
+                                    <span>完成: {run.completed_at ? new Date(run.completed_at).toLocaleString() : '-'}</span>
+                                  </>
+                                ) : null
+                              })()}
+                              {runResult.data?.factor_count != null && (
+                                <span>产出因子: <b>{runResult.data.factor_count}</b></span>
+                              )}
+                            </Space>
+                          </div>
+
+                          {/* LLMFactor 结果：日志 + 评测指标 */}
+                          <Tabs
+                            defaultActiveKey="log"
+                            items={[
+                              {
+                                key: 'log',
+                                label: '日志',
+                                children: (
+                                  <LogViewer
+                                    taskId={activeTask!.task_id}
+                                    runId={activeRunId}
+                                    isRunning={runResult.is_partial}
+                                  />
+                                ),
+                              },
+                              {
+                                key: 'evalMetrics',
+                                label: '评测指标',
+                                children: (
+                                  <EvalMetrics
+                                    taskId={activeTask!.task_id}
+                                    runId={activeRunId}
+                                    isRunning={runResult.is_partial}
+                                  />
+                                ),
+                              },
+                            ]}
                           />
-
-                          {/* 导出按钮 */}
-                          <Space style={{ marginBottom: 16 }}>
-                            <Button icon={<ExportOutlined />} onClick={handleExport}>
-                              导出因子脚本
-                            </Button>
-                          </Space>
-                        </>
-                      )}
-
-                      {/* 适应度曲线 */}
-                      {runResult.fitness_history?.gen_best?.length > 0 && (
-                        <>
-                          <h4>适应度进化曲线</h4>
-                          <FitnessChart data={runResult.fitness_history} />
-                        </>
+                        </div>
                       )}
                     </>
                   ) : (
@@ -1020,29 +1275,24 @@ function MiningStudio() {
                 </div>
               ),
             },
-            {
+            // 因子树 Tab — 仅 GP 框架
+            ...(activeTask?.framework !== 'llm_factor' ? [{
               key: 'factorTree',
               label: '因子树',
               children: (
                 <div style={{ height: 500 }}>
-                  {factorDAG ? (
-                    <ReactFlow
-                      nodes={treeNodes}
-                      edges={treeEdges}
-                      onNodesChange={onTreeNodesChange}
-                      onEdgesChange={onTreeEdgesChange}
-                      fitView
-                    >
-                      <Background />
-                      <Controls />
-                    </ReactFlow>
-                  ) : (
-                    <Empty description="点击 Hall of Fame 中的'查看'来查看因子树" />
-                  )}
+                  <DAGFlow
+                    nodes={flowNodes}
+                    edges={flowEdges}
+                    emptyText="点击 Hall of Fame 中的'查看'来查看因子树"
+                    nodeColorMap={DEFAULT_NODE_COLORS}
+                  />
                 </div>
               ),
-            },
-          ]}
+            }] : []),
+          ]
+          return items
+        })()}
         />
       </Content>
 

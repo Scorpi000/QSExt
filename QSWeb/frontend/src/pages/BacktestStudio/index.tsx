@@ -20,6 +20,7 @@ import ModulePicker from '../../components/ModulePicker'
 import ModuleList from '../../components/ModuleList'
 import ResultTree from '../../components/ResultTree'
 import ResultLeaf from '../../components/ResultLeaf'
+import { useGlobalConfigStore } from '../../stores/globalConfigStore'
 
 const { RangePicker } = DatePicker
 
@@ -28,6 +29,7 @@ function BacktestStudio() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(
     [dayjs().subtract(3, 'year'), dayjs()]
   )
+  const globalConfig = useGlobalConfigStore((s) => s.config)
   const [tradingDayAvailable, setTradingDayAvailable] = useState(false)
   const [dtMode, setDtMode] = useState<'natural' | 'trading'>('natural')
   const [sectionSources, setSectionSources] = useState<SectionIdSource[]>([])
