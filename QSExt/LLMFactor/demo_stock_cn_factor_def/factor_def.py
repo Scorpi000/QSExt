@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-from typing import List, Dict
+from typing import List
 
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
-from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
 
 __FACTOR_META__ = {
@@ -15,16 +15,16 @@ __FACTOR_META__ = {
     "DefScriptPath": __file__,# 固定不变
 }
 
-def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> List[Factor]:
-    SDB = fdi.FDB["JYDB"]
+def defFactor(fdi: FactorDefInput) -> List[Factor]:
+    JYDB = fdi.FDB["JYDB"]
 
     # ---- 归母净利润(TTM) ----
     # 主板：公司衍生报表数据_新会计准则(新)，CalcType="最新" 取最新已公告财报的 TTM 值
-    FT = SDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "最新"})
+    FT = JYDB.getTable("公司衍生报表数据_新会计准则(新)", args={"CalcType": "最新"})
     NP_TTM = FT.getFactor("归属母公司股东的净利润(TTM)")
 
     # 科创板：科创板衍生报表数据
-    FT_STIB = SDB.getTable("科创板衍生报表数据", args={"CalcType": "最新"})
+    FT_STIB = JYDB.getTable("科创板衍生报表数据", args={"CalcType": "最新"})
     NP_TTM_STIB = FT_STIB.getFactor("归属母公司股东的净利润(TTM)")
 
     # 合并主板与科创板（主板优先，缺失时以科创板填充）
@@ -34,11 +34,11 @@ def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> List[Factor]
 
     # ---- 总市值 ----
     # 主板：股票行情表现，LookBack=0 不回溯填充缺失值
-    FT = SDB.getTable("股票行情表现", args={"LookBack": 0})
+    FT = JYDB.getTable("股票行情表现", args={"LookBack": 0})
     TotalMV = FT.getFactor("总市值(万元)")
 
     # 科创板：科创板行情表现（单位：元）
-    FT_STIB = SDB.getTable("科创板行情表现", args={"LookBack": 0})
+    FT_STIB = JYDB.getTable("科创板行情表现", args={"LookBack": 0})
     TotalMV_STIB = FT_STIB.getFactor("总市值(元)")
 
     # 统一单位：万元（将科创板元→万元）
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     SDB = JYDB().connect()
 
     # 构建测试时点和股票列表
-    DTRuler = SDB.getTradeDay(start_date=dt.datetime(2013, 1, 1), end_date=dt.datetime(2025, 4, 30))
+    DTRuler = JYDB.getTradeDay(start_date=dt.datetime(2013, 1, 1), end_date=dt.datetime(2025, 4, 30))
     DTs = [dt.datetime(2025, 4, 24), dt.datetime(2025, 4, 25), dt.datetime(2025, 4, 28), dt.datetime(2025, 4, 29), dt.datetime(2025, 4, 30)]
     IDs = ["000001.SZ", "000003.SZ", "688579.SH", "874819.BJ"]
     SectionIDs = sorted(IDs + ["600519.SH"])
@@ -84,7 +84,7 @@ if __name__ == "__main__":
 
     # 构建因子
     print("\n--- 因子构建 ---")
-    factors = defFactor(fdi=fdi, dep_fd={})
+    factors = defFactor(fdi=fdi)
     for f in factors:
         print(f"\n--- 因子名称: {f.Name} ---")
         print(f"数据类型: {f.getMetaData(key='DataType')}")

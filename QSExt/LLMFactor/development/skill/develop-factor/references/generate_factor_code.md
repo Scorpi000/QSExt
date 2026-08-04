@@ -105,8 +105,8 @@ from QuantStudio.Factor.BasicOperator import rename
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
 
 
-def defFactor(fdi: FactorDefInput) -> list[Factor]:
-    SDB = fdi.FDB["JYDB"]
+def defFactor(fdi: FactorDefInput) -> List[Factor]:
+    JYDB = fdi.FDB["JYDB"]
     # 主板数据
     # 科创板数据
     # 合并 + 算子变换
@@ -162,129 +162,12 @@ def defFactor(fdi: FactorDefInput) -> list[Factor]:
 - 保持 `__FACTOR_META__` 和函数签名不变
 - 如需修改表名或字段名，只使用 JYDB 数据字典中真实存在的
 
-## QuantStudio API 参考
+## FactorDef 框架 API 参考
 
-### 因子定义模式
-```python
-__FACTOR_META__ = {
-    "TargetTable": "stock_cn_factor_xxx",  # 输出表名，固定前缀
-    "IDType": "A股",                        # 固定
-    "Author": "QSAgent",                    # 固定
-    "Description": "因子描述",
-    "FactorDeps": {},                       # 依赖因子声明，如 {"stock_cn_status": ["if_listed"]}
-                                            # 依赖模块需要 ModelArgs 时：{"dep_table": [{"Name": "*", "ModelArgs": {"key": "$parent_key"}}]}
-    "ModelArgs": {},                        # 可选，声明期望的参数：{"key": "参数说明"}
-    "DefScriptPath": __file__,              # 固定
-}
-
-def defFactor(fdi: FactorDefInput) -> List[Factor]:
-    SDB = fdi.FDB["JYDB"]
-    # ... 构建因子 ...
-    return [factor]
-```
-
-### 数据源访问
-```python
-SDB = fdi.FDB["JYDB"]
-FT = SDB.getTable("表名", args={"CalcType": "最新"})  # 财务数据用 CalcType="最新"
-value = FT.getFactor("字段名")
-```
-
-### 常用算子
-```python
-import QuantStudio.Factor.FactorOperator as fo
-from QuantStudio.Factor.BasicOperator import rename
-
-# 条件选择（双板合并核心）
-where = fo.Where(dtype="double")
-notnull = fo.NotNull()
-result = where(main_board, notnull(main_board), star_board)
-
-# 数学运算
-fo.Log()                    # 自然对数
-fo.Sum(all_nan=np.nan)      # 求和
-
-# 时序运算
-fo.RollingMean(window=5, min_periods=3)  # 滚动均值
-fo.RollingApply(func=np.nansum, window=240, min_periods=1)  # 滚动应用
-
-# 截面运算
-fo.Quantile(q=0.5)          # 截面分位数
-
-# 重命名
-factor = rename(factor, factor_name="xxx", factor_args={"Meta": {"Description": "描述"}})
-```
-
-### 自定义算子（@FactorOperatorized）
-```python
-from QuantStudio.Factor.FactorOperation import FactorOperatorized
-
-# Point 算子 — 单点运算
-@FactorOperatorized(operator_type="Point", args={"Arity": 2, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
-def calcXxx(f, idt, iid, x, args):
-    return x[0] + x[1]
-
-# Time 算子 — 时序运算
-@FactorOperatorized(operator_type="Time", args={
-    "Arity": 1, "LookBack": [20-1], "IDMode": "多ID", "DTMode": "单时点",
-    "ModelArgs": {"非空率": 0.8},
-})
-def calcMomentum(f, idt, iid, x, args):
-    # x[0] 是 2D array (time x IDs)
-    return x[0][-1] / x[0][0] - 1
-
-# Section 算子 — 截面运算
-@FactorOperatorized(operator_type="Section", args={"Arity": 1, "DTMode": "单时点", "DataType": "double"})
-def calcRank(f, idt, iid, x, args):
-    return scipy.stats.rankdata(x[0]) / len(x[0])
-```
-
-### 依赖因子
-```python
-def defFactor(fdi: FactorDefInput) -> List[Factor]:
-    # 依赖因子由框架根据 FactorDeps 声明预注入
-    IsListed = fdi.Factors["if_listed"]
-```
-
-### 主板/科创板合并模式（A 股因子必用）
-```python
-# 主板
-FT = SDB.getTable("主板表名", args={"CalcType": "最新"})
-main_val = FT.getFactor("字段名")
-
-# 科创板
-FT_STIB = SDB.getTable("科创板表名", args={"CalcType": "最新"})
-star_val = FT_STIB.getFactor("字段名")
-
-# 单位换算（如有需要）
-star_val = star_val / 10000  # 元→万元
-
-# 合并
-where = fo.Where(dtype="double")
-notnull = fo.NotNull()
-result = where(main_val, notnull(main_val), star_val)
-```
-
-### @FactorOperatorized 参数规范
-
-`@FactorOperatorized(operator_type=..., args={...})` 的 `args` 字段只接受以下键（传入未知键会触发 pydantic ValidationError）：
-
-| 键 | 类型 | 说明 | 取值范围 |
-|----|------|------|----------|
-| `Arity` | int / None | 输入因子数 | 正整数或 None |
-| `DTMode` | str | 时点模式 | `"单时点"`, `"多时点"` |
-| `IDMode` | str | ID 模式 | `"单ID"`, `"多ID"` |
-| `DataType` | str | 数据类型 | `"double"`, `"object"`, `"string"` |
-| `ModelArgs` | dict | 模型参数 | 如 `{"非空率": 0.4}` |
-| `LookBack` | list | 回溯窗口 | 如 `[21-1]`, `[252-1, 252-1]` |
-
-**operator_type 与常用 args 组合：**
-- `"Point"` — 点算子：`Arity`, `DTMode`, `IDMode`, `DataType`
-- `"Section"` — 截面算子：`Arity`, `DTMode`
-- `"Time"` — 时序算子：`Arity`, `DTMode`, `IDMode`, `LookBack`, `ModelArgs`
-- `"Panel"` — 面板算子：`Arity`, `DTMode`, `LookBack`
-
-**注意：** 不要在 args 中添加上表以外的键（如 `IDMode="全ID"` 是错误的，应为 `"单ID"` 或 `"多ID"`）。
+> 编写因子代码时，请查阅 `/generate-factor-def-code` skill（
+> `__FACTOR_META__` 字段详解、`FactorDefInput` 接口、
+> `defFactor` 模式、数据源访问、依赖机制、常用算子、自定义运算符 `@FactorOperatorized`、
+> 主板/科创板合并模式、导入速查等）。
 
 ## 输出格式
 三部分输出，用 `===` 分隔：

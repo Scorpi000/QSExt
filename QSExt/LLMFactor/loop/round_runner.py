@@ -116,9 +116,13 @@ class RoundRunner:
 
     def _run_skill_mode(self, direction: str, round_num: int, round_dir: Path) -> RoundResult:
         """使用 Skill 模式运行单轮。"""
-        from QSExt.LLMFactor.scripts.run_pipeline import (
+        from QSExt.LLMFactor.scripts.run_hypothesis import (
             run_hypothesis_skill,
+        )
+        from QSExt.LLMFactor.scripts.run_development import (
             run_development_skill_with_fix,
+        )
+        from QSExt.LLMFactor.scripts.run_evaluation import (
             build_evaluation_context,
             run_evaluation,
         )
@@ -211,9 +215,13 @@ class RoundRunner:
 
     def _run_graph_mode(self, direction: str, round_num: int, round_dir: Path) -> RoundResult:
         """使用 Graph 模式运行单轮。"""
-        from QSExt.LLMFactor.scripts.run_pipeline import (
+        from QSExt.LLMFactor.scripts.run_hypothesis import (
             run_hypothesis_graph,
+        )
+        from QSExt.LLMFactor.scripts.run_development import (
             run_development_graph,
+        )
+        from QSExt.LLMFactor.scripts.run_evaluation import (
             build_evaluation_context,
             run_evaluation,
         )

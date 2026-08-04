@@ -55,7 +55,7 @@ description: |
 
 ### Step 1: 代码生成
 
-> 详见 `references/generate_factor_code.md`
+> 详见 `references/generate_factor_code.md`，API 参考查阅 `/generate-factor-def-code` skill。
 
 从假设文档生成因子代码。
 
@@ -63,8 +63,9 @@ description: |
 1. 读取假设文档 YAML
 2. 用 `mining-log/get_successful_components` 检索可复用的经验组件（最多 5 个）
 3. 用 `qs-registry/get_factor_code` 获取相近因子的源代码作为参考（最多 3 个）
-4. 生成 `factor_def.py` + `search_space.json` + `metadata.json`
-5. 将生成的代码保存到工作区
+4. **查阅 `/generate-factor-def-code` skill 获取 FactorDef API 参考**（`__FACTOR_META__` 字段、算子列表、自定义运算符规范等）
+5. 生成 `factor_def.py` + `search_space.json` + `metadata.json`
+6. 将生成的代码保存到工作区
 
 ### Step 2: 自动验证
 

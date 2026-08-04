@@ -19,11 +19,11 @@ from typing import Optional
 # 系统 Prompt
 # ============================================================
 
-SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任务是根据假设文档生成符合 QuantStudio 框架规范的因子定义代码。
+SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任务是根据假设文档生成符合 FactorDef 框架规范的因子定义代码。
 
 你必须严格遵循以下规则：
 1. 生成的代码必须能直接运行，无语法错误
-2. 严格遵循 FactorDef 规范（defFactor 函数签名、__FACTOR_META__ 元数据）
+2. 严格遵循 FactorDef 规范（defFactor 单参数签名、__FACTOR_META__ 元数据）
 3. A 股因子必须同时覆盖主板和科创板，使用 fo.Where + fo.NotNull 合并
 4. 超参数必须用 args.get("param_name", default_value) 格式标注
 5. 不要捏造表名或字段名，只使用 JYDB 数据字典中真实存在的表和字段
@@ -34,37 +34,66 @@ SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任
 # QuantStudio API 参考
 # ============================================================
 
-QUANTSTUDIO_API_REFERENCE = """## QuantStudio API 参考
+QUANTSTUDIO_API_REFERENCE = """## FactorDef 框架 API 参考
 
 ### 必需的 import（严格使用以下路径，不要猜测其他路径）
 ```python
-from typing import List, Dict
+from typing import List
+import numpy as np
+
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
-from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QuantStudio.Factor.FactorOperation import FactorOperatorized
+from QSExt.FactorDef.FactorDefContent import FactorDefInput
 ```
 
-### 因子定义模式
+### 因子定义模式（FactorDef 规范）
 ```python
 __FACTOR_META__ = {
-    "TargetTable": "stock_cn_factor_xxx",  # 输出表名，固定前缀
-    "IDType": "A股",                        # 固定
-    "Author": "QSAgent",                    # 固定
+    "TargetTable": "stock_cn_factor_xxx",    # 输出表名，固定前缀
+    "IDType": "A股",                          # 证券类型
+    "Author": "QSAgent",                      # 作者
     "Description": "因子描述",
-    "DefScriptPath": __file__,              # 固定
+    "FactorDeps": {                           # 依赖因子声明（可选）
+        "stock_cn_status": ["if_listed"],
+    },
+    "DBDeps": {"JYDB": "聚源数据库"},         # 依赖的因子库（可选）
+    "ModelArgs": {},                          # 期望的模型参数（可选）
+    "DefScriptPath": __file__,                # 固定
 }
 
-def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> List[Factor]:
-    SDB = fdi.FDB["JYDB"]
+def defFactor(fdi: FactorDefInput) -> List[Factor]:
+    \"\"\"
+    标准签名：接收 FactorDefInput，返回 List[Factor]。
+    框架在调用前已完成：
+    1. 递归解析 FactorDeps 依赖链
+    2. 将依赖因子注入到 fdi.Factors
+    3. 校验 DBDeps 中声明的库是否在 fdi.FDB 中存在
+    \"\"\"
+    Factors = []
+    JYDB = fdi.FDB["JYDB"]
     # ... 构建因子 ...
-    return [factor]
+    return Factors
+```
+
+### 依赖因子获取（框架自动注入）
+```python
+# FactorDeps 中声明的依赖因子由框架预注入到 fdi.Factors
+IsListed = fdi.Factors["if_listed"]
+Close = fdi.Factors["close"]
+
+# FactorDeps 支持高级格式：别名和参数透传
+# 在 __FACTOR_META__["FactorDeps"] 中：
+#   "dep_table": [{"Name": "factor_name", "Alias": "my_alias"}]
+#   "dep_table": [{"Name": "*"}]  # 该表全部因子
+#   "dep_table": [{"Name": "*", "ModelArgs": {"key": "$parent_key"}}]  # 参数透传
 ```
 
 ### 数据源访问
 ```python
-SDB = fdi.FDB["JYDB"]
-FT = SDB.getTable("表名", args={"CalcType": "最新"})  # 财务数据用 CalcType="最新"
+JYDB = fdi.FDB["JYDB"]
+FT = JYDB.getTable("表名", args={"CalcType": "最新"})  # 财务数据用 CalcType="最新"
 value = FT.getFactor("字段名")
 ```
 
@@ -117,22 +146,14 @@ def calcRank(f, idt, iid, x, args):
     return scipy.stats.rankdata(x[0]) / len(x[0])
 ```
 
-### 依赖因子
-```python
-def defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef]) -> List[Factor]:
-    # 惰性获取依赖因子
-    StatusDef = dep_fd.get("stock_cn_status", defStockStatus(fdi=fdi, dep_fd=dep_fd))
-    IsListed = StatusDef.getFactor(factor_name="if_listed")
-```
-
 ### 主板/科创板合并模式（A 股因子必用）
 ```python
 # 主板
-FT = SDB.getTable("主板表名", args={"CalcType": "最新"})
+FT = JYDB.getTable("主板表名", args={"CalcType": "最新"})
 main_val = FT.getFactor("字段名")
 
 # 科创板
-FT_STIB = SDB.getTable("科创板表名", args={"CalcType": "最新"})
+FT_STIB = JYDB.getTable("科创板表名", args={"CalcType": "最新"})
 star_val = FT_STIB.getFactor("字段名")
 
 # 单位换算（如有需要）
@@ -229,8 +250,9 @@ OUTPUT_INSTRUCTIONS = """
 
 注意事项：
 - factor_def.py 必须包含完整的 import 语句
-- 必须包含 __FACTOR_META__ 字典
-- defFactor 函数签名为 defFactor(fdi: FactorDefInput, dep_fd: Dict[str, FactorDef])
+- 必须包含 __FACTOR_META__ 字典（TargetTable, IDType, Author, Description, DefScriptPath 为必填字段，FactorDeps, DBDeps, ModelArgs, Tags 为可选字段）
+- defFactor 函数签名为 defFactor(fdi: FactorDefInput) -> List[Factor]（单参数）
+- 依赖因子通过 fdi.Factors["因子名"] 获取（框架已根据 FactorDeps 预注入）
 - 超参数用 args.get("param_name", default) 格式，同时在 SEARCH_SPACE 中定义搜索范围
 - metadata.json 必须包含 factor_name, category, market, frequency, description, formula, data_sources, tags 字段
 """

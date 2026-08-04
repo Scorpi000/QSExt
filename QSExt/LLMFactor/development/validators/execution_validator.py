@@ -135,7 +135,7 @@ class ExecutionValidator:
             if fdi is None:
                 return None, None, "无法构建 FDI（JYDB 连接不可用）"
 
-            result = module.defFactor(fdi=fdi, dep_fd={})
+            result = module.defFactor(fdi=fdi)
 
             # 处理两种返回类型
             if isinstance(result, list):

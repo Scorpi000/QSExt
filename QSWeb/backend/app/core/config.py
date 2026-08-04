@@ -140,7 +140,7 @@ class Settings:
                     "description": "因子开发助手",
                     "placeholder": "描述你想要的因子，例如：创建一个 20 日动量因子...",
                     "system_prompt": (
-                        "使用 develop-factor 技能创建因子定义脚本。\n"
+                        "使用 generate-factor-def-code 技能创建因子定义脚本。\n"
                         "请遵循以下步骤：\n"
                         "1. 理解需求并澄清不明确的部分\n"
                         "2. 通过 jy_base_doc 工具验证数据表和字段\n"
@@ -158,7 +158,7 @@ class Settings:
                         '{"key": "discard", "label": "放弃", "style": "default"}], '
                         '"payload": {"code": "<完整脚本代码>", "filename": "<建议的文件名>"} } }'
                     ),
-                    "skills": ["develop-factor"],
+                    "skills": ["generate-factor-def-code"],
                     "tools": [
                         "mcp__jy_base_doc__*", "mcp__qs-registry__*",
                         "Read", "Write", "Bash",

@@ -168,7 +168,10 @@ class SyntaxValidator:
         return {"passed": len(issues) == 0, "issues": issues}
 
     def _check_def_factor_signature(self, code: str) -> dict:
-        """defFactor 函数签名校验。"""
+        """defFactor 函数签名校验。
+
+        FactorDef 规范: defFactor(fdi: FactorDefInput) -> List[Factor]
+        """
         issues = []
         tree = ast.parse(code)
 
@@ -182,10 +185,13 @@ class SyntaxValidator:
             issues.append("未找到 defFactor 函数")
             return {"passed": False, "issues": issues}
 
-        # 检查参数数量（至少 2 个: fdi, dep_fd）
+        # 检查参数：FactorDef 规范为单参数 (fdi)
         args = def_func.args
         total_args = len(args.args) + len(args.posonlyargs) + len(args.kwonlyargs)
-        if total_args < 2:
-            issues.append(f"defFactor 参数数量不足（期望至少 2 个，实际 {total_args} 个）")
+        if total_args != 1:
+            issues.append(
+                f"defFactor 参数数量不正确（期望 1 个 fdi 参数，实际 {total_args} 个）。"
+                f"规范签名: defFactor(fdi: FactorDefInput) -> List[Factor]"
+            )
 
         return {"passed": len(issues) == 0, "issues": issues}

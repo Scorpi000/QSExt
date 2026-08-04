@@ -233,7 +233,7 @@ class ParamSearcher:
             fdi = self._inject_params(params)
 
             # 执行因子
-            result = self._module.defFactor(fdi=fdi, dep_fd={})
+            result = self._module.defFactor(fdi=fdi)
             factors = result if isinstance(result, list) else result.FactorList
 
             if not factors:

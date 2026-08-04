@@ -196,18 +196,15 @@ class FactorObject:
     # 标准方法
     # ============================================================
 
-    def replay(
-        self, fdi: Any, dep_fd: Optional[Dict[str, Any]] = None
-    ) -> List[Any]:
+    def replay(self, fdi: Any) -> List[Any]:
         """执行 factor_def.py 中的 defFactor()，返回 Factor 对象列表。
 
         动态导入因子模块并调用其 defFactor 函数。支持两种返回类型：
-        - List[Factor]（demo 模式，如 demo_stock_cn_factor_def）
+        - List[Factor]
         - FactorDef（标准模式，返回 FactorDef.FactorList）
 
         Args:
             fdi: FactorDefInput 运行时上下文
-            dep_fd: 依赖因子映射，默认为空 dict
 
         Returns:
             QuantStudio Factor 对象列表
@@ -223,7 +220,7 @@ class FactorObject:
             )
 
         try:
-            result = module.defFactor(fdi=fdi, dep_fd=dep_fd or {})
+            result = module.defFactor(fdi=fdi)
         except Exception as e:
             raise RuntimeError(f"defFactor() 执行失败: {e}") from e
 
