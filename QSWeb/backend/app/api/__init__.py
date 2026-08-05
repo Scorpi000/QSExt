@@ -16,6 +16,7 @@ from app.api.pool import router as pool_router
 
 from app.api.config import router as config_router
 from app.api.mining import router as mining_router
+from app.api.strategy import router as strategy_router
 
 router = APIRouter()
 
@@ -31,3 +32,4 @@ router.include_router(report_router, prefix="/reports", tags=["报告中心"])
 router.include_router(pool_router, prefix="/pool", tags=["全局因子池"])
 router.include_router(mining_router, prefix="/mining", tags=["因子挖掘"])
 router.include_router(config_router, prefix="/config", tags=["全局配置"])
+router.include_router(strategy_router, prefix="/strategy", tags=["策略工作台"])

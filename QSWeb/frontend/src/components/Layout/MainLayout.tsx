@@ -22,6 +22,7 @@ import {
   GoldOutlined,
   SettingOutlined,
   PushpinOutlined,
+  CodeOutlined,
 } from '@ant-design/icons'
 import FactorPoolPanel from '../FactorPoolPanel'
 import FactorDiscover from '../FactorDiscover'
@@ -42,6 +43,7 @@ const menuItems = [
   { key: '/report', icon: <FileTextOutlined />, label: '报告中心' },
   { key: '/ai', icon: <RobotOutlined />, label: 'AI 工作台' },
   { key: '/mining', icon: <GoldOutlined />, label: '因子挖掘' },
+  { key: '/strategy', icon: <CodeOutlined />, label: '策略工作台' },
 ]
 
 const POOL_COLLAPSED_WIDTH = 36

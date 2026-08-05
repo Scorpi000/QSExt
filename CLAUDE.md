@@ -62,7 +62,7 @@ QuantStudio 是一个 Python 量化投资框架，提供因子管理、回测、
 
 ### 双仓库结构
 
-- **QSExt**（本仓库）：扩展包，包含额外的因子库适配器、策略、GUI 等
+- **QSExt**（本仓库）：扩展包，包含额外的因子库适配器、策略等
 - **QuantStudio**：核心框架，提供基础类和引擎
 
 QSExt 通过 `from QuantStudio.xxx import yyy` 引用核心库。两个包的 `__init__.py` 都定义了 `__QS_MainPath__` 和 `__QS_ConfigPath__` 路径常量。
@@ -151,11 +151,6 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 
 `QS_TOOLS` 环境变量格式：`"factor,backtest"` 仅启用指定组；`"-report"` 排除指定组；`"all"` 或空启用全部。
 
-### GUI
-
-- **Notebook**：基于 ipywidgets 的 Jupyter 交互界面，包含 FactorGraphDlg（cytoscape 因子 DAG 可视化）、FactorDBDlg、BacktestDlg 等
-- **QtGUI**：基于 PyQt 的桌面 GUI
-
 ### FactorDef（因子定义框架）
 
 `QSExt/FactorDef/` 提供因子定义的完整框架，包括元信息声明、依赖自动解析、运行时配置管理和执行调度。
@@ -208,6 +203,53 @@ QSExt/FactorDef/
 - `"Point"` — 点算子，对单个值操作
 - `"Section"` — 截面算子，在单个时点上跨 ID 操作
 - `"Time"` — 时序算子，对单个 ID 跨时间操作
+
+### StrategyDef（策略定义框架）
+
+`QSExt/StrategyDef/` 提供策略定义的完整框架，与 FactorDef 架构对齐，支持策略元信息声明、依赖自动解析、运行时配置管理和执行调度。
+
+```
+QSExt/StrategyDef/
+├── StrategyDefContent.py           # 核心：StrategyDefInput / StrategyMeta / StrategyDef
+│                                   #       StrategyDBPool / StrategyDefSettings
+│                                   #       StrategyDefInputBuilder / build_dep_sd
+├── utils.py                        # expand_glob()
+├── conf/
+│   └── settings.example.py         # 配置模板
+├── scripts/
+│   ├── run_strategy_def.py                 # 执行入口
+│   └── register_strategies_to_graphdb.py   # 图数据库注册
+└── example_strategy.py                     # 示例策略
+```
+
+策略定义脚本（业务模块）置于使用项目中，通过 `from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput` 引用框架。
+
+**__STRATEGY_META__ 约定**：每个策略模块在顶部声明元信息字典：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `TargetTable` | `str` | 是 | 策略信号输出的因子表名 |
+| `IDType` | `str` | 是 | 证券类型，如 `"A股"`、`"ETF"` |
+| `OperatorConfig` | `dict` | 否 | 策略算子默认配置，含 `SignalType`（默认 `"目标权重"`）、`InitCash`（默认 `1e6`）、`ShortAllowed`（默认 `False`） |
+| `FactorDeps` | `dict[str, list]` | 否 | 依赖的因子声明 |
+| `StrategyDeps` | `dict[str, dict]` | 否 | 依赖的策略声明，key 为目标 TargetTable，value 为 `{因子名: 别名}` |
+| `DBDeps` | `dict[str, str]` | 否 | 依赖的因子库 |
+| `ModelArgs` | `dict[str, str]` | 否 | 期望的模型参数 |
+| `Author` | `str` | 否 | 作者，默认 `"Anonymous"` |
+| `Description` | `str` | 否 | 模块描述 |
+| `MaxLookBack` | `int` | 否 | 最大回溯天数，默认 365 |
+| `Tags` | `list[str]` | 否 | 检索标签 |
+| `DefScriptPath` | `str` | 否 | 脚本路径，通常为 `__file__` |
+
+**defStrategy 规范**：暴露 `defStrategy(sdi: StrategyDefInput) -> Strategy` 函数：
+- 通过 `sdi.Factors["因子名"]` 获取依赖因子
+- 通过 `sdi.Strategies["信号名"]` 获取依赖策略输出的信号
+- 通过 `sdi.ModelArgs` 获取参数覆盖值
+- 返回 `Strategy` 实例（MakeStrategy 子类调用后的产物）
+
+关键导入：
+- `from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput` — 输入类型
+- `from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy` — 策略基类
 
 ### 因子挖掘配置体系
 

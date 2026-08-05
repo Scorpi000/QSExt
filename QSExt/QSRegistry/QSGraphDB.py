@@ -55,6 +55,7 @@ _SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT backtest_result_id IF NOT EXISTS FOR (r:`回测结果`) REQUIRE r.ResultID IS UNIQUE",
     "CREATE CONSTRAINT report_id IF NOT EXISTS FOR (r:`报告`) REQUIRE r.ReportID IS UNIQUE",
     "CREATE CONSTRAINT storer_qsid IF NOT EXISTS FOR (s:`因子存储器`) REQUIRE s.QSID IS UNIQUE",
+    "CREATE CONSTRAINT strategy_qsid IF NOT EXISTS FOR (s:`策略`) REQUIRE s.QSID IS UNIQUE",
 ]
 
 _SCHEMA_INDEXES = [
@@ -77,6 +78,8 @@ _SCHEMA_INDEXES = [
     "CREATE INDEX report_format IF NOT EXISTS FOR (r:`报告`) ON (r.Format)",
     "CREATE INDEX storer_name IF NOT EXISTS FOR (s:`因子存储器`) ON (s.Name)",
     "CREATE INDEX storer_target_table IF NOT EXISTS FOR (s:`因子存储器`) ON (s.TargetTable)",
+    "CREATE INDEX strategy_name IF NOT EXISTS FOR (s:`策略`) ON (s.Name)",
+    "CREATE INDEX strategy_target_table IF NOT EXISTS FOR (s:`策略`) ON (s.TargetTable)",
 ]
 
 # endregion
@@ -146,6 +149,21 @@ class QSGraphDB(QSNeo4jObject):
                 {"dim": self._QSArgs.EmbeddingDim}
             )
             self._QS_Logger.info(f"已创建向量索引 factor_embedding (dim={self._QSArgs.EmbeddingDim})")
+            # 策略语义搜索向量索引
+            self._runCypher(
+                """
+                CREATE VECTOR INDEX strategy_embedding IF NOT EXISTS
+                FOR (s:`策略`) ON (s.Embedding)
+                OPTIONS {
+                  indexConfig: {
+                    `vector.dimensions`: $dim,
+                    `vector.similarity_function`: 'cosine'
+                  }
+                }
+                """,
+                {"dim": self._QSArgs.EmbeddingDim}
+            )
+            self._QS_Logger.info(f"已创建向量索引 strategy_embedding (dim={self._QSArgs.EmbeddingDim})")
         except Exception as e:
             self._QS_Logger.warning(f"创建向量索引失败（可能 Neo4j 版本不支持）: {e}")
 
@@ -2670,6 +2688,445 @@ class QSGraphDB(QSNeo4jObject):
 
     # endregion
 
+    # region 策略存储与检索（Strategy Store & Retrieve）
+
+    def _serializeStrategy(self, strategy_def) -> dict:
+        """序列化策略为 Neo4j 节点属性字典
+
+        Args:
+            strategy_def: StrategyDef 实例
+
+        Returns:
+            Neo4j 节点属性字典
+        """
+        import json as _json
+        from QSExt.QSRegistry._serialization import _sanitizeForJSON
+
+        meta = strategy_def.Meta
+        strategy = strategy_def.StrategyInstance
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+        props = {
+            "Name": strategy._QSArgs.Name,
+            "QSID": strategy.QSID,
+            "TargetTable": meta.TargetTable,
+            "IDType": meta.IDType,
+            "OperatorConfigJSON": _json.dumps(
+                _sanitizeForJSON(meta.OperatorConfig), ensure_ascii=False
+            ),
+            "ClassName": strategy_def.StrategyClass.__name__,
+            "ModulePath": strategy_def.StrategyClass.__module__,
+            "MetaJSON": _json.dumps(_sanitizeForJSON({
+                "TargetTable": meta.TargetTable,
+                "IDType": meta.IDType,
+                "Author": meta.Author,
+                "Description": meta.Description,
+                "MaxLookBack": meta.MaxLookBack,
+                "OperatorConfig": meta.OperatorConfig,
+                "Tags": meta.Tags,
+                "FactorDeps": meta.FactorDeps,
+                "StrategyDeps": meta.StrategyDeps,
+                "DBDeps": meta.DBDeps,
+                "ModelArgs": meta.ModelArgs,
+            }), ensure_ascii=False),
+            "DefScriptPath": meta.DefScriptPath,
+            "UpdatedAt": now,
+        }
+        return props
+
+    def storeStrategies(self, strategies: list,
+                        tags: Optional[Dict[str, List[str]]] = None) -> int:
+        """批量存储策略到 Neo4j 图数据库
+
+        为每个 StrategyDef 创建 (:策略) 节点，并建立依赖关系：
+        - (策略)-[:依赖因子]->(:因子) — FactorDeps 中声明的因子依赖
+        - (策略)-[:依赖策略]->(:策略) — StrategyDeps 中声明的策略间依赖
+        - (策略)-[:输出到]->(:因子表) — 策略信号输出目标表
+        - (策略)-[:打标签]->(:标签) — 分类标签
+
+        Args:
+            strategies: StrategyDef 列表
+            tags: QSID → 标签列表的映射
+
+        Returns:
+            成功存储的策略数量
+        """
+        if not strategies:
+            return 0
+
+        import json as _json
+        from QSExt.QSRegistry._serialization import _sanitizeForJSON
+
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+        # Phase 1: 构建策略节点数据
+        strategy_nodes = []
+        for sd in strategies:
+            props = self._serializeStrategy(sd)
+            # 生成嵌入向量
+            if self._QSArgs.EmbeddingModel:
+                text = f"{props['Name']} {sd.Meta.Description} {' '.join(sd.Meta.Tags)}"
+                emb = self._generateEmbedding(text)
+                if emb is not None:
+                    props["Embedding"] = emb
+                    props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
+                    props["EmbeddingDim"] = len(emb)
+            strategy_nodes.append({
+                "qsid": props["QSID"],
+                "props": props,
+                "now": now,
+            })
+
+        # Phase 2: 批量 MERGE 策略节点
+        if strategy_nodes:
+            self._runCypher("""
+                UNWIND $nodes AS node
+                MERGE (s:`策略` {QSID: node.qsid})
+                ON CREATE SET s += node.props, s.CreatedAt = node.now
+                ON MATCH SET s += node.props
+            """, {"nodes": strategy_nodes})
+
+        # Phase 3: 批量创建关系
+
+        # 3a. (策略)-[:依赖因子]->(:因子) — 从 FactorDeps 解析
+        factor_dep_rels = []
+        for sd in strategies:
+            for table_name, entries in sd.Meta.FactorDeps.items():
+                for entry in entries:
+                    factor_name = entry if isinstance(entry, str) else entry.get("Name", "")
+                    if factor_name:
+                        factor_dep_rels.append({
+                            "s_qsid": sd.StrategyInstance.QSID,
+                            "factor_name": factor_name,
+                        })
+        if factor_dep_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (s:`策略` {QSID: rel.s_qsid})
+                MATCH (f:`因子` {Name: rel.factor_name})
+                MERGE (s)-[:`依赖因子`]->(f)
+            """, {"rels": factor_dep_rels})
+
+        # 3b. (策略)-[:依赖策略]->(:策略) — 从 StrategyDeps 解析
+        # StrategyDeps key 是模块路径，通过 importlib 解析为 TargetTable 来匹配 Neo4j 节点
+        strategy_dep_rels = []
+        for sd in strategies:
+            for dep_module_path in sd.Meta.StrategyDeps:
+                # 解析模块路径 → TargetTable
+                dep_tt = dep_module_path  # 默认回退：直接把 module_path 当作 TargetTable
+                try:
+                    dep_mod = importlib.import_module(dep_module_path)
+                    dep_meta = getattr(dep_mod, '__STRATEGY_META__', None) or {}
+                    dep_tt = dep_meta.get('TargetTable', dep_module_path)
+                except ImportError:
+                    pass
+                strategy_dep_rels.append({
+                    "s_qsid": sd.StrategyInstance.QSID,
+                    "target_table": dep_tt,
+                })
+        if strategy_dep_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (s:`策略` {QSID: rel.s_qsid})
+                MATCH (t:`策略` {TargetTable: rel.target_table})
+                MERGE (s)-[:`依赖策略`]->(t)
+            """, {"rels": strategy_dep_rels})
+
+        # 3c. (策略)-[:输出到]->(:因子表) — TargetTable
+        output_rels = []
+        for sd in strategies:
+            if sd.Meta.TargetTable:
+                output_rels.append({
+                    "s_qsid": sd.StrategyInstance.QSID,
+                    "target_table": sd.Meta.TargetTable,
+                })
+        if output_rels:
+            self._runCypher("""
+                UNWIND $rels AS rel
+                MATCH (s:`策略` {QSID: rel.s_qsid})
+                MERGE (t:`因子表` {Name: rel.target_table})
+                MERGE (s)-[:`输出到`]->(t)
+            """, {"rels": output_rels})
+
+        # Phase 4: 标签
+        if tags:
+            tag_rels = []
+            for qsid, tag_list in tags.items():
+                for tag_name in tag_list:
+                    tag_rels.append({"qsid": qsid, "tag": tag_name})
+            if tag_rels:
+                self._runCypher("""
+                    UNWIND $rels AS rel
+                    MERGE (t:`标签` {Name: rel.tag})
+                    WITH t, rel
+                    MATCH (s:`策略` {QSID: rel.qsid})
+                    MERGE (s)-[:`打标签`]->(t)
+                """, {"rels": tag_rels})
+
+        self._QS_Logger.info(f"已批量存储 {len(strategies)} 个策略")
+        return len(strategies)
+
+    def searchStrategies(self, name: Optional[str] = None,
+                         tag: Optional[str] = None,
+                         factor_qsid: Optional[str] = None,
+                         limit: int = 100) -> List[Dict]:
+        """多条件组合搜索策略
+
+        Args:
+            name: 策略名称（模糊匹配）
+            tag: 标签名称
+            factor_qsid: 依赖因子的 QSID，查找所有依赖该因子的策略
+            limit: 返回数量上限
+
+        Returns:
+            策略属性字典列表
+        """
+        conditions = []
+        params = {"limit": limit}
+
+        if name:
+            conditions.append("s.Name CONTAINS $name")
+            params["name"] = name
+
+        if factor_qsid:
+            query = f"""
+                MATCH (s:`策略`)-[:`依赖因子`]->(f:`因子` {{QSID: $factor_qsid}})
+                {'WHERE ' + ' AND '.join(conditions) if conditions else ''}
+                RETURN s ORDER BY s.Name LIMIT $limit
+            """
+            params["factor_qsid"] = factor_qsid
+        elif tag:
+            query = f"""
+                MATCH (s:`策略`)-[:`打标签`]->(t:`标签` {{Name: $tag}})
+                {'WHERE ' + ' AND '.join(conditions) if conditions else ''}
+                RETURN s ORDER BY s.Name LIMIT $limit
+            """
+            params["tag"] = tag
+        else:
+            where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+            query = f"""
+                MATCH (s:`策略`)
+                {where_clause}
+                RETURN s ORDER BY s.Name LIMIT $limit
+            """
+
+        results = self._runCypher(query, params)
+        return [r["s"] for r in results]
+
+    def searchStrategiesByDescription(self, query_text: str, limit: int = 20,
+                                       min_score: Optional[float] = None) -> List[Dict]:
+        """基于描述文本的向量语义检索策略
+
+        Args:
+            query_text: 自然语言查询文本
+            limit: 返回数量上限
+            min_score: 最低相似度阈值 (0~1)
+
+        Returns:
+            策略属性字典列表，每项包含 Similarity 分数
+        """
+        if not self._QSArgs.EmbeddingModel:
+            self._QS_Logger.warning("向量检索未启用：EmbeddingModel 为空")
+            return []
+
+        query_embedding = self._generateEmbedding(query_text)
+        if query_embedding is None:
+            return []
+
+        try:
+            results = self._runCypher(
+                """
+                CALL db.index.vector.queryNodes('strategy_embedding', $limit, $embedding)
+                YIELD node AS s, score
+                RETURN s {.Name, .QSID, .TargetTable, .IDType, .ClassName, .DefScriptPath}, score
+                ORDER BY score DESC
+                """,
+                {"limit": limit, "embedding": query_embedding}
+            )
+        except Exception as e:
+            self._QS_Logger.warning(f"策略向量检索失败（向量索引可能不存在）: {e}")
+            return []
+
+        if min_score is not None:
+            results = [r for r in results if r["score"] >= min_score]
+        return [{"Similarity": round(r["score"], 6), **r["s"]} for r in results]
+
+    def getStrategyByQSID(self, qsid: str) -> Optional[Dict]:
+        """根据 QSID 查询策略节点
+
+        Args:
+            qsid: 策略 QSID
+
+        Returns:
+            策略节点属性字典，未找到返回 None
+        """
+        results = self._runCypher(
+            "MATCH (s:`策略` {QSID: $qsid}) RETURN s",
+            {"qsid": qsid}
+        )
+        return results[0]["s"] if results else None
+
+    def getStrategyCode(self, qsid: str) -> Optional[str]:
+        """根据 QSID 获取策略源代码路径
+
+        Args:
+            qsid: 策略 QSID
+
+        Returns:
+            DefScriptPath 文件路径，未找到返回 None
+        """
+        result = self.getStrategyByQSID(qsid)
+        if result and result.get("DefScriptPath"):
+            path = result["DefScriptPath"]
+            if os.path.isfile(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        return f.read()
+                except Exception as e:
+                    self._QS_Logger.warning(f"读取策略源代码失败 ({path}): {e}")
+                    return None
+        return None
+
+    def getStrategyDependencyGraph(self, qsid: str, direction: str = "both") -> Dict:
+        """获取策略的依赖子图
+
+        Args:
+            qsid: 目标策略 QSID
+            direction: "down"（上游依赖）/ "up"（下游影响）/ "both"（双向）
+
+        Returns:
+            {"root": qsid, "nodes": [...], "edges": [...]}
+        """
+        nodes = {}
+        edges = []
+
+        if direction in ("down", "both"):
+            # 上游：策略依赖的因子和子策略
+            results = self._runCypher("""
+                MATCH (s:`策略` {QSID: $qsid})
+                OPTIONAL MATCH (s)-[:`依赖因子`]->(f:`因子`)
+                OPTIONAL MATCH (s)-[:`依赖策略`]->(ds:`策略`)
+                RETURN s, collect(DISTINCT f) AS factors, collect(DISTINCT ds) AS sub_strategies
+            """, {"qsid": qsid})
+            for r in results:
+                nodes[r["s"]["QSID"]] = r["s"]
+                for f in (r.get("factors") or []):
+                    nodes[f["QSID"]] = f
+                    edges.append({"source": r["s"]["QSID"], "target": f["QSID"], "type": "依赖因子"})
+                for ds in (r.get("sub_strategies") or []):
+                    nodes[ds["QSID"]] = ds
+                    edges.append({"source": r["s"]["QSID"], "target": ds["QSID"], "type": "依赖策略"})
+
+        if direction in ("up", "both"):
+            # 下游：哪些策略/回测依赖此策略
+            results = self._runCypher("""
+                MATCH (s:`策略` {QSID: $qsid})
+                OPTIONAL MATCH (ds:`策略`)-[:`依赖策略`]->(s)
+                OPTIONAL MATCH (bt:`回测`)-[:`运行策略`]->(s)
+                RETURN s, collect(DISTINCT ds) AS dependents, collect(DISTINCT bt) AS backtests
+            """, {"qsid": qsid})
+            for r in results:
+                nodes.setdefault(r["s"]["QSID"], r["s"])
+                for ds in (r.get("dependents") or []):
+                    nodes[ds["QSID"]] = ds
+                    edges.append({"source": ds["QSID"], "target": r["s"]["QSID"], "type": "依赖策略"})
+                for bt in (r.get("backtests") or []):
+                    nodes[bt["QSID"]] = bt
+                    edges.append({"source": bt["QSID"], "target": r["s"]["QSID"], "type": "运行策略"})
+
+        return {
+            "root": qsid,
+            "nodes": list(nodes.values()),
+            "edges": edges,
+        }
+
+    def getStrategyDependents(self, qsid: str) -> List[Dict]:
+        """查询策略的下游影响：依赖此策略的其他策略和回测
+
+        Args:
+            qsid: 策略 QSID
+
+        Returns:
+            下游依赖列表，每项含 type（"策略"/"回测"）和节点属性
+        """
+        results = self._runCypher("""
+            MATCH (s:`策略` {QSID: $qsid})
+            OPTIONAL MATCH (ds:`策略`)-[:`依赖策略`]->(s)
+            OPTIONAL MATCH (bt:`回测`)-[:`运行策略`]->(s)
+            RETURN collect(DISTINCT {type: "策略", node: ds}) +
+                   collect(DISTINCT {type: "回测", node: bt}) AS dependents
+        """, {"qsid": qsid})
+
+        if not results:
+            return []
+        return [d for d in (results[0].get("dependents") or []) if d["node"] is not None]
+
+    def updateStrategyMeta(self, qsid: str, meta_updates: dict) -> bool:
+        """更新策略元信息
+
+        Args:
+            qsid: 策略 QSID
+            meta_updates: 要更新的键值对
+
+        Returns:
+            是否更新成功
+        """
+        import json as _json
+        from QSExt.QSRegistry._serialization import _sanitizeForJSON
+
+        existing = self.getStrategyByQSID(qsid)
+        if not existing:
+            self._QS_Logger.warning(f"策略 {qsid} 不存在，无法更新")
+            return False
+
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        set_clauses = ["s.UpdatedAt = $now"]
+        params = {"qsid": qsid, "now": now}
+
+        for key, val in meta_updates.items():
+            param_key = f"val_{key}"
+            set_clauses.append(f"s.{key} = ${param_key}")
+            params[param_key] = val
+
+        # 如果更新了 MetaJSON 相关字段，同步更新 MetaJSON
+        meta_fields = {"Description", "Tags", "Author", "OperatorConfig", "FactorDeps", "StrategyDeps"}
+        if meta_fields & set(meta_updates.keys()):
+            current_meta = _json.loads(existing.get("MetaJSON", "{}"))
+            current_meta.update({k: v for k, v in meta_updates.items() if k in meta_fields})
+            set_clauses.append("s.MetaJSON = $meta_json")
+            params["meta_json"] = _json.dumps(_sanitizeForJSON(current_meta), ensure_ascii=False)
+
+        query = f"""
+            MATCH (s:`策略` {{QSID: $qsid}})
+            SET {', '.join(set_clauses)}
+        """
+        self._runCypher(query, params)
+        self._QS_Logger.info(f"已更新策略元信息: {qsid}")
+        return True
+
+    def deleteStrategy(self, qsid: str) -> bool:
+        """删除策略节点及其所有关系（DETACH DELETE）
+
+        Args:
+            qsid: 策略 QSID
+
+        Returns:
+            是否删除成功
+        """
+        existing = self.getStrategyByQSID(qsid)
+        if not existing:
+            self._QS_Logger.warning(f"策略 {qsid} 不存在，无需删除")
+            return False
+
+        self._runCypher(
+            "MATCH (s:`策略` {QSID: $qsid}) DETACH DELETE s",
+            {"qsid": qsid}
+        )
+        self._QS_Logger.info(f"已删除策略: {qsid}")
+        return True
+
+    # endregion
+
     # region 分析（Analyze）
 
     def impactAnalysis(self, qsid: str) -> List[Dict]:
@@ -2711,7 +3168,7 @@ class QSGraphDB(QSNeo4jObject):
         for r in results:
             stats[r["label"]] = r["cnt"]
         # 补充未出现的标签为 0
-        for label in ["因子", "算子", "因子表", "因子库", "风险库", "风险表", "组合优化器", "标签", "回测", "回测结果", "报告", "因子存储器"]:
+        for label in ["因子", "算子", "因子表", "因子库", "风险库", "风险表", "组合优化器", "标签", "回测", "回测结果", "报告", "因子存储器", "策略"]:
             stats.setdefault(label, 0)
         # 关系计数
         rel_results = self._runCypher("""
@@ -2721,7 +3178,7 @@ class QSGraphDB(QSNeo4jObject):
         """)
         for r in rel_results:
             stats[r["rel_type"]] = r["cnt"]
-        for rel in ["依赖", "使用算子", "属于因子表", "属于因子库", "属于风险库", "使用优化器", "依赖风险表", "打标签", "产生结果", "产生报告", "有报告", "写入因子表", "存入因子表"]:
+        for rel in ["依赖", "使用算子", "属于因子表", "属于因子库", "属于风险库", "使用优化器", "依赖风险表", "打标签", "产生结果", "产生报告", "有报告", "写入因子表", "存入因子表", "依赖因子", "依赖策略", "输出到", "运行策略"]:
             stats.setdefault(rel, 0)
         return stats
 

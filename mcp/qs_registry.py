@@ -13,6 +13,9 @@
 - get_report_info: 获取报告详细元信息
 - search_risk_tables: 搜索风险表
 - search_optimizers: 搜索组合优化器
+- search_strategies: 搜索策略
+- get_strategy_info: 查询策略详细信息
+- get_strategy_code: 返回策略定义 Python 源代码
 """
 import os
 import json
@@ -50,6 +53,9 @@ _TOOL_GROUPS = {
     },
     "optimizer": {
         "search_optimizers", "get_optimizer_info",
+    },
+    "strategy": {
+        "search_strategies", "get_strategy_info", "get_strategy_code",
     },
 }
 
@@ -834,6 +840,190 @@ def get_optimizer_info(qsid: str) -> dict:
     }
 
 
+# ─── 策略相关 MCP Tools ────────────────────────────────────
+
+def _format_strategy(s: dict, similarity: Optional[float] = None) -> dict:
+    """格式化策略节点为统一输出格式"""
+    result = {
+        "name": s.get("Name", ""),
+        "qsid": s.get("QSID", ""),
+        "target_table": s.get("TargetTable", ""),
+        "id_type": s.get("IDType", ""),
+        "class_name": s.get("ClassName", ""),
+    }
+    if similarity is not None:
+        result["similarity"] = similarity
+    return result
+
+
+def search_strategies(query: str = "", limit: int = 20) -> list[dict]:
+    """搜索策略列表。支持按名称模糊匹配和语义搜索。
+
+    Args:
+        query: 查询文本，如 "均线交叉"、"趋势跟踪"；传空字符串查全部
+        limit: 返回结果数量上限，默认 20
+
+    Returns:
+        匹配的策略列表 [{name, qsid, target_table, id_type, class_name, similarity}]
+    """
+    gdb = _get_gdb()
+    vector_results = []
+    if gdb._QSArgs.EmbeddingModel and query:
+        try:
+            vector_results = gdb.searchStrategiesByDescription(query, limit=limit)
+        except Exception as e:
+            __QS_Logger__.warning(f"策略向量检索失败，回退到关键词检索: {e}")
+
+    keyword_results = gdb.searchStrategies(name=(query if query else None), limit=limit)
+
+    seen = set()
+    formatted = []
+    for r in vector_results:
+        item = _format_strategy(r, similarity=r.get("Similarity"))
+        formatted.append(item)
+        seen.add(item["qsid"])
+    for r in keyword_results:
+        item = _format_strategy(r)
+        if item["qsid"] not in seen:
+            formatted.append(item)
+            seen.add(item["qsid"])
+    return formatted[:limit]
+
+
+def get_strategy_info(qsid: str) -> dict:
+    """查询策略的详细信息，包括元信息、依赖因子、依赖策略等。
+
+    Args:
+        qsid: 策略的 QSID（唯一标识符）
+
+    Returns:
+        策略详细信息字典
+    """
+    gdb = _get_gdb()
+    node = gdb.getStrategyByQSID(qsid)
+    if node is None:
+        return {"error": f"未找到 QSID 为 {qsid} 的策略"}
+
+    # 解析 MetaJSON
+    meta = _parse_meta_json(node.get("MetaJSON"))
+
+    # 解析 OperatorConfigJSON
+    op_config = {}
+    try:
+        op_config = json.loads(node.get("OperatorConfigJSON", "{}"))
+    except Exception:
+        pass
+
+    # 获取依赖因子
+    factor_results = gdb._runCypher(
+        """
+        MATCH (s:`策略` {QSID: $qsid})-[:`依赖因子`]->(f:`因子`)
+        RETURN f.Name, f.QSID
+        ORDER BY f.Name
+        """,
+        {"qsid": qsid}
+    )
+    factors = [{"name": r["f.Name"], "qsid": r["f.QSID"]} for r in factor_results]
+
+    # 获取依赖策略
+    strategy_results = gdb._runCypher(
+        """
+        MATCH (s:`策略` {QSID: $qsid})-[:`依赖策略`]->(ds:`策略`)
+        RETURN ds.Name, ds.QSID
+        ORDER BY ds.Name
+        """,
+        {"qsid": qsid}
+    )
+    sub_strategies = [{"name": r["ds.Name"], "qsid": r["ds.QSID"]} for r in strategy_results]
+
+    # 获取下游依赖
+    dependents = gdb.getStrategyDependents(qsid)
+
+    # 获取标签
+    tags = []
+    try:
+        tag_results = gdb._runCypher(
+            "MATCH (s:`策略` {QSID: $qsid})-[:`打标签`]->(t:`标签`) RETURN t.Name",
+            {"qsid": qsid}
+        )
+        tags = [t["t.Name"] for t in tag_results]
+    except Exception:
+        pass
+
+    # 获取依赖图
+    dep_graph = gdb.getStrategyDependencyGraph(qsid, direction="both")
+
+    return {
+        "name": node.get("Name", ""),
+        "qsid": node.get("QSID", qsid),
+        "target_table": node.get("TargetTable", ""),
+        "id_type": node.get("IDType", ""),
+        "class_name": node.get("ClassName", ""),
+        "module_path": node.get("ModulePath", ""),
+        "operator_config": op_config,
+        "def_script_path": node.get("DefScriptPath", ""),
+        "meta": {k: str(v) for k, v in meta.items()} if isinstance(meta, dict) else {},
+        "factors": factors,
+        "sub_strategies": sub_strategies,
+        "dependents": dependents,
+        "tags": tags,
+        "dependency_graph": dep_graph,
+        "created_at": node.get("CreatedAt", ""),
+        "updated_at": node.get("UpdatedAt", ""),
+    }
+
+
+def get_strategy_code(qsid: str) -> dict:
+    """返回定义该策略的 Python 源代码。
+
+    Args:
+        qsid: 策略的 QSID（唯一标识符）
+
+    Returns:
+        {qsid, strategy_name, script_path, source_code}
+        若无法定位脚本，返回 {error: "..."}
+    """
+    gdb = _get_gdb()
+    node = gdb.getStrategyByQSID(qsid)
+    if node is None:
+        return {"error": f"未找到 QSID 为 {qsid} 的策略"}
+
+    strategy_name = node.get("Name", "")
+    script_path = node.get("DefScriptPath", "")
+
+    if not script_path:
+        return {
+            "error": f"策略 '{strategy_name}' 未记录 DefScriptPath",
+            "qsid": qsid,
+            "strategy_name": strategy_name,
+        }
+
+    if not os.path.exists(script_path):
+        return {
+            "error": f"定义脚本文件不存在: {script_path}",
+            "qsid": qsid,
+            "strategy_name": strategy_name,
+            "script_path": script_path,
+        }
+
+    try:
+        with open(script_path, "r", encoding="utf-8") as f:
+            source_code = f.read()
+    except Exception as e:
+        return {
+            "error": f"读取脚本文件失败: {e}",
+            "qsid": qsid,
+            "script_path": script_path,
+        }
+
+    return {
+        "qsid": qsid,
+        "strategy_name": strategy_name,
+        "script_path": script_path,
+        "source_code": source_code,
+    }
+
+
 # ─── 工具注册 ────────────────────────────────────────────────
 
 def _register_tools():
@@ -854,6 +1044,9 @@ def _register_tools():
         (get_risk_table_info, "risk_table"),
         (search_optimizers, "optimizer"),
         (get_optimizer_info, "optimizer"),
+        (search_strategies, "strategy"),
+        (get_strategy_info, "strategy"),
+        (get_strategy_code, "strategy"),
     ]
     registered = 0
     for fn, group in tools:

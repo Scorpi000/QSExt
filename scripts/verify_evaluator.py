@@ -31,10 +31,9 @@ from dotenv import load_dotenv
 from QSExt import __QS_MainPath__
 load_dotenv(Path(__QS_MainPath__).parent / "config" / ".env")
 
-from QSExt import setDefaultLogLevel
+from QuantStudio.Core import setDefaultLogLevel
 setDefaultLogLevel(logging.INFO)
-
-logger = logging.getLogger("QSR.verify")
+from QuantStudio.Core import __QS_Logger__ as logger
 
 
 def parse_args():
