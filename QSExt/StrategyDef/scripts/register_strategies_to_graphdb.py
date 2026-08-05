@@ -137,7 +137,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
 
         for iStrategyDef in all_strategy_defs:
             Logger.info(f"  → TargetTable='{iStrategyDef.Meta.TargetTable}', "
-                        f"信号数={len(iStrategyDef.SignalNames)}, "
+                        f"策略数={len(iStrategyDef.StrategyList)}, "
                         f"MaxLookBack={iStrategyDef.Meta.MaxLookBack}")
 
         if not all_strategy_defs:

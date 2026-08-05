@@ -144,10 +144,48 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
     Logger.info("正在解析依赖并执行因子定义...")
     FactorDefDict, factor_defs = build_dep_fd(modules, fdi, proxy_db=proxy_db, proxy_table_mapping=proxy_table_mapping, proxy_tables=effective_proxy_tables)
 
+    # 按 TargetTable 分组，收集同表的所有因子
+    table_groups: dict = {}  # TargetTable → {factor_defs, table_meta, factors}
     for iFactorDef, factor_meta in factor_defs:
         if iFactorDef is None:
             Logger.warning("跳过未能解析的模块")
             continue
+
+        target_table = iFactorDef.Meta.TargetTable
+        if target_table not in table_groups:
+            table_groups[target_table] = {
+                "factor_defs": [],
+                "table_meta": {
+                    "Description": iFactorDef.Meta.Description,
+                    "IDType": iFactorDef.Meta.IDType,
+                    "Author": iFactorDef.Meta.Author,
+                    "DefScriptPath": iFactorDef.Meta.DefScriptPath,
+                },
+                "factors": [],
+                "factor_names": set(),
+            }
+
+        group = table_groups[target_table]
+        group["factor_defs"].append(iFactorDef)
+
+        # 校验因子名唯一性
+        for f in iFactorDef.FactorList:
+            fname = f._QSArgs.Name
+            if fname in group["factor_names"]:
+                raise ValueError(
+                    f"因子名冲突: '{fname}' 在 TargetTable='{target_table}' 中被多个模块定义，"
+                    f"请检查各因子定义模块的因子名是否唯一"
+                )
+            group["factor_names"].add(fname)
+            group["factors"].append(f)
+
+    for target_table, group in table_groups.items():
+        iFactorDef = group["factor_defs"][0]
+        factor_count = len(group["factors"])
+
+        if len(group["factor_defs"]) > 1:
+            module_names = [getattr(fd.Meta, 'DefScriptPath', '?') for fd in group["factor_defs"]]
+            Logger.info(f"TargetTable='{target_table}': 合并 {len(group['factor_defs'])} 个模块 → {factor_count} 个因子 ({module_names})")
 
         # 动态调整 DTRuler
         if iFactorDef.Meta.MaxLookBack > MaxLookBack:
@@ -167,26 +205,19 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
             fdi.DTRuler = dtruler
             Logger.info(f"MaxLookBack 更新为 {MaxLookBack}，DTRuler 已扩展")
 
-        # 构建 FactorStorer
-        target_table = iFactorDef.Meta.TargetTable
-        table_meta = {
-            "Description": iFactorDef.Meta.Description,
-            "IDType": iFactorDef.Meta.IDType,
-            "Author": iFactorDef.Meta.Author,
-            "DefScriptPath": iFactorDef.Meta.DefScriptPath,
-        }
+        # 构建 FactorStorer（使用合并后的因子列表和表元信息）
         storer_args = {
             "TargetFDB": TDB,
             "TargetTable": target_table,
-            "TableMeta": table_meta,
+            "TableMeta": group["table_meta"],
             **settings.factor_storer_config,
         }
-        iStorer = FactorStorer(deps=iFactorDef.FactorList, args=storer_args)
+        iStorer = FactorStorer(deps=group["factors"], args=storer_args)
         StorerList.append(iStorer)
         fwd_data.append(FactorLocalContext(DTs=fdi.DTs, IDs=fdi.IDs))
         init_data.append(FactorInitData(DTRange=(fdi.DTs[0], fdi.DTs[-1]), SectionIDs=fdi.SectionIDs))
 
-        Logger.info(f"  → TargetTable='{target_table}', 因子数={len(iFactorDef.FactorList)}, MaxLookBack={iFactorDef.Meta.MaxLookBack}")
+        Logger.info(f"  → TargetTable='{target_table}', 因子数={factor_count}, MaxLookBack={iFactorDef.Meta.MaxLookBack}")
 
     return StorerList, fwd_data, init_data, dtruler
 

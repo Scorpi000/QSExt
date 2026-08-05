@@ -128,26 +128,42 @@ def _build_storers(settings, pool, sdi, modules, dtruler=None):
     Logger.info("正在解析依赖并执行策略定义...")
     StrategyDefDict, strategy_defs = build_dep_sd(modules, sdi)
 
+    # 按 TargetTable 分组，合并同表策略信号
+    table_groups: dict = {}
     for iStrategyDef, strategy_meta in strategy_defs:
         if iStrategyDef is None:
             Logger.warning("跳过未能解析的策略模块")
             continue
 
         target_table = iStrategyDef.Meta.TargetTable
-        table_meta = {
-            "Description": iStrategyDef.Meta.Description,
-            "IDType": iStrategyDef.Meta.IDType,
-            "Author": iStrategyDef.Meta.Author,
-            "DefScriptPath": iStrategyDef.Meta.DefScriptPath,
-        }
+        if target_table not in table_groups:
+            table_groups[target_table] = {
+                "strategy_defs": [],
+                "table_meta": {
+                    "Description": iStrategyDef.Meta.Description,
+                    "IDType": iStrategyDef.Meta.IDType,
+                    "Author": iStrategyDef.Meta.Author,
+                    "DefScriptPath": iStrategyDef.Meta.DefScriptPath,
+                },
+                "signals": [],
+            }
 
-        # 策略输出的信号因子列表
-        signal_factors = [iStrategyDef.StrategyInstance]
+        group = table_groups[target_table]
+        group["strategy_defs"].append(iStrategyDef)
+        group["signals"].extend(iStrategyDef.StrategyList)
+
+    for target_table, group in table_groups.items():
+        iStrategyDef = group["strategy_defs"][0]
+        signal_factors = group["signals"]
+
+        if len(group["strategy_defs"]) > 1:
+            module_names = [getattr(sd.Meta, 'DefScriptPath', '?') for sd in group["strategy_defs"]]
+            Logger.info(f"TargetTable='{target_table}': 合并 {len(group['strategy_defs'])} 个策略模块 → {len(signal_factors)} 个信号 ({module_names})")
 
         storer_args = {
             "TargetFDB": TDB,
             "TargetTable": target_table,
-            "TableMeta": table_meta,
+            "TableMeta": group["table_meta"],
         }
         iStorer = FactorStorer(deps=signal_factors, args=storer_args)
         StorerList.append(iStorer)

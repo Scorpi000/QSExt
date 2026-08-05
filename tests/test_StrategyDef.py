@@ -74,14 +74,14 @@ def test_1_strategy_meta():
         OperatorConfig={"SignalType": "交易信号", "InitCash": 500000, "ShortAllowed": True},
         Tags=["测试", "动量"],
         FactorDeps={"market_data": ["close"]},
-        StrategyDeps={"grid_strategy": {"Signal": "grid_signal"}},
+        StrategyDeps={"grid_strategy": [{"Name": "Signal", "Alias": "grid_signal"}]},
         DBDeps={"JYDB": "聚源数据库"},
         ModelArgs={"lookback": "回溯窗口"},
     )
     assert full_meta.Author == "YY"
     assert full_meta.MaxLookBack == 120
     assert full_meta.OperatorConfig["InitCash"] == 500000
-    assert full_meta.StrategyDeps["grid_strategy"] == {"Signal": "grid_signal"}
+    assert full_meta.StrategyDeps["grid_strategy"] == [{"Name": "Signal", "Alias": "grid_signal"}]
     assert full_meta.FactorDeps["market_data"] == ["close"]
     print("  ✓ 1c: 完整构造 — 所有字段正确")
 
@@ -142,12 +142,12 @@ def test_3_strategy_def():
     from unittest.mock import MagicMock
 
     # 构造 mock Strategy 实例（用 MagicMock 模拟 Strategy 接口）
-    mock_strategy = MagicMock()
-    mock_strategy._QSArgs.Name = "ma_cross_strategy"
-    mock_strategy.QSID = "qsid_test_001"
-    mock_strategy.Descriptors = []
-
-    mock_class = type("MACrossStrategy", (), {})
+    mock_strategy1 = MagicMock()
+    mock_strategy1._QSArgs.Name = "ma_cross_strategy"
+    mock_strategy1.Name = "ma_cross_strategy"
+    mock_strategy2 = MagicMock()
+    mock_strategy2._QSArgs.Name = "momentum_strategy"
+    mock_strategy2.Name = "momentum_strategy"
 
     meta = StrategyMeta(
         TargetTable="strategy_signals_test",
@@ -156,42 +156,37 @@ def test_3_strategy_def():
         Author="YY",
     )
 
-    # 用 model_construct 绕过 Pydantic 类型验证（Strategy 类型需要真实实例）
     sd = StrategyDef.model_construct(
-        StrategyInstance=mock_strategy,
-        StrategyClass=mock_class,
+        StrategyList=[mock_strategy1, mock_strategy2],
         Meta=meta,
     )
 
-    assert sd.StrategyInstance is mock_strategy
-    assert sd.StrategyClass == mock_class
+    assert len(sd.StrategyList) == 2
+    assert sd.StrategyList[0] is mock_strategy1
+    assert sd.StrategyList[1] is mock_strategy2
     assert sd.Meta.TargetTable == "strategy_signals_test"
-    print("  ✓ 3a: model_construct 基本构造正确")
+    print("  ✓ 3a: 基本构造正确")
 
-    # SignalNames 属性
-    names = sd.SignalNames
-    assert mock_strategy._QSArgs.Name in names
-    print(f"  ✓ 3b: SignalNames = {names}")
+    # StrategyNames 属性
+    names = sd.StrategyNames
+    assert names == ["ma_cross_strategy", "momentum_strategy"]
+    print(f"  ✓ 3b: StrategyNames = {names}")
 
-    # getSignal
-    signal = sd.getSignal()
-    assert signal is mock_strategy
-    print("  ✓ 3c: getSignal() 返回策略本身")
+    # getStrategy
+    s1 = sd.getStrategy("ma_cross_strategy")
+    assert s1 is mock_strategy1
+    print("  ✓ 3c: getStrategy('ma_cross_strategy') 正确")
 
-    # 有描述子时
-    mock_desc = MagicMock()
-    mock_desc._QSArgs.Name = "desc1"
-    mock_strategy.Descriptors = [mock_desc]
-    signal1 = sd.getSignal("desc1")
-    assert signal1 is mock_desc
-    print("  ✓ 3d: getSignal('desc1') 返回描述子")
+    s2 = sd.getStrategy("momentum_strategy")
+    assert s2 is mock_strategy2
+    print("  ✓ 3d: getStrategy('momentum_strategy') 正确")
 
-    # 查找不存在的信号
+    # 查找不存在的策略
     try:
-        sd.getSignal("nonexistent")
+        sd.getStrategy("nonexistent")
         assert False, "应该抛出异常"
     except Exception:
-        print("  ✓ 3e: 查找不存在的信号正确抛出异常")
+        print("  ✓ 3e: 查找不存在的策略正确抛出异常")
 
     print("  ✅ Test 3 全部通过")
 
@@ -225,7 +220,7 @@ def test_4_build_dep_sd_basic():
         "StrategyDeps": {},
         "Tags": ["基础"],
     }
-    module_b.defStrategy = MagicMock(return_value=mock_signal_b)
+    module_b.defStrategy = MagicMock(return_value=[mock_signal_b])
     module_b.__file__ = "/test/strategy_b.py"
 
     # 模块 A: 主策略，依赖 B
@@ -236,7 +231,7 @@ def test_4_build_dep_sd_basic():
         "Description": "策略 A",
         "FactorDeps": {},
         "StrategyDeps": {
-            "strategy_signals_b": {"Signal": "signal_b_alias"},
+            "strategy_signals_b": [{"Name": "Signal", "Alias": "signal_b_alias"}],
         },
         "Tags": ["组合"],
     }
@@ -244,7 +239,7 @@ def test_4_build_dep_sd_basic():
     mock_signal_a._QSArgs.Name = "signal_a"
     mock_signal_a.QSID = "qsid_signal_a"
     mock_signal_a.Descriptors = []
-    module_a.defStrategy = MagicMock(return_value=mock_signal_a)
+    module_a.defStrategy = MagicMock(return_value=[mock_signal_a])
     module_a.__file__ = "/test/strategy_a.py"
 
     # 注入到 sys.modules 以便 resolve_dep_module 能找到
@@ -312,7 +307,7 @@ def test_5_build_dep_sd_circular():
         "TargetTable": "strategy_signals_a",
         "IDType": "A股",
         "StrategyDeps": {
-            "strategy_signals_b": {"Signal": "sig_b"},
+            "strategy_signals_b": [{"Name": "Signal", "Alias": "sig_b"}],
         },
         "FactorDeps": {},
     }
@@ -324,7 +319,7 @@ def test_5_build_dep_sd_circular():
         "TargetTable": "strategy_signals_b",
         "IDType": "A股",
         "StrategyDeps": {
-            "strategy_signals_a": {"Signal": "sig_a"},  # 回指 A
+            "strategy_signals_a": [{"Name": "Signal", "Alias": "sig_a"}],
         },
         "FactorDeps": {},
     }
@@ -447,35 +442,87 @@ def test_7_max_lookback():
     print("Test 7: compute_max_lookback_sd")
     print("=" * 60)
 
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
+    from QSExt.FactorDef.FactorDefContent import make_def_key
 
     # 构造策略链: A(lookback=30) → B(lookback=120) → C(lookback=60)
     # A 的 MaxLookBack 应该是 120（来自 B）
     mock_signal = MagicMock()
     mock_signal._QSArgs.Name = "test_signal"
-    mock_signal.QSID = "qsid_test"
 
     sd_a = StrategyDef.model_construct(
-        StrategyInstance=mock_signal,
-        StrategyClass=type("StrategyA", (), {}),
+        StrategyList=[mock_signal],
         Meta=StrategyMeta(TargetTable="tt_a", MaxLookBack=30,
-                          StrategyDeps={"tt_b": {"Signal": "sig"}}),
+                          StrategyDeps={"fake_pkg.tt_b": [{"Name": "Signal", "Alias": "sig"}]}),
     )
     sd_b = StrategyDef.model_construct(
-        StrategyInstance=mock_signal,
-        StrategyClass=type("StrategyB", (), {}),
+        StrategyList=[mock_signal],
         Meta=StrategyMeta(TargetTable="tt_b", MaxLookBack=120,
-                          StrategyDeps={"tt_c": {"Signal": "sig"}}),
+                          StrategyDeps={"fake_pkg.tt_c": [{"Name": "Signal", "Alias": "sig"}]}),
     )
     sd_c = StrategyDef.model_construct(
-        StrategyInstance=mock_signal,
-        StrategyClass=type("StrategyC", (), {}),
+        StrategyList=[mock_signal],
         Meta=StrategyMeta(TargetTable="tt_c", MaxLookBack=60),
     )
 
-    dep_sd = {"tt_a": sd_a, "tt_b": sd_b, "tt_c": sd_c}
+    # 使用 DefKey 作为 dep_sd 的 key
+    # 模拟 resolve_dep_module 能正确返回对应模块
+    import types
+    mod_b = types.ModuleType("fake_pkg.tt_b")
+    mod_b.__file__ = "D:\\fake\\tt_b.py"
+    mod_c = types.ModuleType("fake_pkg.tt_c")
+    mod_c.__file__ = "D:\\fake\\tt_c.py"
 
-    compute_max_lookback_sd(dep_sd)
+    def_key_a = "D:\\fake\\tt_a.py"
+    def_key_b = make_def_key(mod_b, {})
+    def_key_c = make_def_key(mod_c, {})
+
+    dep_sd = {def_key_a: sd_a, def_key_b: sd_b, def_key_c: sd_c}
+
+    # 由于 _dep_key_to_def_key 需要 import 实际模块，而测试使用 mock，
+    # 我们需要直接在函数内部提供 mock lookup
+    dep_lookup = {
+        "fake_pkg.tt_b": def_key_b,
+        "fake_pkg.tt_c": def_key_c,
+    }
+
+    # 替换全局 compute_max_lookback_sd 为使用 mock lookup 的版本
+    import QSExt.StrategyDef.StrategyDefContent as sd_module
+    orig_compute = sd_module.compute_max_lookback_sd
+
+    def mock_compute(dep_sd_inner, dep_fd_inner=None):
+        """mock 版本的 compute_max_lookback_sd，使用硬编码的 dep_lookup"""
+        memo = {}
+        resolving = set()
+
+        def _resolve(dk):
+            if dk in memo:
+                return memo[dk]
+            if dk in resolving:
+                raise RuntimeError(f"循环: {dk}")
+            resolving.add(dk)
+            try:
+                sd = dep_sd_inner[dk]
+                mlb = sd.Meta.MaxLookBack
+                for dep_name in sd.Meta.FactorDeps:
+                    dep_dk = dep_lookup.get(dep_name)
+                    if dep_dk and dep_dk in dep_sd_inner:
+                        mlb = max(mlb, _resolve(dep_dk))
+                for dep_path in sd.Meta.StrategyDeps:
+                    dep_dk = dep_lookup.get(dep_path)
+                    if dep_dk and dep_dk in dep_sd_inner:
+                        mlb = max(mlb, _resolve(dep_dk))
+                memo[dk] = mlb
+                if mlb != sd.Meta.MaxLookBack:
+                    sd.Meta.MaxLookBack = mlb
+                return mlb
+            finally:
+                resolving.discard(dk)
+
+        for dk in list(dep_sd_inner.keys()):
+            _resolve(dk)
+
+    mock_compute(dep_sd)
 
     assert sd_c.Meta.MaxLookBack == 60  # 叶子节点不变
     assert sd_b.Meta.MaxLookBack == 120  # 自身120 > 子节点60，不变

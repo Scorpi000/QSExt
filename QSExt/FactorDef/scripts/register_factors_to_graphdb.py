@@ -210,12 +210,34 @@ def main(settings_path: str = "settings", **cmd_overrides):
                 TDB = None
 
             if TDB is not None:
-                storer_count = 0
+                # 按 TargetTable 分组合并因子
+                table_groups: dict = {}
                 for iFactorDef, factor_meta in factor_defs:
                     if iFactorDef is None:
                         continue
+                    tt = iFactorDef.Meta.TargetTable
+                    if tt not in table_groups:
+                        table_groups[tt] = {"factor_defs": [], "factors": [], "factor_names": set()}
+                    group = table_groups[tt]
+                    group["factor_defs"].append(iFactorDef)
+                    for f in iFactorDef.FactorList:
+                        fname = f._QSArgs.Name
+                        if fname in group["factor_names"]:
+                            raise ValueError(
+                                f"因子名冲突: '{fname}' 在 TargetTable='{tt}' 中被多个模块定义"
+                            )
+                        group["factor_names"].add(fname)
+                        group["factors"].append(f)
+
+                storer_count = 0
+                for target_table, group in table_groups.items():
+                    iFactorDef = group["factor_defs"][0]
+
+                    if len(group["factor_defs"]) > 1:
+                        module_names = [getattr(fd.Meta, 'DefScriptPath', '?') for fd in group["factor_defs"]]
+                        Logger.info(f"TargetTable='{target_table}': 合并 {len(group['factor_defs'])} 个模块 → {len(group['factors'])} 个因子 ({module_names})")
+
                     try:
-                        target_table = iFactorDef.Meta.TargetTable
                         table_meta = {
                             "Description": iFactorDef.Meta.Description,
                             "IDType": iFactorDef.Meta.IDType,
@@ -228,12 +250,12 @@ def main(settings_path: str = "settings", **cmd_overrides):
                             "TableMeta": table_meta,
                             **settings.factor_storer_config,
                         }
-                        iStorer = FactorStorer(deps=iFactorDef.FactorList, args=storer_args)
+                        iStorer = FactorStorer(deps=group["factors"], args=storer_args)
                         storer_qsid = fgdb.storeFactorStorer(iStorer, tags=extra_tags or None)
                         storer_count += 1
                         Logger.info(f"  ✓ FactorStorer '{iStorer._QSArgs.Name}' → {target_db_name}/{target_table} (QSID: {storer_qsid[:16]}…)")
                     except Exception as e:
-                        Logger.warning(f"FactorStorer 注册失败 ({iFactorDef.Meta.TargetTable}): {e}")
+                        Logger.warning(f"FactorStorer 注册失败 ({target_table}): {e}")
 
                 Logger.info(f"FactorStorer 注册完成: {storer_count} 个")
 

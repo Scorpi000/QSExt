@@ -11,7 +11,6 @@ from pydantic import Field
 from QuantStudio.Core import __QS_Args__, __QS_Error__
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
-from QuantStudio.BackTest.Strategy.Strategy import Strategy
 
 
 # ============================================================
@@ -58,9 +57,9 @@ class StrategyMeta(__QS_Args__):
     # ---- 分类与发现 ----
     Tags: List[str] = Field(default=[], title="检索标签")
     FactorDeps: Dict[str, List[Union[str, dict]]] = Field(default={}, title="依赖因子声明")
-    StrategyDeps: Dict[str, Dict[str, str]] = Field(
+    StrategyDeps: Dict[str, List[Union[str, dict]]] = Field(
         default={}, title="依赖策略声明",
-        description="key 为依赖策略的模块路径（短名或完整路径），value 为 {信号因子名: 本地别名} 映射",
+        description="key 为依赖策略的模块路径，value 为 [{Name: 信号因子名, Alias: 本地别名, ModelArgs: {...}}]",
     )
     DBDeps: Dict[str, str] = Field(default={}, title="因子库依赖")
     ModelArgs: Dict[str, str] = Field(default={}, title="期望的模型参数")
@@ -71,39 +70,34 @@ class StrategyMeta(__QS_Args__):
 # ============================================================
 
 class StrategyDef(__QS_Args__):
-    """策略定义对象 —— 组合策略实例、策略类和元信息
+    """策略定义对象 —— 组合策略列表和元信息
+
+    与 FactorDef 对齐：一个模块可产出多个策略实例，统一包装在一个 StrategyDef 中。
 
     构造方式:
-      StrategyDef(StrategyInstance=strategy_instance, StrategyClass=MakeMAStrategy, Meta=StrategyMeta(**__STRATEGY_META__))
+      StrategyDef(StrategyList=[s1, s2], Meta=StrategyMeta(**__STRATEGY_META__))
     """
-    StrategyInstance: Strategy = Field(title="策略实例")
-    StrategyClass: type = Field(title="MakeStrategy 子类")
+    StrategyList: List[Factor] = Field(title="策略实例列表")
     Meta: StrategyMeta = Field(title="静态元信息")
 
     @property
-    def SignalNames(self) -> List[str]:
+    def StrategyNames(self) -> List[str]:
         """策略输出的信号因子名列表"""
-        strategy = self.StrategyInstance
-        names = [strategy._QSArgs.Name]
-        for desc in strategy.Descriptors:
-            names.append(desc._QSArgs.Name)
-        return names
+        return [s.Name for s in self.StrategyList]
 
-    def getSignal(self, signal_name: Optional[str] = None) -> Factor:
-        """按名称查找策略输出的信号因子
+    def getStrategy(self, name: str) -> Factor:
+        """按名称查找策略实例
 
         Args:
-            signal_name: 信号因子名称，None 返回策略本身
+            name: 策略名称（_QSArgs.Name）
 
         Returns:
-            信号 Factor 对象
+            策略实例
         """
-        if signal_name is None:
-            return self.StrategyInstance
-        for desc in self.StrategyInstance.Descriptors:
-            if desc._QSArgs.Name == signal_name:
-                return desc
-        raise __QS_Error__(f"策略 '{self.StrategyInstance._QSArgs.Name}' 中找不到信号因子 '{signal_name}'")
+        for s in self.StrategyList:
+            if s.Name == name:
+                return s
+        raise __QS_Error__(f"策略定义中找不到策略 '{name}'，可用: {self.StrategyNames}")
 
 
 # ============================================================
@@ -140,18 +134,24 @@ def _build_factors_for_strategy(
     """根据 FactorDeps 声明从 dep_fd 构建因子字典。
 
     与 FactorDefContent._build_factors 逻辑一致，适配策略场景。
+    使用 _dep_key_to_def_key 将 FactorDeps key 映射到 dep_fd 的 DefKey。
 
     Args:
         meta: 模块的 __STRATEGY_META__ 字典
-        dep_fd: 已解析的 FactorDef 映射 (TargetTable → FactorDef)
+        dep_fd: 已解析的 FactorDef 映射 (DefKey → FactorDef)
         sdi: 策略定义输入
 
     Returns:
         {因子名: Factor} 扁平字典
     """
+    from QSExt.FactorDef.FactorDefContent import _dep_key_to_def_key
+
     factors = {}
-    for table_name, entries in meta.get("FactorDeps", {}).items():
-        fd = dep_fd.get(table_name)
+    for dep_name, entries in meta.get("FactorDeps", {}).items():
+        def_key = _dep_key_to_def_key(dep_name, dep_fd)
+        if def_key is None:
+            continue
+        fd = dep_fd.get(def_key)
         if fd is None:
             continue
 
@@ -163,7 +163,7 @@ def _build_factors_for_strategy(
                     name = sdi.ModelArgs.get(name[1:], name[1:])
                 if name == "*":
                     for f in fd.FactorList:
-                        factors[f._QSArgs.Name] = fd.getFactor(factor_name=f._QSArgs.Name)
+                        factors[f.Name] = fd.getFactor(factor_name=f.Name)
                 else:
                     alias = entry.get("Alias", raw_name)
                     factors[alias] = fd.getFactor(factor_name=name)
@@ -173,7 +173,7 @@ def _build_factors_for_strategy(
                     name = sdi.ModelArgs.get(name[1:], name[1:])
                 if name == "*":
                     for f in fd.FactorList:
-                        factors[f._QSArgs.Name] = fd.getFactor(factor_name=f._QSArgs.Name)
+                        factors[f.Name] = fd.getFactor(factor_name=f.Name)
                 else:
                     factors[entry] = fd.getFactor(factor_name=name)
     return factors
@@ -197,7 +197,7 @@ def build_dep_sd(
 
     Returns:
         (dep_sd, requested_results):
-          - dep_sd: TargetTable → StrategyDef 的完整映射（含依赖模块）
+          - dep_sd: DefKey → StrategyDef 的完整映射（含依赖模块）
           - requested_results: 显式请求的模块结果列表（保持 modules 原顺序），
             (StrategyDef, strategy_meta)，失败时为 (None, strategy_meta)
 
@@ -206,7 +206,7 @@ def build_dep_sd(
         ImportError: 依赖模块无法解析
     """
     from QuantStudio.Core import __QS_Logger__ as _Logger
-    from QSExt.FactorDef.FactorDefContent import build_dep_fd, FactorDef
+    from QSExt.FactorDef.FactorDefContent import build_dep_fd, FactorDef, make_def_key, _dep_key_to_def_key
 
     dep_sd: Dict[str, StrategyDef] = {}
     _resolving: set = set()
@@ -234,14 +234,14 @@ def build_dep_sd(
         meta = getattr(module, '__STRATEGY_META__', None)
 
         if meta and isinstance(meta, dict) and meta.get('TargetTable'):
-            tt = strategy_meta.get("TargetTable") or meta['TargetTable']
-            if tt in dep_sd:
+            def_key = make_def_key(module, model_args)
+            if def_key in dep_sd:
                 return
-            if tt in _resolving:
+            if def_key in _resolving:
                 chain = " → ".join(_resolving)
-                raise RuntimeError(f"检测到策略循环依赖: {chain} → {tt}")
+                raise RuntimeError(f"检测到策略循环依赖: {chain} → {def_key}")
 
-            _resolving.add(tt)
+            _resolving.add(def_key)
             try:
                 effective_meta = dict(meta)
                 effective_meta.update(strategy_meta)
@@ -262,47 +262,67 @@ def build_dep_sd(
                 try:
                     # 2a. 解析 StrategyDeps（递归执行依赖策略的 defStrategy）
                     strategies = {}
-                    for dep_module_path, signal_map in effective_meta.get('StrategyDeps', {}).items():
-                        # 解析模块路径（与 FactorDeps 一致，支持短名和完整路径）
+                    for dep_module_path, entries in effective_meta.get('StrategyDeps', {}).items():
                         dep_mod = resolve_dep_module(dep_module_path, module)
-                        _ensure(dep_mod, {}, {})
-                        # 通过依赖模块的 TargetTable 在 dep_sd 中查找
-                        dep_meta = getattr(dep_mod, '__STRATEGY_META__', {}) or {}
-                        dep_tt = dep_meta.get('TargetTable', dep_module_path)
-                        dep_sd_entry = dep_sd.get(dep_tt)
+                        # 从 entries 中提取 ModelArgs（与 _extract_dep_model_args 对齐）
+                        #   entry 格式: {"Name": "信号名", "Alias": "别名", "ModelArgs": {...}}
+                        dep_model_args = {}
+                        for entry in entries:
+                            if not isinstance(entry, dict):
+                                continue
+                            raw_args = entry.get("ModelArgs")
+                            if not raw_args:
+                                continue
+                            for k, v in raw_args.items():
+                                if isinstance(v, str) and v.startswith("$"):
+                                    dep_model_args[k] = sdi.ModelArgs.get(v[1:], v[1:])
+                                else:
+                                    dep_model_args[k] = v
+                        _ensure(dep_mod, dep_model_args, {})
+                        # 通过 _dep_key_to_def_key 在 dep_sd 中查找依赖模块
+                        dep_def_key = _dep_key_to_def_key(dep_module_path, dep_sd)
+                        dep_sd_entry = dep_sd.get(dep_def_key) if dep_def_key else None
                         if dep_sd_entry is None:
+                            dep_meta = getattr(dep_mod, '__STRATEGY_META__', {}) or {}
+                            dep_tt = dep_meta.get('TargetTable', dep_module_path)
                             raise KeyError(
                                 f"依赖策略 '{dep_module_path}' (TargetTable='{dep_tt}') 解析失败，未在 dep_sd 中找到"
                             )
                         # 提取依赖策略的信号因子
-                        for signal_name, alias in signal_map.items():
-                            strategies[alias] = dep_sd_entry.getSignal(signal_name)
+                        for entry in entries:
+                            if isinstance(entry, dict):
+                                signal_name = entry.get("Name", entry.get("name", ""))
+                                alias = entry.get("Alias", signal_name)
+                            else:
+                                signal_name = entry
+                                alias = entry
+                            strategies[alias] = dep_sd_entry.getStrategy(signal_name)
                     sdi.Strategies = strategies
 
                     # 2b. 注入 Factors
                     sdi.Factors = _build_factors_for_strategy(effective_meta, dep_fd, sdi)
 
                     # 2c. 调用 defStrategy
-                    strategy_instance = module.defStrategy(sdi=sdi)
+                    strategy_instances = module.defStrategy(sdi=sdi)
+                    if not isinstance(strategy_instances, list):
+                        strategy_instances = [strategy_instances]
                 finally:
                     sdi.ModelArgs = saved_args
                     sdi.Factors = saved_factors
                     sdi.Strategies = saved_strategies
 
-                # 包装为 StrategyDef
-                strategy_class = getattr(strategy_instance, '__class__', type(strategy_instance))
+                # 包装为 StrategyDef（与 FactorDef 对齐：一个模块一个 StrategyDef，内含多个策略实例）
                 result = StrategyDef(
-                    StrategyInstance=strategy_instance,
-                    StrategyClass=strategy_class,
+                    StrategyList=strategy_instances,
                     Meta=StrategyMeta(**effective_meta),
                 )
-                dep_sd[result.Meta.TargetTable] = result
+                dep_sd[def_key] = result
                 _Logger.debug(
-                    f"  ✓ {result.Meta.TargetTable} "
-                    f"({len(result.SignalNames)} 个信号)"
+                    f"  ✓ {def_key} "
+                    f"({len(result.StrategyList)} 个策略)"
                 )
             finally:
-                _resolving.discard(tt)
+                _resolving.discard(def_key)
         else:
             # 无 __STRATEGY_META__ 的模块：直接调用
             saved_args = sdi.ModelArgs
@@ -312,25 +332,31 @@ def build_dep_sd(
             sdi.Factors = {}
             sdi.Strategies = {}
             try:
-                strategy_instance = module.defStrategy(sdi=sdi)
+                strategy_instances = module.defStrategy(sdi=sdi)
+                if not isinstance(strategy_instances, list):
+                    strategy_instances = [strategy_instances]
             finally:
                 sdi.ModelArgs = saved_args
                 sdi.Factors = saved_factors
                 sdi.Strategies = saved_strategies
 
-            strategy_class = getattr(strategy_instance, '__class__', type(strategy_instance))
-            result = StrategyDef(
-                StrategyInstance=strategy_instance,
-                StrategyClass=strategy_class,
-                Meta=StrategyMeta(**strategy_meta),
-            )
-            tt = strategy_meta.get("TargetTable", "") or getattr(module, '__name__', str(module))
-            dep_sd[tt] = result
+            results = []
+            for strategy_instance in strategy_instances:
+                strategy_class = getattr(strategy_instance, '__class__', type(strategy_instance))
+                result = StrategyDef(
+                    StrategyList=strategy_instances,
+                    Meta=StrategyMeta(**strategy_meta),
+                )
+                results.append(result)
+
+            def_key = make_def_key(module, model_args)
+            dep_sd[def_key] = result
+
             mod_name = (
                 module.__name__.split(".")[-1]
                 if hasattr(module, '__name__') else str(module)
             )
-            _Logger.debug(f"  ✓ {tt} [无 __STRATEGY_META__: {mod_name}]")
+            _Logger.debug(f"  ✓ {def_key} [无 __STRATEGY_META__: {mod_name}] ({len(result.StrategyList)} 个策略)")
 
     # ---- 执行所有显式请求的模块 ----
     for mod, model_args, strategy_meta in modules:
@@ -342,20 +368,12 @@ def build_dep_sd(
     # ---- 收集显式请求的结果 ----
     requested = []
     for mod, model_args, strategy_meta in modules:
-        meta = getattr(mod, '__STRATEGY_META__', None)
-        tt = strategy_meta.get("TargetTable") or (meta.get('TargetTable') if (meta and isinstance(meta, dict)) else None)
-        if tt and tt in dep_sd:
-            requested.append((dep_sd[tt], strategy_meta))
+        def_key = make_def_key(mod, model_args)
+        if def_key in dep_sd:
+            requested.append((dep_sd[def_key], strategy_meta))
         else:
-            mod_path = getattr(mod, '__file__', '') or ''
-            found = None
-            for sd in dep_sd.values():
-                if sd.Meta.DefScriptPath and os.path.normcase(os.path.abspath(sd.Meta.DefScriptPath)) == os.path.normcase(os.path.abspath(mod_path)):
-                    found = sd
-                    break
-            requested.append((found, strategy_meta))
-            if found is None:
-                _Logger.warning(f"策略模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_sd 中找到")
+            requested.append((None, strategy_meta))
+            _Logger.warning(f"策略模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_sd 中找到")
 
     return dep_sd, requested
 
@@ -374,64 +392,56 @@ def compute_max_lookback_sd(
     递归计算: MaxLookBack = max(自身声明的值, 各依赖的 MaxLookBack)。
 
     Args:
-        dep_sd: TargetTable → StrategyDef 的映射
-        dep_fd: TargetTable → FactorDef 的映射（可选，用于因子依赖的 MaxLookBack）
+        dep_sd: DefKey → StrategyDef 的映射
+        dep_fd: DefKey → FactorDef 的映射（可选，用于因子依赖的 MaxLookBack）
     """
     from QuantStudio.Core import __QS_Logger__ as _Logger
+    from QSExt.FactorDef.FactorDefContent import _dep_key_to_def_key
 
     dep_fd = dep_fd or {}
     memo: Dict[str, int] = {}
     resolving: set = set()
 
-    def _dep_key_to_tt(dep_key: str) -> str:
-        """将依赖声明中的 key（模块路径）解析为 TargetTable"""
-        try:
-            dep_mod = resolve_dep_module(dep_key, __import__('__main__'))
-            dep_meta = getattr(dep_mod, '__STRATEGY_META__', None) or getattr(dep_mod, '__FACTOR_META__', None) or {}
-            return dep_meta.get('TargetTable', dep_key)
-        except ImportError:
-            return dep_key
-
-    def _resolve(tt: str) -> int:
-        if tt in memo:
-            return memo[tt]
-        if tt in resolving:
+    def _resolve(def_key: str) -> int:
+        if def_key in memo:
+            return memo[def_key]
+        if def_key in resolving:
             raise RuntimeError(
-                f"compute_max_lookback_sd 检测到循环依赖: {' -> '.join(resolving)} -> {tt}"
+                f"compute_max_lookback_sd 检测到循环依赖: {' -> '.join(resolving)} -> {def_key}"
             )
 
-        resolving.add(tt)
+        resolving.add(def_key)
         try:
-            sd = dep_sd[tt]
+            sd = dep_sd[def_key]
             mlb = sd.Meta.MaxLookBack
 
             # 考虑因子依赖的 MaxLookBack
             for dep_name in sd.Meta.FactorDeps:
-                dep_tt = _dep_key_to_tt(dep_name)
-                if dep_tt in dep_fd:
-                    mlb = max(mlb, dep_fd[dep_tt].Meta.MaxLookBack)
-                elif dep_tt in dep_sd:
-                    mlb = max(mlb, _resolve(dep_tt))
+                dep_def_key = _dep_key_to_def_key(dep_name, dep_fd)
+                if dep_def_key and dep_def_key in dep_fd:
+                    mlb = max(mlb, dep_fd[dep_def_key].Meta.MaxLookBack)
+                elif dep_def_key and dep_def_key in dep_sd:
+                    mlb = max(mlb, _resolve(dep_def_key))
 
             # 考虑策略依赖的 MaxLookBack
             for dep_module_path in sd.Meta.StrategyDeps:
-                dep_tt = _dep_key_to_tt(dep_module_path)
-                if dep_tt in dep_sd:
-                    mlb = max(mlb, _resolve(dep_tt))
+                dep_def_key = _dep_key_to_def_key(dep_module_path, dep_sd)
+                if dep_def_key and dep_def_key in dep_sd:
+                    mlb = max(mlb, _resolve(dep_def_key))
 
-            memo[tt] = mlb
+            memo[def_key] = mlb
             if mlb != sd.Meta.MaxLookBack:
                 _Logger.debug(
-                    f"compute_max_lookback_sd: {tt} MaxLookBack "
+                    f"compute_max_lookback_sd: {def_key} MaxLookBack "
                     f"{sd.Meta.MaxLookBack} → {mlb}"
                 )
                 sd.Meta.MaxLookBack = mlb
             return mlb
         finally:
-            resolving.discard(tt)
+            resolving.discard(def_key)
 
-    for tt in list(dep_sd.keys()):
-        _resolve(tt)
+    for def_key in list(dep_sd.keys()):
+        _resolve(def_key)
 
     _Logger.info(f"compute_max_lookback_sd: 已处理 {len(dep_sd)} 个 StrategyDef")
 

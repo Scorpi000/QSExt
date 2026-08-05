@@ -928,7 +928,11 @@ class QSBridge:
             )
 
             # 调用 defStrategy
-            strategy_instance = module.defStrategy(sdi=sdi)
+            strategy_instances = module.defStrategy(sdi=sdi)
+            if isinstance(strategy_instances, list):
+                strategy_instance = strategy_instances[0]
+            else:
+                strategy_instance = strategy_instances
 
             # 构造 AccountReport
             from QuantStudio.BackTest.Strategy.Strategy import AccountReport

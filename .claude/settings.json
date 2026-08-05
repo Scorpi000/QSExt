@@ -38,7 +38,18 @@
       "Bash(npx tsc *)",
       "Bash(D:/PythonEnv/QS312/Scripts/python.exe -c \"from app.services.qs_bridge import QSBridge; print\\('OK'\\)\")",
       "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'Progress: {d[\\\\\"progress\\\\\"][\\\\\"complete\\\\\"]}/{d[\\\\\"progress\\\\\"][\\\\\"total\\\\\"]}'\\)\")",
-      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'Progress: {d[\\\\\"progress\\\\\"][\\\\\"complete\\\\\"]}/{d[\\\\\"progress\\\\\"][\\\\\"total\\\\\"]}, State: {d[\\\\\"state\\\\\"]}'\\)\")"
+      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\(f'Progress: {d[\\\\\"progress\\\\\"][\\\\\"complete\\\\\"]}/{d[\\\\\"progress\\\\\"][\\\\\"total\\\\\"]}, State: {d[\\\\\"state\\\\\"]}'\\)\")",
+      "Bash(C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe -c \"from QSExt.FactorDef.FactorDefContent import make_def_key, _dep_key_to_def_key; print\\('make_def_key:', make_def_key\\); print\\('_dep_key_to_def_key:', _dep_key_to_def_key\\); print\\('Import OK'\\)\")",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -c \"from QSExt.FactorDef.FactorDefContent import make_def_key, _dep_key_to_def_key; print\\('make_def_key:', make_def_key\\); print\\('_dep_key_to_def_key:', _dep_key_to_def_key\\); print\\('Import OK'\\)\")",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_DefKey.py -v)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_DefKey_integration.py -v)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_StrategyDef.py tests/test_validators.py -v)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_StrategyDef.py::test_7_max_lookback tests/test_validators.py::test_syntax_def_factor_too_few_args -v)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_StrategyDef.py::test_7_max_lookback -v)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_validators.py::test_syntax_def_factor_too_few_args -v)",
+      "Bash(git stash *)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_StrategyDef.py tests/test_validators.py tests/test_DefKey.py tests/test_DefKey_integration.py -v)",
+      "Bash(C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe -m pytest tests/test_StrategyDef.py -v)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

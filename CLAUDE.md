@@ -174,7 +174,7 @@ QSExt/FactorDef/
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `TargetTable` | `str` | 是 | 输出的因子表名 |
+| `TargetTable` | `str` | 是 | 输出的因子表名（多个定义文件可共享同一 TargetTable，但同表内因子名必须唯一） |
 | `IDType` | `str` | 是 | 证券类型，如 `"A股"`、`"ETF"`、`"行业"` |
 | `FactorDeps` | `dict[str, list]` | 否 | 依赖的其他因子定义模块及其因子名 |
 | `DBDeps` | `dict[str, str]` | 否 | 依赖的因子库，键为 `fdi.FDB` 中的逻辑名称，值为用途说明 |
@@ -228,7 +228,7 @@ QSExt/StrategyDef/
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `TargetTable` | `str` | 是 | 策略信号输出的因子表名 |
+| `TargetTable` | `str` | 是 | 策略信号输出的因子表名（多个定义文件可共享同一 TargetTable，但同表内信号名必须唯一） |
 | `IDType` | `str` | 是 | 证券类型，如 `"A股"`、`"ETF"` |
 | `OperatorConfig` | `dict` | 否 | 策略算子默认配置，含 `SignalType`（默认 `"目标权重"`）、`InitCash`（默认 `1e6`）、`ShortAllowed`（默认 `False`） |
 | `FactorDeps` | `dict[str, list]` | 否 | 依赖的因子声明 |
@@ -241,11 +241,12 @@ QSExt/StrategyDef/
 | `Tags` | `list[str]` | 否 | 检索标签 |
 | `DefScriptPath` | `str` | 否 | 脚本路径，通常为 `__file__` |
 
-**defStrategy 规范**：暴露 `defStrategy(sdi: StrategyDefInput) -> Strategy` 函数：
+**defStrategy 规范**：暴露 `defStrategy(sdi: StrategyDefInput) -> list` 函数，直接返回 `List[Factor]`：
 - 通过 `sdi.Factors["因子名"]` 获取依赖因子
 - 通过 `sdi.Strategies["信号名"]` 获取依赖策略输出的信号
 - 通过 `sdi.ModelArgs` 获取参数覆盖值
-- 返回 `Strategy` 实例（MakeStrategy 子类调用后的产物）
+- 返回 `List[Factor]`（策略实例列表），一个模块可定义多个策略
+- 框架自动将返回的策略列表包装为 `StrategyDef`，模块不需要构造 `StrategyDef` 或 `StrategyMeta`
 
 关键导入：
 - `from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput` — 输入类型

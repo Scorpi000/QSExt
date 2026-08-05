@@ -12,7 +12,6 @@
 """
 import pandas as pd
 
-from QuantStudio.Factor.Factor import Factor
 from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy
 from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
 
@@ -37,9 +36,9 @@ __STRATEGY_META__ = {
     "FactorDeps": {
         "stock_cn_day_bar_nafilled": ["close"],
     },
-    # StrategyDeps: key=依赖策略的模块路径, value={信号因子名: 本地别名}
+    # StrategyDeps: key=依赖策略的模块路径, value=[{Name: 信号名, Alias: 别名}]
     # "StrategyDeps": {
-    #     "grid_trading": {"grid_signal": "gs"},
+    #     "grid_trading": [{"Name": "grid_signal", "Alias": "gs"}],
     # },
     "DBDeps": {"JYDB": "聚源数据库"},
 
@@ -101,13 +100,16 @@ class MACrossStrategy(MakeStrategy):
 # defStrategy — 策略定义入口
 # ============================================================
 
-def defStrategy(sdi: StrategyDefInput) -> Factor:
-    """标准签名：接收 StrategyDefInput，返回 Strategy 实例
+def defStrategy(sdi: StrategyDefInput) -> list:
+    """标准签名：接收 StrategyDefInput，返回策略实例列表
 
     框架在调用前已完成:
     1. 递归解析 FactorDeps 和 StrategyDeps 依赖链
     2. 将依赖因子注入到 sdi.Factors
     3. 将依赖策略注入到 sdi.Strategies
+
+    Returns:
+        List[Factor]: 策略实例列表，一个模块可定义多个策略，框架统一包装为 StrategyDef
     """
     # 从依赖因子中获取收盘价
     close = sdi.Factors["close"]
@@ -138,4 +140,4 @@ def defStrategy(sdi: StrategyDefInput) -> Factor:
     ma_long = fo.rolling_mean(close, window=long_window, min_periods=1)
 
     # 调用策略算子，传入均线因子和价格因子
-    return op(ma_short, ma_long, last_price=close)
+    return [op(ma_short, ma_long, last_price=close)]

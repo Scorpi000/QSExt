@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import json
 import sys
 import re
 import importlib
@@ -770,6 +771,53 @@ def resolve_dep_module(dep_name: str, caller_module) -> object:
     )
 
 
+def make_def_key(module, model_args: dict) -> str:
+    """根据模块路径和 ModelArgs 生成唯一的 DefKey。
+
+    DefKey = ``os.path.abspath(module.__file__)`` + ModelArgs JSON 序列化。
+    model_args 为空时省略 ``@...`` 部分，ModelArgs 按 key 排序确保一致性。
+
+    Args:
+        module: Python 模块对象（需有 ``__file__`` 属性）
+        model_args: 模块的 ModelArgs 字典
+
+    Returns:
+        DefKey 字符串，如 ``D:\\factors\\my_status.py`` 或
+        ``D:\\factors\\my_status.py@{"lookback":20}``
+    """
+    file_path = os.path.abspath(module.__file__)
+    if not model_args:
+        return file_path
+    return f"{file_path}@{json.dumps(model_args, sort_keys=True, default=str)}"
+
+
+def _dep_key_to_def_key(dep_name: str, target_dict: dict) -> Optional[str]:
+    """将 FactorDeps/StrategyDeps 声明的依赖名映射到 target_dict 中的 DefKey。
+
+    通过 resolve_dep_module 导入依赖模块获取 ``__file__``，
+    再以 ``os.path.normcase`` 与 target_dict 中各 DefKey 的文件路径部分匹配。
+
+    Args:
+        dep_name: 依赖声明中的模块路径（如 ``"my_status"`` 或完整路径）
+        target_dict: DefKey → xxxDef 的字典（dep_fd 或 dep_sd）
+
+    Returns:
+        匹配到的 DefKey，若 target_dict 为空或无法解析则返回 None
+    """
+    if not target_dict:
+        return None
+    try:
+        dep_mod = resolve_dep_module(dep_name, os)
+    except ImportError:
+        return None
+    dep_file = os.path.normcase(os.path.abspath(dep_mod.__file__))
+    for def_key in target_dict:
+        key_file = os.path.normcase(def_key.split("@")[0])
+        if key_file == dep_file:
+            return def_key
+    return None
+
+
 def _get_proxy_factor(
     proxy_db: FactorDB,
     proxy_table_mapping: dict,
@@ -803,14 +851,14 @@ def _get_proxy_factor(
 
 
 def _build_factors(
-    meta: dict,
+    resolved_deps: Dict[str, list],
     dep_fd: Dict[str, "FactorDef"],
     fdi: "FactorDefInput",
     proxy_db: Optional[FactorDB] = None,
     proxy_table_mapping: Optional[dict] = None,
     proxy_tables: Optional[Union[List[str], str]] = None,
 ) -> Dict[str, Factor]:
-    """根据 FactorDeps 声明构建扁平因子字典。
+    """根据预解析的依赖映射构建扁平因子字典。
 
     FactorDeps entry 两种格式：
 
@@ -822,7 +870,7 @@ def _build_factors(
       - ModelArgs: 传递给依赖模块 defFactor 的参数（可选），值以 ``"$"`` 开头时从父模块 fdi.ModelArgs 中查找
 
     Args:
-        meta: 模块的 __FACTOR_META__ 字典
+        resolved_deps: DefKey → entries 的映射（由调用方从 FactorDeps 预解析）
         dep_fd: 已解析的 FactorDef 映射
         fdi: 因子定义输入（用于访问 ModelArgs）
         proxy_db: 代理因子库（可选，不传则不使用代理）
@@ -837,11 +885,12 @@ def _build_factors(
     proxy_table_set = set(proxy_tables) if isinstance(proxy_tables, list) else set()
 
     factors = {}
-    for table_name, entries in meta.get("FactorDeps", {}).items():
-        fd = dep_fd.get(table_name)
+    for def_key, entries in resolved_deps.items():
+        fd = dep_fd.get(def_key)
         if fd is None:
             continue
 
+        table_name = fd.Meta.TargetTable
         table_use_proxy = use_all_proxy or table_name in proxy_table_set
 
         def _resolve(name):
@@ -959,7 +1008,7 @@ def build_dep_fd(
 
     Returns:
         (dep_fd, requested_results):
-          - dep_fd: TargetTable → FactorDef 的完整映射（含依赖模块）
+          - dep_fd: DefKey → FactorDef 的完整映射（含依赖模块）
           - requested_results: 显式请求的模块结果列表（保持 modules 原顺序），
             (FactorDef, factor_meta)，失败时为 (None, factor_meta)
 
@@ -979,15 +1028,15 @@ def build_dep_fd(
         meta = getattr(module, '__FACTOR_META__', None)
 
         if meta and isinstance(meta, dict) and meta.get('TargetTable'):
-            # 去重 key: 优先用 factor_meta 覆盖值，否则用模块级 TargetTable
-            tt = factor_meta.get("TargetTable") or meta['TargetTable']
-            if tt in dep_fd:
+            # 去重 key: 基于模块文件路径 + ModelArgs
+            def_key = make_def_key(module, model_args)
+            if def_key in dep_fd:
                 return
-            if tt in _resolving:
+            if def_key in _resolving:
                 chain = " → ".join(_resolving)
-                raise RuntimeError(f"检测到循环依赖: {chain} → {tt}")
+                raise RuntimeError(f"检测到循环依赖: {chain} → {def_key}")
 
-            _resolving.add(tt)
+            _resolving.add(def_key)
             try:
                 # 合并 factor_meta 覆盖（提前，以便 FactorDeps 等字段也能被覆盖）
                 effective_meta = dict(meta)
@@ -1011,15 +1060,18 @@ def build_dep_fd(
                 saved_factors = fdi.Factors
                 fdi.ModelArgs = model_args
                 try:
-                    # 递归解析该模块声明的依赖（用合并后的 FactorDeps）
+                    # 递归解析该模块声明的依赖，并预构建 resolved_deps
+                    resolved_deps = {}
                     for dep_name, entries in effective_meta.get('FactorDeps', {}).items():
                         dep_mod = resolve_dep_module(dep_name, module)
                         # $ 前缀的值从当前模块的 fdi.ModelArgs 中查找
                         dep_model_args = _extract_dep_model_args(entries, fdi.ModelArgs)
                         _ensure(dep_mod, dep_model_args, {})
+                        dep_def_key = make_def_key(dep_mod, dep_model_args)
+                        resolved_deps[dep_def_key] = entries
 
                     # 注入 Factors 并执行自身
-                    fdi.Factors = _build_factors(effective_meta, dep_fd, fdi, proxy_db, proxy_table_mapping, proxy_tables)
+                    fdi.Factors = _build_factors(resolved_deps, dep_fd, fdi, proxy_db, proxy_table_mapping, proxy_tables)
                     factor_list = module.defFactor(fdi=fdi)
                 finally:
                     fdi.ModelArgs = saved_args
@@ -1031,13 +1083,13 @@ def build_dep_fd(
                     Meta=FactorMeta(**effective_meta),
                 )
 
-                dep_fd[result.Meta.TargetTable] = result
+                dep_fd[def_key] = result
                 _Logger.debug(
-                    f"  ✓ {result.Meta.TargetTable} "
+                    f"  ✓ {def_key} "
                     f"({len(result.FactorList)} 因子)"
                 )
             finally:
-                _resolving.discard(tt)
+                _resolving.discard(def_key)
         else:
             # 无 __FACTOR_META__ 的模块：直接调用
             saved_args = fdi.ModelArgs
@@ -1054,13 +1106,14 @@ def build_dep_fd(
                 FactorList=factor_list,
                 Meta=FactorMeta(**factor_meta),
             )
-            dep_fd[result.Meta.TargetTable] = result
+            def_key = make_def_key(module, model_args)
+            dep_fd[def_key] = result
             mod_name = (
                 module.__name__.split(".")[-1]
                 if hasattr(module, '__name__') else str(module)
             )
             _Logger.debug(
-                f"  ✓ {result.Meta.TargetTable} "
+                f"  ✓ {def_key} "
                 f"({len(result.FactorList)} 因子) [无 __FACTOR_META__: {mod_name}]"
             )
 
@@ -1074,21 +1127,12 @@ def build_dep_fd(
     # ---- 收集显式请求的结果 ----
     requested = []
     for mod, model_args, factor_meta in modules:
-        meta = getattr(mod, '__FACTOR_META__', None)
-        tt = factor_meta.get("TargetTable") or (meta.get('TargetTable') if (meta and isinstance(meta, dict)) else None)
-        # 优先用 factor_meta 的 tt 查找，找不到时按模块源文件路径匹配
-        if tt and tt in dep_fd:
-            requested.append((dep_fd[tt], factor_meta))
+        def_key = make_def_key(mod, model_args)
+        if def_key in dep_fd:
+            requested.append((dep_fd[def_key], factor_meta))
         else:
-            mod_path = getattr(mod, '__file__', '') or ''
-            found = None
-            for fd in dep_fd.values():
-                if fd.Meta.DefScriptPath and os.path.normcase(os.path.abspath(fd.Meta.DefScriptPath)) == os.path.normcase(os.path.abspath(mod_path)):
-                    found = fd
-                    break
-            requested.append((found, factor_meta))
-            if found is None:
-                _Logger.warning(f"模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_fd 中找到")
+            requested.append((None, factor_meta))
+            _Logger.warning(f"模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_fd 中找到")
 
     return dep_fd, requested
 
@@ -1100,46 +1144,47 @@ def compute_max_lookback(dep_fd: Dict[str, "FactorDef"]) -> None:
     递归计算: MaxLookBack = max(自身声明的值, 各依赖模块的 MaxLookBack)。
 
     Args:
-        dep_fd: TargetTable → FactorDef 的映射（由 build_dep_fd 构建）
+        dep_fd: DefKey → FactorDef 的映射（由 build_dep_fd 构建）
     """
     from QuantStudio.Core import __QS_Logger__ as _Logger
 
     memo: Dict[str, int] = {}
     resolving: set = set()
 
-    def _resolve(tt: str) -> int:
-        if tt in memo:
-            return memo[tt]
-        if tt in resolving:
+    def _resolve(def_key: str) -> int:
+        if def_key in memo:
+            return memo[def_key]
+        if def_key in resolving:
             raise RuntimeError(
-                f"compute_max_lookback 检测到循环依赖: {' -> '.join(resolving)} -> {tt}"
+                f"compute_max_lookback 检测到循环依赖: {' -> '.join(resolving)} -> {def_key}"
             )
 
-        resolving.add(tt)
+        resolving.add(def_key)
         try:
-            fd = dep_fd[tt]
+            fd = dep_fd[def_key]
             mlb = fd.Meta.MaxLookBack
             dep_names = list(fd.Meta.FactorDeps.keys())
             for dep_name in dep_names:
-                if dep_name in dep_fd:
-                    mlb = max(mlb, _resolve(dep_name))
+                dep_def_key = _dep_key_to_def_key(dep_name, dep_fd)
+                if dep_def_key and dep_def_key in dep_fd:
+                    mlb = max(mlb, _resolve(dep_def_key))
                 else:
                     _Logger.debug(
                         f"compute_max_lookback: 依赖 '{dep_name}' "
                         f"未在 dep_fd 中找到，跳过"
                     )
-            memo[tt] = mlb
+            memo[def_key] = mlb
             if mlb != fd.Meta.MaxLookBack:
                 _Logger.debug(
-                    f"compute_max_lookback: {tt} MaxLookBack "
+                    f"compute_max_lookback: {def_key} MaxLookBack "
                     f"{fd.Meta.MaxLookBack} → {mlb}"
                 )
                 fd.Meta.MaxLookBack = mlb
             return mlb
         finally:
-            resolving.discard(tt)
+            resolving.discard(def_key)
 
-    for tt in list(dep_fd.keys()):
-        _resolve(tt)
+    for def_key in list(dep_fd.keys()):
+        _resolve(def_key)
 
     _Logger.info(f"compute_max_lookback: 已处理 {len(dep_fd)} 个 FactorDef")
