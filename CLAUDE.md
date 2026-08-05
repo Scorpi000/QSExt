@@ -209,6 +209,44 @@ QSExt/FactorDef/
 - `"Section"` — 截面算子，在单个时点上跨 ID 操作
 - `"Time"` — 时序算子，对单个 ID 跨时间操作
 
+### 因子挖掘配置体系
+
+因子挖掘系统的配置采用**分层结构**，全局配置与各阶段配置分离：
+
+```
+LLMFactor/config/
+├── pipeline.yaml              # 流水线全局配置
+├── hypothesis_research.yaml   # 假设生成配置
+├── development.yaml           # 因子开发配置
+└── evaluation.yaml            # 因子评测配置
+```
+
+**全局配置** (`pipeline.yaml`) 只包含流水线级别的设置：
+- `project_root` — 项目根目录（`"auto"` 自动查找或绝对路径）
+- `claude_cli` — Claude CLI 路径
+- `workspace_dir` — 产出物输出基础目录
+- `max_turns_hypothesis/development` — 各阶段 Agent 最大轮次
+- `data` — 数据上下文（交易日范围、截面日期、股票上限）
+
+**各阶段配置**由对应的 Config 类管理：
+- `ResearchConfig` → `hypothesis_research.yaml`（支持 `from_yaml()`）
+- `DevelopmentConfig` → `development.yaml`（支持 `from_yaml()`）
+- `EvalConfig` → `evaluation.yaml`（支持 `from_yaml()`）
+
+**统一加载方式**：所有脚本通过 `--config` 参数指定全局配置文件路径（默认 `LLMFactor/config/pipeline.yaml`），由 `PipelineConfig` 统一加载并分发给各阶段：
+
+```python
+from QSExt.LLMFactor.pipeline_config import PipelineConfig
+
+pipeline_config = PipelineConfig.from_yaml("LLMFactor/config/pipeline.yaml")
+project_root = pipeline_config.resolve_project_root()
+hypothesis_config = pipeline_config.load_hypothesis_config()
+development_config = pipeline_config.load_development_config()
+evaluation_config = pipeline_config.load_evaluation_config()
+```
+
+
+
 ### 重要架构说明
 
 - **Neo4j 双重用途**：`QSExt/Factor/Neo4jDB.py` 用于存储因子**数据**（因子值），`QSExt/QSRegistry/QSGraphDB.py` 用于存储计算图**元数据**（因子/回测/风险表的注册信息和依赖关系），两者使用不同的 Neo4j 数据库和 Schema

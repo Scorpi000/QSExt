@@ -119,7 +119,7 @@ import pandas as pd
 
 from QuantStudio.Factor.Factor import DataFactor
 import QuantStudio.Factor.BasicOperator as fo
-from QSResearch.GPFactor.GPLearn import GPLearner, GPConfig, toExprStr
+from QSExt.GPFactor.GPLearn import GPLearner, GPConfig, toExprStr
 
 # 1. 准备基础因子
 np.random.seed(42)
@@ -210,7 +210,7 @@ learner = GPLearner(
 
 ```python
 import graphviz
-from QSResearch.GPFactor.GPLearn import flattenFactor2PN, exportGraphviz
+from QSExt.GPFactor.GPLearn import flattenFactor2PN, exportGraphviz
 
 factor = fo.mul(fo.sub(Open, Close), Volume)
 pn = flattenFactor2PN(factor)
@@ -245,7 +245,7 @@ graph.render(filename="factor_tree", format="png", view=True)
 ## 模块结构
 
 ```
-QSResearch/GPFactor/
+QSExt/GPFactor/
 ├── __init__.py
 ├── GPLearn.py          # GP 核心算法（GPLearner 类 + 工具函数）
 └── requirements.txt
@@ -283,5 +283,5 @@ python -m pytest tests/test_gp_learn.py -v
 | 8 | **支持时序算子** | 当前只支持 `PointOperator`。扩展支持 `TimeOperator`（如 `ts_mean`、`ts_std`、`ts_rank`）可大幅扩展因子搜索空间 |
 | 9 | **支持截面算子** | 支持 `SectionOperator`（如 `cs_rank`、`cs_zscore`），在截面维度上做变换 |
 | 10 | **Pareto 前沿** | 同时优化适应度和简洁度（表达式长度），保留 Pareto 最优解集，而非单一最优 |
-| 11 | **与 FactorMining 集成** | 将 GP 作为 FactorMining 的一种挖掘策略，接入假设生成 → 开发 → 评测流水线 |
+| 11 | **与 LLMFactor 集成** | 将 GP 作为 LLMFactor 的一种挖掘策略，接入假设生成 → 开发 → 评测流水线 |
 | 12 | **因子序列化** | 已通过 `QSExt.FactorDef.FactorScriptWriter.generate_script()` 实现，可将 GP 产出的最优因子自动导出为 FactorDef 脚本（`.py`），详见 [FactorScriptWriter 文档](../因子定义/FactorScriptWriter.md)
