@@ -12,6 +12,7 @@ export interface Connection {
   description?: string
   args: Record<string, any>
   status: string
+  source?: string
   created_at?: string
   updated_at?: string
 }

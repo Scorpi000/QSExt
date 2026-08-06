@@ -76,14 +76,32 @@ class FactorService:
             raise ValueError(f"连接失败 (QSID: {conn_id}): {str(e)}")
 
     def _reconstruct_db_sync(self, qsid: str):
-        """同步从 QSGraphDB 重建 FactorDB 实例"""
+        """同步重建 FactorDB 实例。先尝试从 Neo4j，失败后尝试从 settings.py。"""
         from QSExt.QSRegistry.QSGraphDB import QSGraphDB
         gdb = QSGraphDB()
         gdb.connect()
         fdb = gdb.reconstructFactorDB(qsid)
-        if fdb is None:
-            raise ValueError(f"图中不存在 QSID 为 {qsid} 的因子库")
-        return fdb
+        if fdb is not None:
+            return fdb
+
+        # Neo4j 中没有，尝试从 settings.py 找到匹配的库（通过 list_connections 做 QSID 映射）
+        from app.services.connection_service import connection_service
+        for conn in connection_service.list_connections():
+            if conn.qsid == qsid and conn.source == "settings":
+                # 找到 settings 中对应的库定义，直接构建并连接
+                from app.core.config import settings as app_settings
+                rs = app_settings.runtime_settings
+                for db_def in rs.factor_databases:
+                    if db_def.name == conn.name:
+                        fdb = connection_service._create_fdb_sync(
+                            db_type=db_def.class_path,
+                            args=db_def.args,
+                            name=db_def.name,
+                        )
+                        fdb.connect()
+                        return fdb
+
+        raise ValueError(f"图中不存在 QSID 为 {qsid} 的因子库")
 
     async def get_tables(self, conn_id: str) -> List[FactorTableInfo]:
         """获取因子表列表"""

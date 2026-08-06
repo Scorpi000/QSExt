@@ -13,7 +13,6 @@ from typing import List, Optional, Dict, Any
 
 import pandas as pd
 import numpy as np
-import yaml
 
 from app.models.backtest import (
     FactorRef,
@@ -29,27 +28,18 @@ logger = logging.getLogger(__name__)
 
 from app.core.config import settings
 
-DEFAULT_BACKTEST_CONFIG = {
-    "dtruler_lookback_years": 10,
-    "trading_day_source": None,
-    "section_id_sources": {},
-}
-
 
 def _load_backtest_config() -> dict:
-    """从 QSWebConfig.yaml 加载回测配置节"""
-    if os.path.exists(settings.QS_CONFIG_PATH):
-        try:
-            with open(settings.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f)
-            bt_cfg = cfg.get("backtest", {})
-            merged = {**DEFAULT_BACKTEST_CONFIG, **bt_cfg}
-            if "trading_day_source" not in bt_cfg:
-                merged["trading_day_source"] = None
-            return merged
-        except Exception:
-            logger.warning("加载回测配置失败，使用默认配置")
-    return dict(DEFAULT_BACKTEST_CONFIG)
+    """从统一 RuntimeSettings 读取回测配置。
+
+    直接使用 RuntimeSettings 的 trading_day_source、section_id_sources、max_lookback。
+    """
+    rs = settings.runtime_settings
+    return {
+        "trading_day_source": rs.trading_day_source,
+        "section_id_sources": rs.section_id_sources,
+        "max_lookback": rs.max_lookback,
+    }
 
 
 # ─── 声明式回测模块构造器 ────────────────────────────────────────
@@ -156,13 +146,8 @@ class QSBridge:
     ):
         """获取时点标尺和计算时点
 
-        DTRuler 根据全局配置中的 dtruler_lookback_years 前推起始时间；
+        DTRuler 根据统一配置中的 max_lookback 前推起始时间；
         DTs 按 dt_mode 参数选择自然日或交易日（由前端用户选择）。
-
-        Returns
-        -------
-        Tuple[List[datetime], List[datetime]]
-            (DTRuler, DTs)
         """
         db = await self._factor_service._get_factor_db(conn_id)
         cfg = _load_backtest_config()
@@ -170,14 +155,15 @@ class QSBridge:
         import asyncio
         loop = asyncio.get_running_loop()
 
-        # 交易日模式：通过 FactorService 获取配置的 FactorDB 实例（复用缓存）
+        # 交易日模式：通过 FactorService 查找对应数据源
         trading_db = None
         trading_method = None
         trading_method_args = {}
         if dt_mode == "trading":
-            tds = cfg.get("trading_day_source")
-            if tds and tds.get("conn_id"):
-                trading_db = await self._factor_service._get_factor_db(tds["conn_id"])
+            tds = cfg.get("trading_day_source") or {}
+            tds_name = tds.get("name")
+            if tds_name:
+                trading_db = await self._factor_service._get_factor_db(tds_name)
                 trading_method = tds.get("method", "getTradeDay")
                 trading_method_args = tds.get("method_args", {})
 
@@ -186,16 +172,14 @@ class QSBridge:
             start_dt = dt.datetime.strptime(start_date, "%Y-%m-%d")
             end_dt = dt.datetime.strptime(end_date, "%Y-%m-%d")
 
-            lookback_years = cfg.get("dtruler_lookback_years", 10)
-            ruler_start_dt = start_dt - dt.timedelta(days=365 * lookback_years + 1)
+            max_lookback = cfg.get("max_lookback", 365 * 10)
+            ruler_start_dt = start_dt - dt.timedelta(days=max_lookback)
 
             if dt_mode == "trading" and trading_db is not None and trading_method is not None:
-                # 交易日模式：DTRuler 和 DTs 都从交易日源获取，保持一致
                 method = getattr(trading_db, trading_method)
                 dtruler = method(start_date=ruler_start_dt, end_date=end_dt, **trading_method_args)
                 dts = method(start_date=start_dt, end_date=end_dt, **trading_method_args)
             else:
-                # 自然日模式：两者都从因子表获取
                 dtruler = ft.getDateTime(
                     ifactor_name=factor_name, iid=None,
                     start_dt=ruler_start_dt, end_dt=end_dt

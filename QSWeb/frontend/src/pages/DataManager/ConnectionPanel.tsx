@@ -39,6 +39,12 @@ function getDbTypeColor(dbType: string) {
   return colors[dbType] || 'default'
 }
 
+function getSourceTag(source?: string) {
+  if (source === 'settings') return <Tag color="green" style={{ fontSize: 10, lineHeight: '16px' }}>settings</Tag>
+  if (source === 'neo4j') return <Tag color="default" style={{ fontSize: 10, lineHeight: '16px' }}>neo4j</Tag>
+  return null
+}
+
 function ConnectionPanel({
   connections, loading, activeConnection, onSelectConnection, onRefresh,
   onDelete, onReconnect,
@@ -153,13 +159,16 @@ function ConnectionPanel({
                     <Space>
                       <span style={{ fontWeight: 500 }}>{conn.name}</span>
                       <Tag color={getDbTypeColor(conn.db_type)}>{conn.db_type}</Tag>
+                      {getSourceTag(conn.source)}
                     </Space>
                     <Space size="small">
                       <Button type="text" size="small" icon={<EditOutlined />}
+                        disabled={conn.source === 'settings'}
                         onClick={(e) => { e.stopPropagation(); onOpenEdit(conn) }} />
                       <Button type="text" size="small" icon={<SyncOutlined />}
                         onClick={(e) => { e.stopPropagation(); onReconnect(conn.qsid) }} />
                       <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                        disabled={conn.source === 'settings'}
                         onClick={(e) => { e.stopPropagation(); onDelete(conn.qsid, conn.name) }} />
                     </Space>
                   </div>
@@ -185,7 +194,7 @@ function ConnectionPanel({
                 labelStyle={{ color: '#666', fontSize: 12, padding: '2px 8px 2px 0' }}
                 contentStyle={{ fontSize: 12, padding: '2px 0' }}>
                 {Object.entries(activeConnection.args).map(([key, value]) => (
-                  <Descriptions.Item key={key} label={key}>{String(value)}</Descriptions.Item>
+                  <Descriptions.Item key={key} label={key}>{JSON.stringify(value, null, 2)}</Descriptions.Item>
                 ))}
               </Descriptions>
             </div>

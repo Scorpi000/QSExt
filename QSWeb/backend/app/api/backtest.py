@@ -45,7 +45,7 @@ async def get_backtest_config():
     """返回回测相关配置信息（供前端判断功能可用性）"""
     cfg = _load_backtest_config()
     tds = cfg.get("trading_day_source")
-    trading_day_available = bool(tds and tds.get("conn_id"))
+    trading_day_available = bool(tds and tds.get("name"))
     section_id_sources = list(cfg.get("section_id_sources", {}).keys())
     return {
         "trading_day_available": trading_day_available,

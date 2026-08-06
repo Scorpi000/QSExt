@@ -52,11 +52,11 @@ async def import_strategy(request: StrategyImportRequest):
     )
 
     # 3. 后台注册到 Neo4j（异步）
-    strategy_settings_path = app_settings.strategy_def.get("settings_path")
-    if not strategy_settings_path:
+    strategy_settings_path = app_settings.RUNTIME_SETTINGS_PATH
+    if not os.path.isfile(os.path.expanduser(strategy_settings_path)):
         raise HTTPException(
             status_code=400,
-            detail="未配置 strategy_def.settings_path，请在 QSWebConfig.yaml 中设置",
+            detail="未找到统一配置文件，请在 ~/QuantStudioConfig/settings.py 中配置",
         )
 
     async def _register():

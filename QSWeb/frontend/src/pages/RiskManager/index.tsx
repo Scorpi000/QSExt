@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Row, Col, Card, Tree, Select, Tabs, Spin, Empty, message,
-  Button, Modal, Form, Input, InputNumber, Popconfirm, Space, Tooltip, Divider,
+  Button, Modal, Form, Input, InputNumber, Popconfirm, Space, Tooltip, Divider, Tag,
 } from 'antd'
 import {
   SafetyOutlined, TableOutlined, PlusOutlined,
@@ -27,6 +27,13 @@ import {
 import type {
   RiskDBInfo, RiskTableInfo, MatrixData, FactorDecompositionData,
 } from '../../services/risk'
+
+/** 来源标签 */
+function SourceTag({ source }: { source?: string }) {
+  if (source === 'settings') return <Tag color="green" style={{ fontSize: 10, lineHeight: '16px', marginLeft: 4 }}>settings</Tag>
+  if (source === 'neo4j') return <Tag color="default" style={{ fontSize: 10, lineHeight: '16px', marginLeft: 4 }}>neo4j</Tag>
+  return null
+}
 
 type ViewMode = 'covariance' | 'correlation' | 'factor-decomp' | 'specific-risk'
 
@@ -70,7 +77,7 @@ function RiskManager() {
       setDatabases(dbs)
       const nodes: DataNode[] = dbs.map((db) => ({
         key: db.id,
-        title: db.name,
+        title: <span>{db.name}<SourceTag source={db.source} /></span>,
         icon: <SafetyOutlined />,
         isLeaf: false,
         children: [],
@@ -293,10 +300,15 @@ function RiskManager() {
                 {selectedDb && !selectedTable && (
                   <div style={{ marginTop: 8 }}>
                     <Divider style={{ margin: '8px 0' }} />
+                    {(() => {
+                      const selectedDbInfo = databases.find((d) => d.id === selectedDb)
+                      const isSettingsSource = selectedDbInfo?.source === 'settings'
+                      return (
                     <Space size={4}>
-                      <Tooltip title="编辑">
+                      <Tooltip title={isSettingsSource ? 'settings 来源不可编辑' : '编辑'}>
                         <Button
                           size="small" icon={<EditOutlined />}
+                          disabled={isSettingsSource}
                           onClick={() => {
                             const db = databases.find((d) => d.id === selectedDb)
                             if (db) handleEdit(db)
@@ -315,15 +327,15 @@ function RiskManager() {
                           onClick={loadDatabases}
                         />
                       </Tooltip>
-                      <Popconfirm
-                        title="确定删除此风险库？"
-                        onConfirm={() => handleDelete(selectedDb)}
-                      >
-                        <Tooltip title="删除">
-                          <Button size="small" danger icon={<DeleteOutlined />} />
-                        </Tooltip>
-                      </Popconfirm>
+                      <Tooltip title={isSettingsSource ? 'settings 来源不可删除' : '删除'}>
+                        <Button size="small" danger icon={<DeleteOutlined />}
+                          disabled={isSettingsSource}
+                          onClick={() => handleDelete(selectedDb)}
+                        />
+                      </Tooltip>
                     </Space>
+                      )
+                    })()}
                   </div>
                 )}
               </>

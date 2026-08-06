@@ -158,15 +158,21 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 ```
 QSExt/FactorDef/
 ├── FactorDefContent.py           # 核心：FactorDefInput / FactorMeta / FactorDef
-│                                 #       FactorDBPool / FactorDefSettings
+│                                 #       FactorDefSettings(继承RuntimeSettings)
 │                                 #       FactorDefInputBuilder / build_dep_fd
 ├── utils.py                      # expand_glob()
 ├── conf/
-│   └── settings.example.py       # 配置模板
+│   └── settings.example.py       # 指向 RuntimeConfig 统一配置
 └── scripts/
     ├── run_factor_def.py                 # 执行入口
     └── register_factors_to_graphdb.py    # 图数据库注册
 ```
+
+运行时配置统一由 `QSExt/RuntimeConfig/` 管理：
+- `DBDef` / `DBPool` — 数据库连接定义与连接池
+- `RuntimeSettings` — 统一配置基类（FactorDef/StrategyDef/QSWeb 共享）
+- 用户配置文件放在 `~/QuantStudioConfig/settings.py`
+- 支持 `__INHERIT_FROM__` 链式继承，项目级配置可覆盖全局配置
 
 因子定义脚本（业务模块）置于使用项目中，通过 `from QSExt.FactorDef.FactorDefContent import FactorDefInput` 引用框架。
 
@@ -211,11 +217,11 @@ QSExt/FactorDef/
 ```
 QSExt/StrategyDef/
 ├── StrategyDefContent.py           # 核心：StrategyDefInput / StrategyMeta / StrategyDef
-│                                   #       StrategyDBPool / StrategyDefSettings
+│                                   #       StrategyDefSettings(继承RuntimeSettings)
 │                                   #       StrategyDefInputBuilder / build_dep_sd
 ├── utils.py                        # expand_glob()
 ├── conf/
-│   └── settings.example.py         # 配置模板
+│   └── settings.example.py         # 指向 RuntimeConfig 统一配置
 ├── scripts/
 │   ├── run_strategy_def.py                 # 执行入口
 │   └── register_strategies_to_graphdb.py   # 图数据库注册
@@ -299,10 +305,41 @@ evaluation_config = pipeline_config.load_evaluation_config()
 数据库连接配置存放在 `~/QuantStudioConfig/` 目录：
 - `JYDBConfig.json`：聚源数据库（PostgreSQL）
 - `Neo4jDBConfig.json`：Neo4j 图数据库
-- `QSWebConfig.yaml`：QSWeb 统一配置（参数使用 QuantStudio 原生格式）
+- `QSWebConfig.yaml`：QSWeb 专用配置（AI Workbench、因子挖掘、报告等）
+- `settings.py`：统一运行时配置（FactorDef/StrategyDef/QSWeb 共享）
 - 其他数据库配置文件
 
 MCP 服务配置文件：`.mcp.json.example`（项目根目录），用于配置 MCP 客户端连接 QSRegistry 服务。
+
+### 统一运行时配置 (RuntimeConfig)
+
+`QSExt/RuntimeConfig/` 提供统一的运行时配置框架：
+- `config.py`：`DBDef`（数据库定义）、`DBPool`（连接池）、`RuntimeSettings`（统一配置基类）
+- `conf/settings.example.py`：配置模板
+
+配置覆盖优先级（从低到高）：
+1. `__INHERIT_FROM__` 父模块（链式继承）
+2. 当前模块变量
+3. `settings_local.py`（不入库，本地覆盖）
+4. `QS_*` 环境变量
+5. 命令行 `--xxx` 参数
+
+使用方式：
+```bash
+# 使用全局配置
+python -m QSExt.FactorDef.scripts.run_factor_def --settings ~/QuantStudioConfig/settings
+
+# 项目级配置（链式继承）
+python -m QSExt.FactorDef.scripts.run_factor_def --settings /path/to/project/settings.py
+```
+
+链式继承示例：
+```python
+# ~/MyProject/settings.py
+__INHERIT_FROM__ = "~/QuantStudioConfig/settings.py"
+DEBUG = True
+WORKERS = 4
+```
 
 ## 约定
 

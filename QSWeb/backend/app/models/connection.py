@@ -30,6 +30,7 @@ class ConnectionResponse(ConnectionBase):
     """连接响应"""
     qsid: str = Field(..., description="连接 QSID（唯一标识）")
     status: str = Field(default="disconnected", description="连接状态")
+    source: str = Field(default="neo4j", description="配置来源: settings | neo4j")
     created_at: Optional[str] = Field(None, description="创建时间")
     updated_at: Optional[str] = Field(None, description="更新时间")
 

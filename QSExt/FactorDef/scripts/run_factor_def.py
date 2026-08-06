@@ -199,8 +199,13 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
             if settings.dt_type == "自然日":
                 dtruler = pd.date_range(start=dtruler_start, end=end_dt, freq='D').tolist()
             else:
-                dt_source = pool[settings.dt_source]
-                dtruler = dt_source.getTradeDay(start_date=dtruler_start, end_date=end_dt)
+                tds = settings.trading_day_source
+                tds_name = tds.get("name", "JYDB")
+                tds_method = tds.get("method", "getTradeDay")
+                tds_method_args = tds.get("method_args", {})
+                dt_source = pool[tds_name]
+                method = getattr(dt_source, tds_method)
+                dtruler = method(start_date=dtruler_start, end_date=end_dt, **tds_method_args)
             dtruler = FactorDefInputBuilder.apply_dt_freq(dtruler, settings.dt_freq)
             fdi.DTRuler = dtruler
             Logger.info(f"MaxLookBack 更新为 {MaxLookBack}，DTRuler 已扩展")

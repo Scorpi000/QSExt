@@ -61,22 +61,12 @@ class FactorDefContext:
         return self._builder is not None
 
     def _load(self):
-        """加载 settings 并构建 FactorDefInputBuilder"""
+        """从统一 RuntimeSettings 加载并构建 FactorDefInputBuilder"""
         self._loaded = True
-        settings_path = app_settings.factor_def.get("settings_path")
-        if not settings_path:
-            logger.warning("未配置 factor_def.settings_path，FactorDefContext 不可用")
-            return
-
-        settings_path = os.path.expanduser(settings_path)
-        if not os.path.isfile(settings_path):
-            logger.warning(f"settings 文件不存在: {settings_path}")
-            return
-
         try:
             from QSExt.FactorDef.FactorDefContent import FactorDefInputBuilder, FactorDefSettings
 
-            settings = FactorDefSettings.from_module(settings_path)
+            settings = FactorDefSettings.from_module()
             self._builder = FactorDefInputBuilder(settings)
             self._builder.init()
             self._fdi = self._builder.build()

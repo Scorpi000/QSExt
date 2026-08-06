@@ -1226,17 +1226,12 @@ class MiningService:
 
     @staticmethod
     def _load_backtest_config() -> dict:
-        """加载 QSWebConfig.yaml 的回测配置节（复用 dtruler_lookback_years 等参数）"""
-        import yaml as _yaml
-        cfg_path = settings.QS_CONFIG_PATH
-        if os.path.exists(cfg_path):
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    cfg = _yaml.safe_load(f)
-                return cfg.get("backtest", {})
-            except Exception:
-                pass
-        return {}
+        """从统一 RuntimeSettings 获取回测配置。"""
+        rs = settings.runtime_settings
+        return {
+            "max_lookback": rs.max_lookback,
+            "trading_day_source": rs.trading_day_source,
+        }
 
     # ─── 适应度函数 ─────────────────────────────────────────────
 

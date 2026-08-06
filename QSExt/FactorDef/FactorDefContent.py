@@ -14,14 +14,7 @@ from pydantic import Field
 from QuantStudio.Core import __QS_Args__, __QS_Error__
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
-
-# ---- 内置 FactorDB 类名映射 ----
-_BUILTIN_DB_CLASSES = {
-    "JYDB": "QuantStudio.Factor.JYDB.JYDB",
-    "BaoStockDB": "QuantStudio.Factor.BaoStockDB.BaoStockDB",
-    "HDF5DB": "QuantStudio.Factor.HDF5DB.HDF5DB",
-    "SQLDB": "QuantStudio.Factor.SQLDB.SQLDB",
-}
+from QSExt.RuntimeConfig.config import DBDef, DBPool, RuntimeSettings
 
 
 class FactorDefInput(__QS_Args__):
@@ -136,146 +129,6 @@ class FactorDef(__QS_Args__):
 # 运行时配置与 FactorDefInput 构造
 # ============================================================
 
-class FactorDBDef(__QS_Args__):
-    """单条因子库定义 —— 对应 FACTOR_DATABASES 配置中的一个元素"""
-    name: str = Field(default="", title="逻辑名称")
-    class_path: str = Field(default="", title="类路径")
-    role: str = Field(default="source", title="角色: source / target / proxy")
-    args: dict = Field(default={}, title="构造参数")
-    config_file: Optional[str] = Field(default=None, title="配置文件路径")
-
-
-class FactorDBPool:
-    """因子库连接池 —— 统一管理所有 FactorDB 实例的创建、连接、访问和断开
-
-    使用示例:
-        pool = FactorDBPool(settings.factor_databases)
-        pool.create_all()
-        pool.connect_all()
-        jydb = pool["JYDB"]
-        pool.disconnect_all()
-    """
-
-    def __init__(self, db_defs: List[FactorDBDef]):
-        self._defs = db_defs
-        self._instances: Dict[str, FactorDB] = {}
-        self._connected: Dict[str, bool] = {}
-
-    # ---- 创建 ----
-    def create_all(self) -> None:
-        """实例化所有 FactorDB 对象（不连接）"""
-        for db_def in self._defs:
-            self._instances[db_def.name] = self._create_one(db_def)
-            self._connected[db_def.name] = False
-
-    def _create_one(self, db_def: FactorDBDef) -> FactorDB:
-        """根据单条定义创建一个 FactorDB 实例"""
-        cls = self._resolve_class(db_def.class_path)
-
-        kwargs = {"args": db_def.args}
-        if db_def.config_file:
-            kwargs["config_file"] = os.path.expanduser(db_def.config_file)
-
-        # HDF5DB: 确保输出目录存在
-        if db_def.role in ("target", "proxy") and "MainDir" in db_def.args:
-            os.makedirs(db_def.args["MainDir"], exist_ok=True)
-
-        return cls(**kwargs)
-
-    @staticmethod
-    def _resolve_class(class_path: str) -> type:
-        """解析类路径字符串 → FactorDB 子类"""
-        if class_path in _BUILTIN_DB_CLASSES:
-            class_path = _BUILTIN_DB_CLASSES[class_path]
-
-        parts = class_path.rsplit(".", 1)
-        if len(parts) != 2:
-            raise ValueError(f"无效的类路径: {class_path}")
-
-        module_name, class_name = parts
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as e:
-            raise ImportError(f"无法导入模块 '{module_name}': {e}")
-
-        if not hasattr(module, class_name):
-            raise AttributeError(f"模块 '{module_name}' 中不存在类 '{class_name}'")
-        return getattr(module, class_name)
-
-    # ---- 连接 ----
-    def connect_all(self) -> None:
-        """连接所有已创建的库"""
-        for name in list(self._instances.keys()):
-            self.connect_one(name)
-
-    def connect_one(self, name: str) -> FactorDB:
-        """连接指定库"""
-        if name not in self._instances:
-            raise KeyError(f"因子库 '{name}' 未创建")
-        if not self._connected.get(name, False):
-            self._instances[name].connect()
-            self._connected[name] = True
-        return self._instances[name]
-
-    # ---- 访问 ----
-    def __getitem__(self, name: str) -> FactorDB:
-        """通过 name 获取 FactorDB 实例"""
-        if name not in self._instances:
-            raise KeyError(f"因子库 '{name}' 不存在。可用: {list(self._instances.keys())}")
-        return self._instances[name]
-
-    def get_source(self, name: str = None) -> FactorDB:
-        """获取数据源库。name=None 时返回第一个 role='source' 的库"""
-        if name:
-            return self[name]
-        for db_def in self._defs:
-            if db_def.role == "source":
-                return self[db_def.name]
-        raise KeyError("没有配置 role='source' 的因子库")
-
-    def get_target(self, name: str = None) -> WritableFactorDB:
-        """获取目标库。name=None 时返回第一个 role='target' 的库"""
-        if name:
-            return self[name]
-        for db_def in self._defs:
-            if db_def.role == "target":
-                return self[db_def.name]
-        raise KeyError("没有配置 role='target' 的因子库")
-
-    def get_proxy(self) -> Optional[FactorDB]:
-        """获取代理库，无代理时返回 None"""
-        for db_def in self._defs:
-            if db_def.role == "proxy":
-                return self[db_def.name]
-        return None
-
-    # ---- 生命周期 ----
-    def disconnect_all(self) -> None:
-        """断开所有连接"""
-        for name, instance in self._instances.items():
-            if self._connected.get(name, False):
-                try:
-                    instance.disconnect()
-                except Exception:
-                    pass
-                self._connected[name] = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.disconnect_all()
-
-    # ---- 内省 ----
-    @property
-    def source_names(self) -> List[str]:
-        return [d.name for d in self._defs if d.role == "source"]
-
-    @property
-    def target_names(self) -> List[str]:
-        return [d.name for d in self._defs if d.role == "target"]
-
-
 class FactorDefProfile(__QS_Args__):
     """单个 IDType 维度的因子模块分组 —— 用于多 IDType 统一调度"""
     id_type: str = Field(default="A股", title="证券类型")
@@ -285,157 +138,18 @@ class FactorDefProfile(__QS_Args__):
     proxy_tables: Union[List[str], str, None] = Field(default=None, title="代理表", description="None=不代理, '*'=全部代理, ['t1','t2']=指定表代理")
 
 
-class FactorDefSettings(__QS_Args__):
-    """因子定义运行时配置 —— 从 settings.py 模块加载并验证"""
+class FactorDefSettings(RuntimeSettings):
+    """因子定义运行时配置 —— 继承统一 RuntimeSettings，无专属字段。"""
 
-    # 运行模式
-    debug: bool = Field(default=False, title="调试模式")
-    update_data: bool = Field(default=True, title="更新因子数据")
-    register_graph: bool = Field(default=False, title="注册到图数据库")
-    dry_run: bool = Field(default=False, title="仅分析不执行")
-
-    # 因子数据库
-    factor_databases: List[FactorDBDef] = Field(default=[], title="因子库定义列表")
-    proxy_table_mapping: dict = Field(default={}, title="代理表名映射")
-
-    # 时间与 ID 数据源
-    dt_source: str = Field(default="JYDB", title="提供 getTradeDay 的数据源")
-    id_source: str = Field(default="JYDB", title="提供 getStockID 的数据源")
-
-    # 时间范围
-    end_dt: str = Field(default="last_friday", title="截止日期")
-    start_dt: Optional[str] = Field(default=None, title="起始日期")
-    lookback: int = Field(default=15, title="交易日回溯天数")
-    max_lookback: int = Field(default=365 * 10, title="DTRuler 最大回溯天数")
-    dt_type: str = Field(default="交易日", title="时点类型: 交易日 | 自然日")
-    dt_freq: str = Field(default="1d", title="DTs 和 DTRuler 的时点频率")
-
-    # ID 类型与因子模块 — ID_PROFILES 统一配置
-    id_profiles: List[dict] = Field(default=[], title="ID 类型与因子模块配置列表")
-
-    # 输出
-    target_db: Union[str, List[str]] = Field(default="TDB", title="输出目标库名")
-    factor_storer_config: dict = Field(default={}, title="FactorStorer 参数")
-
-    # 缓存
-    cache_dir: str = Field(default="", title="缓存目录")
-    cache_start_mode: str = Field(default="new", title="缓存模式")
-    cache_suffix: str = Field(default=".pkl", title="缓存文件后缀")
-
-    # 执行
-    workers: int = Field(default=8, title="并发 worker 数")
-    pid_format: str = Field(default="0-{i}", title="PID 格式")
-
-    # 图数据库
-    neo4j_config_path: str = Field(default="~/QuantStudioConfig/Neo4jDBConfig.json", title="Neo4j 配置路径")
-    embedding_model: str = Field(default="bge-m3", title="嵌入模型")
-    embedding_dim: int = Field(default=1024, title="嵌入维度")
-    skip_embedding: bool = Field(default=False, title="跳过向量嵌入")
-
-    # 日志
-    log_level: str = Field(default="DEBUG", title="日志级别")
-
-    # ---- 工厂方法 ----
     @classmethod
     def from_module(cls, module_path: str = "settings", **cmd_overrides) -> "FactorDefSettings":
-        """从 Python 模块加载配置
+        """从 Python 模块加载配置。
 
-        Args:
-            module_path: 模块路径。"settings" 解析为 QSExt.FactorDef.conf.settings
-            **cmd_overrides: 命令行覆盖参数，如 debug=True, end_dt="2026-06-30"
-
-        Returns:
-            FactorDefSettings 实例
+        若 module_path 为短名（不以 QSExt. 或 / 开头），默认查找 QSExt.FactorDef.conf.<name>。
         """
-        # 解析模块路径
         if not module_path.startswith("QSExt") and not os.path.isabs(module_path):
             module_path = f"QSExt.FactorDef.conf.{module_path}"
-
-        # 加载模块
-        try:
-            module = importlib.import_module(module_path)
-        except ImportError:
-            if os.path.isfile(module_path):
-                spec = importlib.util.spec_from_file_location("_factor_def_settings", module_path)
-                module = importlib.util.module_from_spec(spec)
-                sys.modules["_factor_def_settings"] = module
-                spec.loader.exec_module(module)
-            else:
-                raise FileNotFoundError(f"无法加载配置模块: {module_path}")
-
-        # 提取 UPPERCASE 变量
-        settings_dict = {}
-        for key in dir(module):
-            if key.isupper() and not key.startswith("_"):
-                settings_dict[key.lower()] = getattr(module, key)
-
-        # 提取钩子函数
-        hooks = {}
-        for hook_name in ("init_db",):
-            if hasattr(module, hook_name) and callable(getattr(module, hook_name)):
-                hooks[hook_name] = getattr(module, hook_name)
-
-        # 尝试加载 settings_local 覆盖
-        try:
-            local_module = importlib.import_module("QSExt.FactorDef.conf.settings_local")
-            for key in dir(local_module):
-                if key.isupper() and not key.startswith("_"):
-                    settings_dict[key.lower()] = getattr(local_module, key)
-            for hook_name in ("init_db",):
-                if hasattr(local_module, hook_name) and callable(getattr(local_module, hook_name)):
-                    hooks[hook_name] = getattr(local_module, hook_name)
-        except ImportError:
-            pass
-
-        # 环境变量覆盖 (FACTORDEF_ 前缀)
-        for env_key, env_val in os.environ.items():
-            if env_key.startswith("FACTORDEF_"):
-                setting_key = env_key[len("FACTORDEF_"):].lower()
-                try:
-                    import json
-                    settings_dict[setting_key] = json.loads(env_val)
-                except (json.JSONDecodeError, ValueError):
-                    settings_dict[setting_key] = env_val
-
-        # 命令行覆盖
-        settings_dict.update(cmd_overrides)
-
-        return cls.from_dict(settings_dict, hooks)
-
-    @classmethod
-    def from_dict(cls, data: dict, hooks: dict = None) -> "FactorDefSettings":
-        """从字典构造 FactorDefSettings，处理嵌套类型转换"""
-        data = dict(data)  # 浅拷贝，避免修改原始 dict
-
-        # 转换 factor_databases: list[dict] → List[FactorDBDef]
-        db_defs = []
-        for item in data.pop("factor_databases", []):
-            if isinstance(item, FactorDBDef):
-                db_defs.append(item)
-            elif isinstance(item, dict):
-                db_defs.append(FactorDBDef(
-                    name=item.get("name", ""),
-                    class_path=item.get("class", item.get("class_path", "")),
-                    role=item.get("role", "source"),
-                    args=item.get("args", {}),
-                    config_file=item.get("config_file"),
-                ))
-        data["factor_databases"] = db_defs
-
-        instance = cls(**data)
-        if hooks:
-            object.__setattr__(instance, "_hooks", hooks)
-        return instance
-
-    def get_hook(self, hook_name: str):
-        """获取 settings 模块中定义的钩子函数"""
-        hooks = getattr(self, "_hooks", {})
-        return hooks.get(hook_name)
-
-    @property
-    def has_profiles(self) -> bool:
-        """是否配置了多 IDType profiles"""
-        return len(self.id_profiles) > 0
+        return super().from_module(module_path, **cmd_overrides)
 
     def iter_profiles(self) -> List["FactorDefProfile"]:
         """将 id_profiles 转换为 FactorDefProfile 列表"""
@@ -450,10 +164,6 @@ class FactorDefSettings(__QS_Args__):
             ))
         return profiles
 
-    def to_db_pool(self) -> "FactorDBPool":
-        """根据 factor_databases 创建 FactorDBPool"""
-        return FactorDBPool(self.factor_databases)
-
 
 class FactorDefInputBuilder:
     """根据 FactorDefSettings 构造 FactorDefInput
@@ -464,7 +174,7 @@ class FactorDefInputBuilder:
             # ... 使用 fdi 运行因子定义 ...
 
     职责:
-        1. 创建并连接所有因子库 (FactorDBPool)
+        1. 创建并连接所有因子库 (DBPool)
         2. 解析时间范围 → DTs, DTRuler
         3. 解析 ID 选择策略 → IDs, SectionIDs
         4. 组装 FDB 字典 和 FactorDefInput
@@ -473,7 +183,7 @@ class FactorDefInputBuilder:
 
     def __init__(self, settings: FactorDefSettings):
         self.settings = settings
-        self._pool: Optional[FactorDBPool] = None
+        self._pool: Optional[DBPool] = None
 
     # ---- 初始化 ----
     def init(self) -> None:
@@ -507,20 +217,17 @@ class FactorDefInputBuilder:
 
     # ---- 解析 ----
     def _fetch_dates(self, start_date: dt.datetime, end_date: dt.datetime) -> List[dt.datetime]:
-        """根据 DT_TYPE 获取日期序列
-
-        Args:
-            start_date: 起始日期
-            end_date: 截止日期
-
-        Returns:
-            "交易日" 时返回交易日期序列, "自然日" 时返回自然日序列
-        """
+        """根据 DT_TYPE 获取日期序列"""
         if self.settings.dt_type == "自然日":
             return pd.date_range(start=start_date, end=end_date, freq='D').tolist()
         else:
-            dt_source = self._pool[self.settings.dt_source]
-            return dt_source.getTradeDay(start_date=start_date, end_date=end_date)
+            tds = self.settings.trading_day_source
+            tds_name = tds.get("name", "JYDB")
+            tds_method = tds.get("method", "getTradeDay")
+            tds_method_args = tds.get("method_args", {})
+            dt_source = self._pool[tds_name]
+            method = getattr(dt_source, tds_method)
+            return method(start_date=start_date, end_date=end_date, **tds_method_args)
 
     def resolve_dts(self) -> Tuple[List[dt.datetime], List[dt.datetime]]:
         """解析 DTs 和 DTRuler"""
@@ -565,33 +272,33 @@ class FactorDefInputBuilder:
         return [dts[int(i)] for i in resampled.values]
 
     def _get_ids_from_source(self, id_type: str, is_current: bool = False) -> List[str]:
-        """根据 id_type 从数据源获取证券 ID 列表
+        """根据 id_type 从数据源获取证券 ID 列表。
 
-        Args:
-            id_type: 证券类型
-            is_current: True 表示仅当前有效的证券, False 表示全历史
-
-        Returns:
-            对应类型的证券 ID 列表
+        使用 settings.section_id_sources 中配置的数据源名称和方法。
         """
-        id_source = self._pool[self.settings.id_source]
+        section_source = self.settings.section_id_sources.get(id_type, {})
+        source_name = section_source.get("name", "JYDB")
+        source_method = section_source.get("method", "getStockID")
+        source_method_args = section_source.get("method_args", {})
+        id_source = self._pool[source_name]
+        method = getattr(id_source, source_method)
 
         if id_type == "A股":
-            return id_source.getStockID(is_current=is_current)
+            return method(is_current=is_current, **source_method_args)
         elif id_type == "公募基金":
-            return id_source.getMutualFundID(is_current=is_current)
+            return method(is_current=is_current, **source_method_args)
         elif id_type == "期货":
-            return id_source.getFutureID(is_current=is_current)
+            return method(is_current=is_current, **source_method_args)
         elif id_type == "期权":
-            return id_source.getOptionID(is_current=is_current)
+            return method(is_current=is_current, **source_method_args)
         elif id_type == "ETF":
-            return id_source.getMutualFundID(type="ETF", is_current=is_current)
+            return method(type="ETF", is_current=is_current, **source_method_args)
         elif id_type == "申万一级行业指数":
-            return id_source.getIndexID(type="申万一级行业指数", is_current=is_current)
+            return method(type="申万一级行业指数", is_current=is_current, **source_method_args)
         elif id_type == "申万一级行业":
-            return id_source.getIndustryID(standard="申万行业分类(新)", level=1, is_current=is_current)
+            return method(standard="申万行业分类(新)", level=1, is_current=is_current, **source_method_args)
         elif id_type == "指数":
-            return id_source.getIndexID(is_current=is_current)
+            return method(is_current=is_current, **source_method_args)
         else:
             raise ValueError(f"不支持的 ID_TYPE: {id_type}，可选: A股 | 公募基金 | 期货 | 期权 | ETF | 指数 | 申万一级行业指数 | 申万一级行业")
 

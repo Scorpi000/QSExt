@@ -10,6 +10,7 @@ export interface RiskDBInfo {
   db_type: string
   description: string
   connected: boolean
+  source?: string
 }
 
 export interface RiskTableInfo {

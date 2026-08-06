@@ -80,42 +80,101 @@ class ConnectionService:
 
     # ─── 连接 CRUD ─────────────────────────────────────────────────
 
+    def _get_settings_db_defs(self) -> list:
+        """获取 settings.py 中 role='source' 的因子库定义。"""
+        try:
+            from app.core.config import settings as app_settings
+            rs = app_settings.runtime_settings
+            return [db_def for db_def in rs.factor_databases if db_def.role == "source"]
+        except Exception:
+            return []
+
+    def _build_response_from_db_def(self, db_def) -> ConnectionResponse:
+        """从 FactorDBDef 构建 ConnectionResponse（不连接数据库，仅元信息）。"""
+        # 尝试创建 FactorDB 以获取 QSID
+        try:
+            fdb = self._create_fdb_sync(
+                db_type=db_def.class_path,
+                args=db_def.args,
+                name=db_def.name,
+            )
+            qsid = fdb._QSArgs.QSID
+        except Exception:
+            # 如果无法创建实例，用 name 的哈希作为 QSID
+            import hashlib
+            qsid = hashlib.md5(db_def.name.encode()).hexdigest()[:16]
+
+        return ConnectionResponse(
+            qsid=qsid,
+            name=db_def.name,
+            db_type=db_def.class_path,
+            description="",
+            args=db_def.args,
+            status="disconnected",
+            source="settings",
+        )
+
     def list_connections(self) -> List[ConnectionResponse]:
-        """获取所有连接"""
+        """获取所有连接。
+
+        settings.py 中 role='source' 的库始终包含，且优先于 Neo4j 中同名 QSID 的库。
+        Neo4j 中与 settings QSID 冲突的条目被跳过。
+        """
+        # 1. 从 settings.py 加载（role='source' 的库）
+        settings_db_defs = self._get_settings_db_defs()
+        settings_connections: dict[str, ConnectionResponse] = {}
+        for db_def in settings_db_defs:
+            conn = self._build_response_from_db_def(db_def)
+            settings_connections[conn.qsid] = conn
+
+        # 2. 从 Neo4j 加载，跳过与 settings QSID 冲突的条目
         fdb_list = self.gdb.listFactorDBs()
-        result = []
+        result = dict(settings_connections)  # settings 优先
+        settings_names = {db_def.name for db_def in settings_db_defs}
         for node in fdb_list:
             qsid = node.get("QSID", "")
-            if not qsid:
-                # 跳过没有 QSID 的旧节点（迁移前创建的）
+            if not qsid or qsid in settings_connections:
                 continue
-            result.append(ConnectionResponse(
+            name = node.get("Name", "")
+            result[qsid] = ConnectionResponse(
                 qsid=qsid,
-                name=node.get("Name", ""),
+                name=name,
                 db_type=node.get("DBType", ""),
                 description=node.get("Description"),
                 args=node.get("Args", {}),
                 status="disconnected",
+                source="settings" if name in settings_names else "neo4j",
                 created_at=node.get("CreatedAt"),
                 updated_at=node.get("UpdatedAt"),
-            ))
-        return result
+            )
+
+        return list(result.values())
 
     def get_connection(self, qsid: str) -> Optional[ConnectionResponse]:
-        """获取单个连接"""
+        """获取单个连接。先查 Neo4j，再查 settings 中的库。"""
         node = self.gdb.getFactorDB(qsid)
-        if not node:
-            return None
-        return ConnectionResponse(
-            qsid=node.get("QSID", ""),
-            name=node.get("Name", ""),
-            db_type=node.get("DBType", ""),
-            description=node.get("Description"),
-            args={},
-            status="disconnected",
-            created_at=node.get("CreatedAt"),
-            updated_at=node.get("UpdatedAt"),
-        )
+        if node:
+            name = node.get("Name", "")
+            settings_names = {db_def.name for db_def in self._get_settings_db_defs()}
+            return ConnectionResponse(
+                qsid=qsd if (qsd := node.get("QSID", "")) else qsid,
+                name=name,
+                db_type=node.get("DBType", ""),
+                description=node.get("Description"),
+                args=node.get("Args", {}),
+                status="disconnected",
+                source="settings" if name in settings_names else "neo4j",
+                created_at=node.get("CreatedAt"),
+                updated_at=node.get("UpdatedAt"),
+            )
+
+        # Neo4j 中没找到，尝试从 settings 匹配
+        for db_def in self._get_settings_db_defs():
+            conn = self._build_response_from_db_def(db_def)
+            if conn.qsid == qsid:
+                return conn
+
+        return None
 
     async def create_connection(self, req: ConnectionCreate) -> ConnectionResponse:
         """创建连接
@@ -157,11 +216,19 @@ class ConnectionService:
         可能返回三种结果：
         - {"action": "direct", "response": ConnectionResponse} — 直接更新成功
         - {"action": "confirm", "impact": dict, "old_qsid": str, "new_qsid": str} — QSID 变更需确认
-        - {"action": "blocked", "message": str} — 冲突阻止
+        - {"action": "blocked", "message": str} — 冲突/权限阻止
         """
         existing = self.gdb.getFactorDB(qsid)
         if not existing:
             return None
+
+        # settings 来源的连接不可通过 Web UI 修改
+        settings_names = {db_def.name for db_def in self._get_settings_db_defs()}
+        if existing.get("Name", "") in settings_names:
+            return {
+                "action": "blocked",
+                "message": "此连接来自 settings.py 配置文件，请在配置文件中修改后重启服务",
+            }
 
         # 合并新旧参数
         new_name = req.name if req.name is not None else existing.get("Name", "")
@@ -275,7 +342,13 @@ class ConnectionService:
         )
 
     def delete_connection(self, qsid: str) -> dict:
-        """删除连接前查询影响范围"""
+        """删除连接前查询影响范围。settings 来源的连接不允许删除。"""
+        existing = self.gdb.getFactorDB(qsid)
+        if existing and existing.get("Name", "") in self._get_settings_names():
+            return {
+                "action": "blocked",
+                "message": "此连接来自 settings.py 配置文件，请在配置文件中删除后重启服务",
+            }
         return self.gdb.getImpactAnalysis(qsid)
 
     def confirm_delete_connection(self, qsid: str, factor_service=None) -> int:

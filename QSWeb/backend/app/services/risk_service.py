@@ -2,7 +2,7 @@
 风险管理服务
 
 桥接 QuantStudio RiskDB 和 Web API，管理风险库连接的生命周期。
-配置存储在 QSWebConfig.yaml 的 risk_dbs 字段中。
+初始定义从统一 RuntimeSettings.risk_databases 读取，运行时增删改写 Neo4j。
 """
 
 import asyncio
@@ -12,14 +12,9 @@ from typing import Dict, List, Optional, Any
 
 import numpy as np
 import pandas as pd
-import yaml
-from ruamel.yaml import YAML
 
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ConnectionException, ValidationException
-
-_ruamel = YAML()
-_ruamel.preserve_quotes = True
 
 
 class RiskService:
@@ -27,47 +22,41 @@ class RiskService:
 
     def __init__(self):
         self._risk_dbs: Dict[str, Any] = {}  # 缓存的 RiskDB 实例
-        self._config: Dict[str, Any] = {}
-        self._config_path = Path(settings.QS_CONFIG_PATH)
         self._db_configs: Dict[str, Dict[str, Any]] = {}
         self._load_config()
 
     def _load_config(self):
-        """从 QSWebConfig.yaml 加载风险库配置"""
-        if self._config_path.exists():
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    self._config = yaml.safe_load(f)
-                self._db_configs = self._config.get("risk_dbs", {})
-            except Exception:
-                self._config = {"version": "1.0"}
-                self._db_configs = {}
-        else:
-            self._config = {"version": "1.0"}
+        """从统一 RuntimeSettings 加载风险库初始配置。
 
-    def _save_config(self):
-        """保存风险库配置到 QSWebConfig.yaml"""
-        # 使用 ruamel.yaml 保留注释和格式
-        if self._config_path.exists():
-            with open(self._config_path, "r", encoding="utf-8") as f:
-                cfg = _ruamel.load(f)
-        else:
-            cfg = _ruamel.load("{}")
-        cfg["risk_dbs"] = self._db_configs
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            _ruamel.dump(cfg, f)
+        RISK_DATABASES 格式与 FACTOR_DATABASES 对齐：
+        [{name, class, args, description}, ...]
+        内部转为 {name: {...}} 字典便于按名查找。
+        _settings_names 集合标记 settings.py 来源。
+        """
+        self._settings_names = set()
+        try:
+            rs = settings.runtime_settings
+            entries = rs.risk_databases or []
+            self._db_configs = {}
+            for entry in entries:
+                name = entry["name"]
+                self._db_configs[name] = entry
+                self._settings_names.add(name)
+        except Exception:
+            self._db_configs = {}
 
     def list_databases(self) -> List[Dict[str, Any]]:
         """列出已配置的风险库"""
         result = []
         for db_id, cfg in self._db_configs.items():
+            source = "settings" if db_id in getattr(self, "_settings_names", set()) else "neo4j"
             result.append({
                 "id": db_id,
                 "name": cfg.get("name", db_id),
-                "db_type": cfg.get("db_type", "HDF5RDB"),
+                "db_type": cfg.get("class", cfg.get("db_type", "HDF5RDB")),
                 "description": cfg.get("description", ""),
                 "connected": db_id in self._risk_dbs,
+                "source": source,
             })
         return result
 
@@ -95,7 +84,6 @@ class RiskService:
             "description": description,
             "args": args,
         }
-        self._save_config()
         return {
             "id": db_id,
             "name": name,
@@ -104,8 +92,14 @@ class RiskService:
             "connected": False,
         }
 
+    def _is_settings_source(self, db_id: str) -> bool:
+        """检查风险库是否来自 settings.py。"""
+        return db_id in getattr(self, "_settings_names", set())
+
     def update_database(self, db_id: str, name: str = None, args: dict = None, description: str = None) -> Dict[str, Any]:
-        """更新风险库配置"""
+        """更新风险库配置。settings 来源的不允许通过 Web UI 修改。"""
+        if self._is_settings_source(db_id):
+            raise ValidationException("此风险库来自 settings.py 配置文件，请在配置文件中修改后重启服务")
         cfg = self._db_configs.get(db_id)
         if cfg is None:
             raise NotFoundException("风险库", db_id)
@@ -115,24 +109,23 @@ class RiskService:
             cfg["args"] = args
         if description is not None:
             cfg["description"] = description
-        self._save_config()
-        # 断开已缓存的连接（配置变更后需重连）
         self._risk_dbs.pop(db_id, None)
         return {
             "id": db_id,
             "name": cfg.get("name", db_id),
-            "db_type": cfg.get("db_type", "HDF5RDB"),
+            "db_type": cfg.get("class", cfg.get("db_type", "HDF5RDB")),
             "description": cfg.get("description", ""),
             "connected": False,
         }
 
     def delete_database(self, db_id: str) -> bool:
-        """删除风险库配置"""
+        """删除风险库配置。settings 来源的不允许删除。"""
+        if self._is_settings_source(db_id):
+            raise ValidationException("此风险库来自 settings.py 配置文件，请在配置文件中删除后重启服务")
         if db_id not in self._db_configs:
             raise NotFoundException("风险库", db_id)
         del self._db_configs[db_id]
         self._risk_dbs.pop(db_id, None)
-        self._save_config()
         return True
 
     async def test_database(self, db_id: str) -> Dict[str, Any]:
