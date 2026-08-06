@@ -22,6 +22,7 @@ from app.services.strategy_service import strategy_service
 from app.services.factor_service import factor_service
 from app.services.qs_bridge import QSBridge
 from app.tasks.manager import task_manager
+from app.core.config import settings as app_settings
 
 router = APIRouter()
 
@@ -51,55 +52,42 @@ async def import_strategy(request: StrategyImportRequest):
     )
 
     # 3. 后台注册到 Neo4j（异步）
+    strategy_settings_path = app_settings.strategy_def.get("settings_path")
+    if not strategy_settings_path:
+        raise HTTPException(
+            status_code=400,
+            detail="未配置 strategy_def.settings_path，请在 QSWebConfig.yaml 中设置",
+        )
+
     async def _register():
         try:
-            from QSExt.QSRegistry.api import QSGraphDB
-            from QSExt.StrategyDef.StrategyDefContent import (
-                StrategyDefSettings, StrategyDefInputBuilder, build_dep_sd,
+            import sys
+            from QSExt.StrategyDef.scripts.register_strategies_to_graphdb import (
+                main as register_main,
+                _build_profiles_from_modules,
             )
-            import importlib.util
 
             # 加载已保存的策略模块
             modname = os.path.splitext(os.path.basename(filepath))[0]
-            spec = importlib.util.spec_from_file_location(modname, filepath)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
 
-            # 构建 StrategyDefInput
-            settings = StrategyDefSettings()
-            with StrategyDefInputBuilder(settings) as builder:
-                sdi = builder.build()
-                modules = [(module, {}, {})]
-                dep_sd, strategy_defs = build_dep_sd(modules, sdi)
+            # 将脚本所在目录临时加入 sys.path，使模块可被 importlib 导入
+            script_dir = os.path.dirname(os.path.abspath(filepath))
+            in_sys_path = script_dir in sys.path
+            if not in_sys_path:
+                sys.path.insert(0, script_dir)
 
-                all_sds = [sd for sd, _ in strategy_defs if sd is not None]
-                if not all_sds:
-                    return
-
-                # 连接 Neo4j
-                neo4j_cfg_path = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
-                with open(neo4j_cfg_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                content = re.sub(r",\s*([}\]])", r"\1", content)
-                neo4j_cfg = json.loads(content)
-                neo4j_args = {
-                    "IPAddr": neo4j_cfg["IPAddr"],
-                    "Port": neo4j_cfg["Port"],
-                    "User": neo4j_cfg["User"],
-                    "Pwd": neo4j_cfg["Pwd"],
-                    "DBName": neo4j_cfg.get("DBName", "neo4j"),
-                }
-
-                gdb = QSGraphDB(args=neo4j_args)
-                try:
-                    gdb.connect()
-                    tags_map = {}
-                    for sd in all_sds:
-                        tags = [sd.Meta.TargetTable, sd.Meta.IDType, sd.Meta.Author] + list(sd.Meta.Tags)
-                        tags_map[sd.StrategyInstance.QSID] = tags
-                    gdb.storeStrategies(all_sds, tags=tags_map)
-                finally:
-                    gdb.disconnect()
+            try:
+                register_main(
+                    settings_path=strategy_settings_path,
+                    id_profiles=_build_profiles_from_modules(
+                        [modname],
+                        default_id_type=app_settings.strategy_def.get("default_id_type", "A股"),
+                    ),
+                    skip_embedding=True,
+                )
+            finally:
+                if not in_sys_path:
+                    sys.path.remove(script_dir)
         except Exception as e:
             from QuantStudio.Core import __QS_Logger__ as Logger
             Logger.warning(f"后台 Neo4j 注册失败: {e}")
@@ -191,6 +179,21 @@ async def search_strategies(
             gdb.disconnect()
 
     return await loop.run_in_executor(None, _sync)
+
+
+# ─── 策略模板 ───────────────────────────────────────────────────
+
+@router.get("/template")
+async def get_strategy_template():
+    """获取新建策略的初始模板"""
+    template_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "templates", "strategy_template.py",
+    )
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=404, detail="策略模板文件不存在")
+    with open(template_path, "r", encoding="utf-8") as f:
+        return {"code": f.read()}
 
 
 # ─── 详情 ───────────────────────────────────────────────────────

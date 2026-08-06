@@ -4,38 +4,43 @@
 
 在 QSGraphDB（Neo4j）中新增策略节点的完整 CRUD 能力，支持策略元数据、因子依赖关系、策略间依赖关系的存储和检索。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 策略节点存储
 
-`QSGraphDB` SHALL 提供 `storeStrategies()` 方法，将策略列表及其依赖 DAG 批量写入 Neo4j。策略节点标签为 `(:策略)`，属性与 `__STRATEGY_META__` 对齐。
+`QSGraphDB` SHALL 提供 `storeStrategies()` 方法，将策略列表及其依赖 DAG 批量写入 Neo4j。由于一个 StrategyDef 可包含多个策略实例（`StrategyList`），按实例逐个创建 `(:策略)` 节点。标签为 `(:策略)`，属性与 `__STRATEGY_META__` 对齐。
 
 策略节点属性：
 
 | 属性 | 来源 | 说明 |
 |------|------|------|
-| `Name` | `Strategy.Name` | 策略名称 |
-| `QSID` | `Strategy.QSID` | 唯一标识 |
+| `Name` | `strategy_instance._QSArgs.Name` | 策略名称 |
+| `QSID` | `strategy_instance.QSID` | 唯一标识 |
 | `TargetTable` | `Meta.TargetTable` | 输出因子表名 |
 | `IDType` | `Meta.IDType` | 证券类型 |
 | `OperatorConfigJSON` | `Meta.OperatorConfig` 序列化 | 算子默认配置 JSON |
-| `ClassName` | `StrategyClass.__name__` | MakeStrategy 子类名 |
-| `ModulePath` | `StrategyClass.__module__` | 模块路径 |
+| `ClassName` | `type(strategy_instance).__name__` | MakeStrategy 子类名 |
+| `ModulePath` | `type(strategy_instance).__module__` | 模块路径 |
 | `MetaJSON` | `Meta` 完整序列化 | 全量元信息 JSON |
 | `DefScriptPath` | `Meta.DefScriptPath` | 定义脚本文件路径 |
 | `CreatedAt` | MERGE 时自动设置 | ISO-format UTC |
 | `UpdatedAt` | `datetime.now()` | ISO-format UTC |
 | `Embedding` | Ollama 嵌入向量 | 语义搜索用 |
 
-#### Scenario: 批量注册策略
+#### Scenario: 按策略实例批量注册
 
-- **WHEN** 调用 `gdb.storeStrategies(strategies, tags=tags_map)`
-- **THEN** 每个策略 MERGE 为 `(:策略)` 节点，属性包含 Name、QSID、OperatorConfigJSON、DefScriptPath 等；同时创建对应标签关系
+- **WHEN** 调用 `gdb.storeStrategies(strategies, tags=tags_map)`，其中每个 StrategyDef 的 `StrategyList` 可能包含多个策略实例
+- **THEN** 遍历每个 StrategyDef 的 `StrategyList`，为每个策略实例独立创建 `(:策略)` 节点，返回值为策略实例总数（而非 StrategyDef 个数）
 
 #### Scenario: 重复注册幂等
 
 - **WHEN** 对已存在于图库中的策略再次调用 `storeStrategies()`
 - **THEN** 使用 MERGE 语义，更新 UpdatedAt 和 MetaJSON，不产生重复节点
+
+#### Scenario: _serializeStrategy 接受两参数
+
+- **WHEN** `_serializeStrategy(strategy_def, strategy_instance)` 被调用
+- **THEN** 从 `strategy_def.Meta` 取元信息，从 `strategy_instance` 取实例属性（Name、QSID），从 `type(strategy_instance)` 取类信息（ClassName、ModulePath）
 
 ### Requirement: 策略依赖关系存储
 

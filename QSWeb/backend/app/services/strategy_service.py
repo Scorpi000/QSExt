@@ -243,5 +243,15 @@ class StrategyService:
         return await loop.run_in_executor(None, _sync)
 
 
-# 单例
-strategy_service = StrategyService()
+# 单例（优先使用 QSWebConfig.yaml 中 strategy_def.scripts_dir）
+def _default_strategy_scripts_dir() -> str:
+    try:
+        from app.core.config import settings
+        return settings.strategy_def["scripts_dir"]
+    except Exception:
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "strategies",
+        )
+
+strategy_service = StrategyService(scripts_dir=_default_strategy_scripts_dir())

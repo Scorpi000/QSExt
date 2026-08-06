@@ -4,7 +4,7 @@
 
 StrategyDef 策略定义框架，提供策略脚本的元信息约定、标准入口函数、依赖解析引擎和注册/执行管线。作为 QSWeb 策略工作台和策略持久化的基础层，与 FactorDef 框架对齐。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: `__STRATEGY_META__` 元信息声明
 
@@ -39,17 +39,17 @@ StrategyDef 策略定义框架，提供策略脚本的元信息约定、标准�
 
 ### Requirement: `defStrategy` 标准入口
 
-策略脚本模块 SHALL 暴露 `defStrategy(sdi: StrategyDefInput) -> Strategy` 函数，作为策略实例化的唯一入口。框架在调用前完成依赖解析和注入。
+策略脚本模块 SHALL 暴露 `defStrategy(sdi: StrategyDefInput) -> list` 函数，作为策略实例化的唯一入口。一个模块可返回多个策略实例。框架在调用前完成依赖解析和注入。
 
 #### Scenario: 依赖注入后调用 defStrategy
 
 - **WHEN** 框架调用 `defStrategy(sdi)`
 - **THEN** `sdi.Factors` 已包含 `FactorDeps` 声明的所有因子实例，`sdi.Strategies` 已包含 `StrategyDeps` 声明的所有策略实例，`sdi.FDB` 包含 `DBDeps` 声明的所有因子库连接
 
-#### Scenario: defStrategy 返回策略实例
+#### Scenario: defStrategy 返回策略实例列表
 
 - **WHEN** 用户实现 `defStrategy` 从 `sdi.Factors` 取依赖因子、从 `sdi.Strategies` 取依赖策略、从 `sdi.ModelArgs` 读取参数覆盖值，构造 MakeStrategy 算子并调用之
-- **THEN** 返回值为 Strategy 实例（继承自 `PanelOperation` 的因子对象）
+- **THEN** 返回值为 `List[Factor]`，每个元素是一个策略实例（继承自 `PanelOperation` 的因子对象），框架统一包装为 `StrategyDef(StrategyList=[...])`
 
 ### Requirement: StrategyDefInput 输入上下文
 
@@ -71,12 +71,17 @@ StrategyDef 策略定义框架，提供策略脚本的元信息约定、标准�
 
 ### Requirement: StrategyDef 包装类
 
-`StrategyDef` SHALL 继承 `__QS_Args__`，组合策略实例、策略类和元信息，提供 `getSignal()` 方法按名称查找策略输出的信号因子。
+`StrategyDef` SHALL 继承 `__QS_Args__`，组合策略实例列表和元信息。一个定义文件可产出多个策略实例，统一包装在一个 `StrategyDef` 中。提供 `StrategyNames` 属性和 `getStrategy(name)` 方法按名称查找策略实例。
 
-#### Scenario: 包装策略实例
+#### Scenario: 包装多个策略实例
 
-- **WHEN** 调用 `StrategyDef(Strategy=strategy_instance, StrategyClass=MakeMAStrategy, Meta=meta)`
-- **THEN** 返回包含三者引用的包装对象，`Strategy` 字段为已实例化的策略因子
+- **WHEN** 调用 `StrategyDef(StrategyList=[s1, s2], Meta=StrategyMeta(**__STRATEGY_META__))`
+- **THEN** 返回包含策略列表和元信息的包装对象，`StrategyList` 为已实例化的策略因子列表
+
+#### Scenario: 按名称查找策略实例
+
+- **WHEN** 调用 `sd.getStrategy("signal_name")`
+- **THEN** 在 `StrategyList` 中查找 `Name` 匹配的策略实例，未找到抛出 `__QS_Error__`
 
 ### Requirement: build_dep_sd 依赖解析
 

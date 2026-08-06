@@ -4,15 +4,15 @@
 
 QSWeb 策略工作台页面（`/strategy`），提供策略脚本的代码编辑、参数配置、回测执行和结果分析的一站式 Web 界面。
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: 页面路由和导航
 
-系统 SHALL 在 `/strategy` 路径下提供策略工作台页面，并将其添加到左侧导航菜单。页面采用与现有 BacktestStudio 一致的左右分栏布局。
+系统 SHALL 在 `/strategy` 路径下提供策略工作台页面，并将其添加到左侧导航菜单中「回测工作台」之后。页面采用左右分栏布局（左侧策略列表+配置，右侧 Tab 切换）。
 
 #### Scenario: 导航到策略工作台
 
-- **WHEN** 用户点击左侧导航"策略工作台"
+- **WHEN** 用户点击左侧导航"策略工作台"（位于回测工作台下方）
 - **THEN** 路由跳转到 `/strategy`，页面标题显示为"策略工作台"
 
 #### Scenario: 页面懒加载
@@ -100,26 +100,44 @@ QSWeb 策略工作台页面（`/strategy`），提供策略脚本的代码编辑
 - **WHEN** 用户在配置面板将 InitCash 改为 500000
 - **THEN** 回测调用 `defStrategy(sdi)` 时 `sdi.ModelArgs["init_cash"]` 为 500000，覆盖 `__STRATEGY_META__` 默认值
 
+### Requirement: 右侧 Tab 布局
+
+右侧面板 SHALL 使用 Tab 切换「策略代码」和「回测结果」。未运行回测时仅展示策略代码 Tab，运行后出现回测结果 Tab，回测完成后自动切换到结果 Tab。
+
+#### Scenario: 仅代码 Tab
+
+- **WHEN** 页面加载且未运行回测
+- **THEN** 仅显示「策略代码」Tab，编辑器占满右侧区域
+
+#### Scenario: 回测完成后自动切换
+
+- **WHEN** 回测任务完成，StrategyResult 组件获取到有效结果（数据含 `type` 字段）
+- **THEN** 通过 `onResultReady` 回调通知父组件，自动从代码 Tab 切换到「回测结果」Tab
+
+#### Scenario: 手动切换 Tab
+
+- **WHEN** 回测结果已加载
+- **THEN** 用户可在「策略代码」和「回测结果」Tab 之间自由切换
+
 ### Requirement: 回测结果可视化
 
-系统 SHALL 展示回测结果，包括账户净值曲线（Plotly）、绩效统计表（年化收益/夏普/最大回撤/胜率/Calmar）、交易记录表、持仓历史。
+系统 SHALL 复用现有 `ResultTree` + `ResultLeaf` 组件展示回测结果。结果数据通过 `_output_to_tree()` 序列化为 `ResultNode` 树，与回测工作台使用相同的数据结构。
 
-#### Scenario: 查看净值曲线
+结果树包含：
+- `统计数据`（series 节点）：年化收益、夏普比率、最大回撤、Calmar 比率、胜率、盈亏比
+- `时间序列`（dataframe 节点）：账户价值、净值、收益率、累计收益率
 
-- **WHEN** 回测完成
-- **THEN** 右侧结果显示区渲染 Plotly 双轴图：账户价值曲线 + 收益柱状图
+#### Scenario: 查看结果树
+
+- **WHEN** 回测完成，用户切换到回测结果 Tab
+- **THEN** 左侧显示结果树（按 type 区分图标：series→折线图、dataframe→表格、scalar→数值），右侧显示选中节点的详情
 
 #### Scenario: 查看绩效统计
 
-- **WHEN** 回测完成
-- **THEN** 展示绩效统计卡片（年化收益率、年化波动率、夏普比率、最大回撤、Calmar 比率、胜率、盈亏比），如有基准同时展示相对表现
+- **WHEN** 用户在结果树中点击「统计数据」节点（type=series）
+- **THEN** 右侧 ResultLeaf 渲染 Plotly 折线图 + 数据表，index 为指标名，values 为数值
 
-#### Scenario: 查看交易记录
+#### Scenario: 查看时间序列
 
-- **WHEN** 用户切换到"交易记录"Tab
-- **THEN** 展示交易记录表格（交易时点、证券 ID、交易量、成交价、交易费）
-
-#### Scenario: 查看持仓历史
-
-- **WHEN** 用户切换到"持仓历史"Tab
-- **THEN** 展示持仓热力图或表格（时点 × 证券 × 持仓数量/权重）
+- **WHEN** 用户在结果树中点击「时间序列」节点（type=dataframe）
+- **THEN** 右侧 ResultLeaf 渲染 Ant Table，列为指标名（账户价值、净值等），行为日期

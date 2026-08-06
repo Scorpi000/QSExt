@@ -14,6 +14,7 @@ import {
   Typography,
 } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
+import dayjs from 'dayjs'
 import type { OperatorConfig, FactorRef } from '../../services/strategy'
 
 const { Text } = Typography
@@ -127,15 +128,6 @@ const StrategyConfig: React.FC<StrategyConfigProps> = ({
       </Form>
     </div>
   )
-}
-
-// 简单的 dayjs 兼容函数（避免额外依赖）
-function dayjs(date: string) {
-  // 返回一个兼容 antd DatePicker 的对象
-  return date ? (() => {
-    // 使用原生方式让 antd 识别
-    return date as any
-  })() : undefined
 }
 
 export default StrategyConfig

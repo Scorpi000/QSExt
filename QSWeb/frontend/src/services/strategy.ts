@@ -144,6 +144,11 @@ export const getStrategyBacktestResult = (taskId: string) => {
   return api.get<ResultNode>(`/strategy/backtest/${taskId}/result`)
 }
 
+/** 获取策略模板（新建策略时使用） */
+export const getStrategyTemplate = () => {
+  return api.get<{ code: string }>('/strategy/template')
+}
+
 /** 获取可用因子列表 */
 export const getAvailableFactors = () => {
   return api.get<AvailableFactor[]>('/strategy/factors/available')

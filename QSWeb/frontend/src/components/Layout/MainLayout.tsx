@@ -39,11 +39,11 @@ const menuItems = [
   { key: '/risk', icon: <SafetyOutlined />, label: '风险管理' },
   { key: '/factor', icon: <ExperimentOutlined />, label: '因子工作台' },
   { key: '/backtest', icon: <LineChartOutlined />, label: '回测工作台' },
+  { key: '/strategy', icon: <CodeOutlined />, label: '策略工作台' },
   { key: '/portfolio', icon: <PieChartOutlined />, label: '组合优化' },
   { key: '/report', icon: <FileTextOutlined />, label: '报告中心' },
   { key: '/ai', icon: <RobotOutlined />, label: 'AI 工作台' },
   { key: '/mining', icon: <GoldOutlined />, label: '因子挖掘' },
-  { key: '/strategy', icon: <CodeOutlined />, label: '策略工作台' },
 ]
 
 const POOL_COLLAPSED_WIDTH = 36

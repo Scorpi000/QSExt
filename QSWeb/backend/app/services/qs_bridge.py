@@ -853,111 +853,158 @@ class QSBridge:
 
         # Step 1: 动态加载策略模块
         def _load_and_run():
-            # 加载策略模块
-            spec = importlib.util.spec_from_file_location(
-                "_strategy_backtest",
-                os.path.join(tempfile.gettempdir(), "_strategy_backtest.py"),
-            )
-            module = importlib.util.module_from_spec(spec)
-            _sys.modules["_strategy_backtest"] = module
-            exec(compile(code, "<strategy_backtest>", "exec"), module.__dict__)
+            # 加载策略模块（写入临时文件，确保 ParallelEngine 子进程可 import）
+            module_dir = os.path.join(tempfile.gettempdir(), "qs_strategy_backtest")
+            os.makedirs(module_dir, exist_ok=True)
+            module_path = os.path.join(module_dir, "_strategy_backtest.py")
+            with open(module_path, "w", encoding="utf-8") as f:
+                f.write(code)
+            if module_dir not in _sys.path:
+                _sys.path.insert(0, module_dir)
+            # 清除旧缓存后重新导入
+            _sys.modules.pop("_strategy_backtest", None)
+            module = importlib.import_module("_strategy_backtest")
 
             raw_meta = getattr(module, "__STRATEGY_META__", {}) or {}
 
-            # 解析因子依赖
-            factors = {}
-            for ref in factor_refs:
-                if hasattr(ref, 'model_dump'):
-                    ref = ref.model_dump()
-                name = ref.get("name", "")
-                source = ref.get("source", "db")
-                if source == "db" and ref.get("conn_id") and ref.get("table_name"):
-                    # 从 FactorDB 获取
-                    db = self._factor_service._factor_dbs.get(ref["conn_id"])
-                    if db:
-                        ft = db.getTable(ref["table_name"])
-                        factors[name] = ft.getFactor(name)
+            # 加载策略运行时配置
+            strategy_def_cfg = settings.strategy_def
+            settings_path = strategy_def_cfg.get("settings_path")
+            if not settings_path:
+                raise ValueError(
+                    "未配置 strategy_def.settings_path，请在 QSWebConfig.yaml 中设置 "
+                    "strategy_def.settings_path 指向一个 StrategyDef 配置模块"
+                )
 
-            # 解析日期范围
-            start_dt = dt.datetime.strptime(start_date, "%Y-%m-%d") if start_date else dt.datetime(2020, 1, 1)
-            end_dt = dt.datetime.strptime(end_date, "%Y-%m-%d") if end_date else dt.datetime.now()
-
-            # 获取 IDs 和 DTs
-            ids = []
-            dts = []
-            dtruler = []
-            if self._factor_service._factor_dbs:
-                some_db = next(iter(self._factor_service._factor_dbs.values()))
-                try:
-                    ids = some_db.getStockID(is_current=False)
-                except Exception:
-                    ids = []
-                try:
-                    dtruler = some_db.getTradeDay(start_date=start_dt - dt.timedelta(days=3650), end_date=end_dt)
-                    dts = some_db.getTradeDay(start_date=start_dt, end_date=end_dt)
-                except Exception:
-                    import pandas as pd
-                    dtruler = pd.date_range(start=start_dt - dt.timedelta(days=3650), end=end_dt, freq='D').tolist()
-                    dts = pd.date_range(start=start_dt, end=end_dt, freq='D').tolist()
-
-            # 构造模型参数（合并 OperatorConfig）
-            merged_model_args = dict(model_args)
-            if operator_config:
-                oc = operator_config.model_dump() if hasattr(operator_config, 'model_dump') else operator_config
-                merged_model_args.setdefault("signal_type", oc.get("SignalType", "目标权重"))
-                merged_model_args.setdefault("init_cash", oc.get("InitCash", 1e6))
-                merged_model_args.setdefault("short_allowed", oc.get("ShortAllowed", False))
-
-            # 构造 FDB 字典
-            fdb = {}
-            for name, db in self._factor_service._factor_dbs.items():
-                fdb[name] = db
-
-            # 构造 StrategyDefInput
-            from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
-            sdi = StrategyDefInput(
-                Debug=True,
-                FDB=fdb,
-                ModelArgs=merged_model_args,
-                Factors=factors,
-                Strategies={},
-                DTs=dts,
-                DTRuler=dtruler,
-                IDs=ids,
-                SectionIDs=ids,
+            from QSExt.StrategyDef.StrategyDefContent import (
+                StrategyDefSettings, StrategyDefInputBuilder, StrategyDefInput,
             )
-
-            # 调用 defStrategy
-            strategy_instances = module.defStrategy(sdi=sdi)
-            if isinstance(strategy_instances, list):
-                strategy_instance = strategy_instances[0]
-            else:
-                strategy_instance = strategy_instances
-
-            # 构造 AccountReport
             from QuantStudio.BackTest.Strategy.Strategy import AccountReport
-            account_report = AccountReport(strategy_instance)
-
-            # 执行引擎
-            from QuantStudio.Core.CalcEngine import Engine
+            from app.services.global_config_service import resolve_engine
             from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
 
-            PIDList = ["0"]
+            stg_settings = StrategyDefSettings.from_module(settings_path)
+            builder = StrategyDefInputBuilder(stg_settings)
+            builder.init()
+            try:
+                # 解析日期范围
+                start_dt = dt.datetime.strptime(start_date, "%Y-%m-%d") if start_date else dt.datetime(2020, 1, 1)
+                end_dt = dt.datetime.strptime(end_date, "%Y-%m-%d") if end_date else dt.datetime.now()
 
-            with FactorContext(
-                Mode="DEBUG",
-                PIDList=PIDList,
-                DTRuler=dtruler,
-                SectionIDs=ids,
-            ) as context:
-                with Engine() as exec_engine:
-                    output, = exec_engine.run(
-                        [account_report],
-                        context,
-                        fwd_data_list=[FactorLocalContext(DTs=dts)],
-                        init_data_list=[FactorInitData(DTRange=(start_dt, end_dt))],
+                # 获取 DTs 和 DTRuler（dt_mode 优先于 settings.dt_type）
+                if dt_mode == "natural":
+                    import pandas as pd
+                    dts = pd.date_range(start=start_dt, end=end_dt, freq='D').tolist()
+                    dtruler = pd.date_range(
+                        start=start_dt - dt.timedelta(stg_settings.max_lookback),
+                        end=end_dt, freq='D',
+                    ).tolist()
+                else:
+                    dts = builder._fetch_dates(start_date=start_dt, end_date=end_dt)
+                    dtruler = builder._fetch_dates(
+                        start_date=start_dt - dt.timedelta(stg_settings.max_lookback),
+                        end_date=end_dt,
                     )
 
-            return self._output_to_tree(output)
+                # 获取 IDs
+                id_type = raw_meta.get("IDType") or strategy_def_cfg.get("default_id_type", "A股")
+                ids = builder._get_ids_from_source(id_type=id_type, is_current=False)
+                section_ids = descriptor_ids if descriptor_ids else ids
+
+                # 构造 FDB 字典（来自 settings FACTOR_DATABASES）
+                fdb = builder.resolve_fdb()
+
+                # 解析因子依赖（来自前端 factor_refs）
+                factors = {}
+                for ref in factor_refs:
+                    if hasattr(ref, 'model_dump'):
+                        ref = ref.model_dump()
+                    name = ref.get("name", "")
+                    source = ref.get("source", "db")
+                    if source == "db" and ref.get("conn_id") and ref.get("table_name"):
+                        db = builder._pool[ref["conn_id"]] if ref["conn_id"] in builder._pool._instances else None
+                        if db:
+                            ft = db.getTable(ref["table_name"])
+                            factors[name] = ft.getFactor(name)
+
+                # 构造模型参数（合并 OperatorConfig）
+                merged_model_args = dict(model_args)
+                op_config = raw_meta.get("OperatorConfig", {}) or {}
+                if operator_config:
+                    oc = operator_config.model_dump() if hasattr(operator_config, 'model_dump') else operator_config
+                    op_config = {**op_config, **oc}
+                merged_model_args.setdefault("signal_type", op_config.get("SignalType", "目标权重"))
+                merged_model_args.setdefault("init_cash", op_config.get("InitCash", 1e6))
+                merged_model_args.setdefault("short_allowed", op_config.get("ShortAllowed", False))
+
+                # 构造 StrategyDefInput
+                sdi = StrategyDefInput(
+                    Debug=True,
+                    FDB=fdb,
+                    ModelArgs=merged_model_args,
+                    Factors=factors,
+                    Strategies={},
+                    DTs=dts,
+                    DTRuler=dtruler,
+                    IDs=ids,
+                    SectionIDs=section_ids,
+                )
+
+                # 调用 defStrategy
+                strategy_instances = module.defStrategy(sdi=sdi)
+                if isinstance(strategy_instances, list):
+                    strategy_instance = strategy_instances[0]
+                else:
+                    strategy_instance = strategy_instances
+
+                # 构造 AccountReport
+                account_report = AccountReport(strategy_instance)
+
+                if not ids:
+                    raise ValueError(
+                        "未获取到证券 ID 列表，请检查 QSWebConfig.yaml 中 strategy_def 的 "
+                        "id_source / id_type 配置"
+                    )
+                if not dts:
+                    raise ValueError(
+                        "未获取到交易日列表，请检查 QSWebConfig.yaml 中 strategy_def 的 "
+                        "dt_source 配置，或确认日期范围内有交易日数据"
+                    )
+
+                # 执行引擎
+                EngineClass, pid_list, cache_dir = resolve_engine()
+
+                # 创建因子数据缓存（ParallelEngine 多进程间同步必需）
+                import tempfile as _tempfile
+                from QuantStudio.Factor.FactorCache import FeatherFactorCache
+                _cache_dir = cache_dir if not settings.global_config.get("use_temp_cache", True) else os.path.join(_tempfile.gettempdir(), "QSCache")
+                os.makedirs(_cache_dir, exist_ok=True)
+                cache = FeatherFactorCache(args={
+                    "DTRuler": dtruler,
+                    "PIDs": pid_list,
+                    "CacheDir": _cache_dir,
+                    "StartMode": "new",
+                })
+                cache.start()
+
+                with FactorContext(
+                    Mode="DEBUG",
+                    PIDList=pid_list,
+                    DTRuler=dtruler,
+                    SectionIDs=section_ids,
+                    DataCache=cache,
+                ) as context:
+                    with EngineClass() as exec_engine:
+                        output, = exec_engine.run(
+                            [account_report],
+                            context,
+                            fwd_data_list=[FactorLocalContext(DTs=dts, IDs=ids)],
+                            init_data_list=[FactorInitData(DTRange=(start_dt, end_dt))],
+                        )
+
+                return self._output_to_tree(output)
+
+            finally:
+                builder.disconnect()
 
         return await loop.run_in_executor(None, _load_and_run)

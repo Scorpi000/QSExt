@@ -173,7 +173,8 @@ def main(settings_path: str = "settings", **cmd_overrides):
                             list(strategy_def.Meta.Tags))
 
                 all_strategies.append(strategy_def)
-                tags_map[strategy_def.StrategyInstance.QSID] = base_tags
+                for strategy_instance in strategy_def.StrategyList:
+                    tags_map[strategy_instance.QSID] = base_tags
 
             Logger.info(f"开始批量注册 {len(all_strategies)} 个策略到图数据库 ...")
             try:

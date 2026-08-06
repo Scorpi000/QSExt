@@ -3,11 +3,11 @@
  *
  * 布局：左右分栏
  *   左侧：策略列表 + 配置面板
- *   右侧：代码编辑器 + 回测结果
+ *   右侧：Tab 切换（策略代码 | 回测结果）
  */
 import React, { useState, useCallback } from 'react'
-import { Layout, Row, Col, Tabs } from 'antd'
-import { CodeOutlined, SettingOutlined, BarChartOutlined } from '@ant-design/icons'
+import { Layout, Tabs } from 'antd'
+import { CodeOutlined, BarChartOutlined } from '@ant-design/icons'
 import StrategyList from './StrategyList'
 import StrategyEditor from './StrategyEditor'
 import StrategyConfig from './StrategyConfig'
@@ -33,6 +33,8 @@ const StrategyStudio: React.FC = () => {
   const [modelArgs, setModelArgs] = useState<Record<string, any>>({})
   // 回测 taskId
   const [taskId, setTaskId] = useState<string | null>(null)
+  // 右侧 Tab
+  const [activeTab, setActiveTab] = useState<string>('code')
   // 日期范围
   const [startDate, setStartDate] = useState<string>('2024-01-01')
   const [endDate, setEndDate] = useState<string>('2025-12-31')
@@ -44,7 +46,13 @@ const StrategyStudio: React.FC = () => {
     if (!strategy) {
       // 新建策略
       setSelectedStrategy(null)
-      setCode(DEFAULT_TEMPLATE)
+      try {
+        const { getStrategyTemplate } = await import('../../services/strategy')
+        const res = await getStrategyTemplate()
+        setCode(res.code)
+      } catch {
+        setCode('# 无法加载策略模板')
+      }
       setIsNew(true)
       return
     }
@@ -75,7 +83,13 @@ const StrategyStudio: React.FC = () => {
       dt_mode: 'natural',
     })
     setTaskId(result.task_id)
+    setActiveTab('code')  // 运行中保持在代码 Tab
   }, [code, factorRefs, modelArgs, operatorConfig, startDate, endDate])
+
+  // 回测结果就绪时切换到结果 Tab
+  const handleResultReady = useCallback(() => {
+    setActiveTab('result')
+  }, [])
 
   // 左侧面板
   const leftPanel = (
@@ -102,24 +116,46 @@ const StrategyStudio: React.FC = () => {
     </div>
   )
 
-  // 右侧面板
-  const rightPanel = (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <StrategyEditor
-          code={code}
-          onChange={setCode}
-          isNew={isNew}
-          selectedStrategy={selectedStrategy}
-        />
-      </div>
-      {taskId && (
-        <div style={{ height: '40%', minHeight: 300, borderTop: '1px solid #f0f0f0' }}>
-          <StrategyResult taskId={taskId} />
+  // Tab 内容容器高度（Sider + Header 约 160px）
+  const tabContentStyle: React.CSSProperties = {
+    height: 'calc(100vh - 200px)',
+    minHeight: 300,
+    overflow: 'hidden',
+  }
+
+  // 右侧 Tab 项
+  const tabItems = [
+    {
+      key: 'code',
+      label: (
+        <span><CodeOutlined />策略代码</span>
+      ),
+      children: (
+        <div style={tabContentStyle}>
+          <StrategyEditor
+            code={code}
+            onChange={setCode}
+            isNew={isNew}
+            selectedStrategy={selectedStrategy}
+          />
         </div>
-      )}
-    </div>
-  )
+      ),
+    },
+  ]
+
+  if (taskId) {
+    tabItems.push({
+      key: 'result',
+      label: (
+        <span><BarChartOutlined />回测结果</span>
+      ),
+      children: (
+        <div style={{ ...tabContentStyle, overflow: 'auto' }}>
+          <StrategyResult taskId={taskId} onResultReady={handleResultReady} />
+        </div>
+      ),
+    })
+  }
 
   return (
     <Layout style={{ height: '100%' }}>
@@ -133,54 +169,16 @@ const StrategyStudio: React.FC = () => {
       >
         {leftPanel}
       </Sider>
-      <Content style={{ background: '#fff' }}>
-        {rightPanel}
+      <Content style={{ background: '#fff', padding: '0 12px' }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={tabItems}
+          tabBarStyle={{ marginBottom: 8 }}
+        />
       </Content>
     </Layout>
   )
 }
-
-// 默认策略模板
-const DEFAULT_TEMPLATE = `# -*- coding: utf-8 -*-
-"""新策略"""
-
-from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy
-from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
-
-__STRATEGY_META__ = {
-    "TargetTable": "my_strategy_signals",
-    "IDType": "A股",
-    "Description": "",
-    "OperatorConfig": {
-        "SignalType": "目标权重",
-        "InitCash": 1e6,
-        "ShortAllowed": False,
-    },
-    "FactorDeps": {},
-    "StrategyDeps": {},
-    "DBDeps": {},
-    "ModelArgs": {},
-    "Author": "",
-    "Tags": [],
-    "MaxLookBack": 365,
-    "DefScriptPath": __file__,
-}
-
-class MyStrategy(MakeStrategy):
-    def genSignal(self, f, idt, x, last_price, cash, position_num, args):
-        # 在此编写你的交易信号逻辑
-        # x: 依赖因子数据列表
-        # 返回: pd.Series，index 为证券 ID，值为信号
-        return None
-
-def defStrategy(sdi: StrategyDefInput):
-    op = MyStrategy(
-        signal_type=sdi.ModelArgs.get("signal_type", "目标权重"),
-        init_cash=sdi.ModelArgs.get("init_cash", 1e6),
-        short_allowed=sdi.ModelArgs.get("short_allowed", False),
-    )
-    # 从 sdi.Factors 取依赖因子，传给 op()
-    return op(last_price=sdi.Factors.get("close"))
-`
 
 export default StrategyStudio

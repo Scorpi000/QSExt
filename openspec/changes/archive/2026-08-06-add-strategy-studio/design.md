@@ -108,15 +108,17 @@
 
 ### 6. QSWeb 前端架构
 
-**决定**：策略工作台为独立页面 `/strategy`，采用左右分栏布局。代码编辑器使用 Monaco Editor（`@monaco-editor/react`）。
+**决定**：策略工作台为独立页面 `/strategy`，采用左右分栏布局。左侧为策略列表+配置面板，右侧使用 Tab 切换「策略代码」和「回测结果」。代码编辑器使用 Monaco Editor（`@monaco-editor/react`）。回测结果复用现有 `ResultTree` + `ResultLeaf` 组件（Series→Plotly 折线图，DataFrame→Table，Scalar→数值卡片）。
+
+未运行回测时仅显示策略代码 Tab，运行后出现回测结果 Tab，回测完成通过 `onResultReady` 回调自动切换到结果 Tab。
 
 ```
 StrategyStudio/
-├── index.tsx              # 页面主组件（左右分栏）
+├── index.tsx              # 页面主组件（左右分栏，右侧 Tab 切换）
 ├── StrategyList.tsx       # 策略列表/搜索面板
 ├── StrategyEditor.tsx     # Monaco 代码编辑器封装
-├── StrategyConfig.tsx     # 参数配置面板（OperatorConfig + 因子/策略选择）
-└── StrategyResult.tsx     # 回测结果可视化（复用 ResultTree + ResultLeaf）
+├── StrategyConfig.tsx     # 参数配置面板（OperatorConfig + 日期范围，使用 dayjs）
+└── StrategyResult.tsx     # 回测结果可视化（复用 ResultTree + ResultLeaf，轮询检查 data.type）
 ```
 
 **备选方案**：作为 BacktestStudio 的子 Tab → 放弃，两者工作流差异大（写代码迭代 vs 选模块配参数）。
@@ -130,14 +132,17 @@ POST /api/strategy/backtest
     → StrategyService.run_backtest()
     → QSBridge.run_strategy_backtest()
     → importlib 加载策略模块
-    → 构造 StrategyDefInput (FDB, Factors, Strategies, ModelArgs)
-    → 递归解析依赖策略
-    → defStrategy(sdi) → Strategy 实例
-    → AccountReport(strategy_factor)
-    → Engine.run([AccountReport], context, ...)
+    → 从已连接的因子库获取 IDs 和 DTs（未连接时返回明确错误）
+    → 构造 StrategyDefInput (FDB, Factors, Strategies, ModelArgs, DTs, IDs)
+    → defStrategy(sdi) → List[Factor] 策略实例列表
+    → 取第一个策略实例 → AccountReport(strategy_factor)
+    → Engine.run([AccountReport], context,
+        fwd_data_list=[FactorLocalContext(DTs=dts, IDs=ids)])
     → _output_to_tree(output)
     → ResultNode
 ```
+
+策略保存/注册需要 `QSWebConfig.yaml` 中 `strategy_def.settings_path` 必填，通过 `register_strategies_to_graphdb.main()` 走完整管线（含 JYDB 连接、defStrategy 执行）注册到 Neo4j。
 
 **理由**：策略回测的输入是"代码 + 依赖 + 参数"，与模块化回测的"模块 key + 因子列表"输入完全不同，不适合复用现有 `_build_node_sync`。
 
@@ -157,8 +162,14 @@ POST /api/strategy/backtest
 
 ## Open Questions
 
-1. **策略脚本约定目录**：默认为 `strategies/`（相对项目根目录），通过 `QSWebConfig.yaml` 的 `strategy.scripts_dir` 可配置。是否需要支持多目录？
+1. **回测基准（Benchmark）**：`AccountReport` 支持 `bmk_nv` 参数做相对表现。第一版是否需要在 UI 中暴露基准因子选择？
 
-2. **回测基准（Benchmark）**：`AccountReport` 支持 `bmk_nv` 参数做相对表现。第一版是否需要在 UI 中暴露基准因子选择？
+2. **策略信号的 FactorStorer**：策略信号写入 HDF5 时是否需要类似 FactorDef 的 `FactorStorer` 机制，还是简化为直接写入？
 
-3. **策略信号的 FactorStorer**：策略信号写入 HDF5 时是否需要类似 FactorDef 的 `FactorStorer` 机制，还是简化为直接写入？
+## Resolved Questions
+
+1. **策略脚本约定目录**：通过 `QSWebConfig.yaml` 的 `strategy_def.scripts_dir` 配置（默认 `~/StrategyDef/Scripts`），不支持多目录。
+
+2. **Neo4j 注册方式**：保存策略时要求 `strategy_def.settings_path` 必填，通过 `register_strategies_to_graphdb.main()` 走完整管线注册。不再支持无 settings_path 的最小化注册路径。
+
+3. **StrategyDef 包装类设计**：`StrategyDef` 使用 `StrategyList: List[Factor]`（支持一个定义文件产出多个策略实例），不再使用单独的 `StrategyInstance`/`StrategyClass` 字段。`defStrategy` 返回 `List[Factor]`。

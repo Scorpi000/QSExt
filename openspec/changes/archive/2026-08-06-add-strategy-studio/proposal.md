@@ -20,22 +20,23 @@ QSWeb 目前缺少策略开发调试的工具支持——回测工作台只提�
 
 ### Modified Capabilities
 
-- `backtest-studio`: 回测结果树节点新增策略回测结果类型（账户净值、绩效统计、交易记录），与现有模块化回测结果并列展示 **(BREAKING: ResultNode 模型需扩展新叶子节点类型)**
+- `backtest-studio`: 策略回测复用现有 `ResultTree` + `ResultLeaf` 组件和 `ResultNode` 数据结构，无需扩展新类型
 
 ## Impact
 
 | 影响范围 | 说明 |
 |----------|------|
-| `QSExt/StrategyDef/` | 新增模块，~500 行（含 StrategyDefContent.py, run_strategy_def.py, register_strategies_to_graphdb.py） |
-| `QSExt/QSRegistry/QSGraphDB.py` | 新增策略节点 CRUD 方法组，~300 行 |
-| `QSWeb/backend/app/api/strategy.py` | 新增路由，~150 行 |
-| `QSWeb/backend/app/models/strategy.py` | 新增 Pydantic 模型，~100 行 |
-| `QSWeb/backend/app/services/strategy_service.py` | 新增服务层，~200 行 |
-| `QSWeb/backend/app/services/qs_bridge.py` | 扩展策略回测支持，~100 行 |
-| `QSWeb/backend/app/models/backtest.py` | ResultNode 扩展策略回测结果类型 |
+| `QSExt/StrategyDef/` | 新增模块（StrategyDefContent.py, run_strategy_def.py, register_strategies_to_graphdb.py） |
+| `QSExt/QSRegistry/QSGraphDB.py` | 新增策略节点 CRUD 方法组（_serializeStrategy, storeStrategies, searchStrategies 等） |
+| `QSWeb/backend/app/api/strategy.py` | 新增路由（import, search, detail, code, delete, backtest） |
+| `QSWeb/backend/app/models/strategy.py` | 新增 Pydantic 模型 |
+| `QSWeb/backend/app/services/strategy_service.py` | 新增服务层（代码验证、文件存储、Neo4j 注册） |
+| `QSWeb/backend/app/services/qs_bridge.py` | 新增 run_strategy_backtest() 方法 |
+| `QSWeb/backend/app/core/config.py` | 新增 strategy_def 配置属性 |
 | `QSWeb/backend/app/api/__init__.py` | 注册新路由 |
-| `QSWeb/frontend/src/pages/StrategyStudio/` | 新增页面组件，~300 行 |
-| `QSWeb/frontend/src/services/strategy.ts` | 新增前端服务层，~100 行 |
+| `QSWeb/frontend/src/pages/StrategyStudio/` | 新增页面组件（Tab 布局，复用 ResultTree/ResultLeaf） |
+| `QSWeb/frontend/src/services/strategy.ts` | 新增前端服务层 |
 | `QSWeb/frontend/src/App.tsx` | 新增 `/strategy` 路由 |
-| `QSWeb/frontend/src/components/Layout/MainLayout.tsx` | 新增导航菜单项 |
-| `QSExt/__init__.py` | 无需修改（StrategyDef 为独立模块） |
+| `QSWeb/frontend/src/components/Layout/MainLayout.tsx` | 导航菜单新增"策略工作台"（位于回测工作台下方） |
+| `~/QuantStudioConfig/QSWebConfig.yaml` | 新增 strategy_def 配置节（scripts_dir, settings_path【必填】, default_id_type） |
+| `d:\Project\QuantStudio\...\Strategy.py` | 修复 numpy dtype 兼容性（unstructured_to_structured） |

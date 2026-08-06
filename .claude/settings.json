@@ -49,7 +49,13 @@
       "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_validators.py::test_syntax_def_factor_too_few_args -v)",
       "Bash(git stash *)",
       "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_StrategyDef.py tests/test_validators.py tests/test_DefKey.py tests/test_DefKey_integration.py -v)",
-      "Bash(C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe -m pytest tests/test_StrategyDef.py -v)"
+      "Bash(C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe -m pytest tests/test_StrategyDef.py -v)",
+      "Bash(cp -r \"openspec/changes/add-llm-factor-framework\" \"openspec/changes/archive/2026-08-06-add-llm-factor-framework\")",
+      "Bash(rm -rf \"openspec/changes/add-llm-factor-framework\")",
+      "Bash(cp -r \"openspec/changes/add-mining-studio\" \"openspec/changes/archive/2026-08-06-add-mining-studio\")",
+      "Bash(rm -rf \"openspec/changes/add-mining-studio\")",
+      "Bash(sort -k5,6)",
+      "mcp__qs-registry__get_strategy_info"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

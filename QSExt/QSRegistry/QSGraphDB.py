@@ -2690,11 +2690,12 @@ class QSGraphDB(QSNeo4jObject):
 
     # region 策略存储与检索（Strategy Store & Retrieve）
 
-    def _serializeStrategy(self, strategy_def) -> dict:
-        """序列化策略为 Neo4j 节点属性字典
+    def _serializeStrategy(self, strategy_def, strategy_instance) -> dict:
+        """序列化单个策略实例为 Neo4j 节点属性字典
 
         Args:
-            strategy_def: StrategyDef 实例
+            strategy_def: StrategyDef 实例（提供 Meta 元信息）
+            strategy_instance: 单个策略实例（Factor 对象）
 
         Returns:
             Neo4j 节点属性字典
@@ -2703,7 +2704,8 @@ class QSGraphDB(QSNeo4jObject):
         from QSExt.QSRegistry._serialization import _sanitizeForJSON
 
         meta = strategy_def.Meta
-        strategy = strategy_def.StrategyInstance
+        strategy = strategy_instance
+        strategy_cls = type(strategy)
         now = dt.datetime.now(dt.timezone.utc).isoformat()
 
         props = {
@@ -2714,8 +2716,8 @@ class QSGraphDB(QSNeo4jObject):
             "OperatorConfigJSON": _json.dumps(
                 _sanitizeForJSON(meta.OperatorConfig), ensure_ascii=False
             ),
-            "ClassName": strategy_def.StrategyClass.__name__,
-            "ModulePath": strategy_def.StrategyClass.__module__,
+            "ClassName": strategy_cls.__name__,
+            "ModulePath": strategy_cls.__module__,
             "MetaJSON": _json.dumps(_sanitizeForJSON({
                 "TargetTable": meta.TargetTable,
                 "IDType": meta.IDType,
@@ -2738,18 +2740,18 @@ class QSGraphDB(QSNeo4jObject):
                         tags: Optional[Dict[str, List[str]]] = None) -> int:
         """批量存储策略到 Neo4j 图数据库
 
-        为每个 StrategyDef 创建 (:策略) 节点，并建立依赖关系：
+        为每个策略实例（StrategyList 中的每一项）创建 (:策略) 节点，并建立依赖关系：
         - (策略)-[:依赖因子]->(:因子) — FactorDeps 中声明的因子依赖
         - (策略)-[:依赖策略]->(:策略) — StrategyDeps 中声明的策略间依赖
         - (策略)-[:输出到]->(:因子表) — 策略信号输出目标表
         - (策略)-[:打标签]->(:标签) — 分类标签
 
         Args:
-            strategies: StrategyDef 列表
-            tags: QSID → 标签列表的映射
+            strategies: StrategyDef 列表（每个含 StrategyList 可多个策略实例）
+            tags: 策略 QSID → 标签列表的映射
 
         Returns:
-            成功存储的策略数量
+            成功存储的策略实例数量
         """
         if not strategies:
             return 0
@@ -2759,23 +2761,24 @@ class QSGraphDB(QSNeo4jObject):
 
         now = dt.datetime.now(dt.timezone.utc).isoformat()
 
-        # Phase 1: 构建策略节点数据
+        # Phase 1: 构建策略节点数据（每个策略实例一个节点）
         strategy_nodes = []
         for sd in strategies:
-            props = self._serializeStrategy(sd)
-            # 生成嵌入向量
-            if self._QSArgs.EmbeddingModel:
-                text = f"{props['Name']} {sd.Meta.Description} {' '.join(sd.Meta.Tags)}"
-                emb = self._generateEmbedding(text)
-                if emb is not None:
-                    props["Embedding"] = emb
-                    props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
-                    props["EmbeddingDim"] = len(emb)
-            strategy_nodes.append({
-                "qsid": props["QSID"],
-                "props": props,
-                "now": now,
-            })
+            for strategy_instance in sd.StrategyList:
+                props = self._serializeStrategy(sd, strategy_instance)
+                # 生成嵌入向量
+                if self._QSArgs.EmbeddingModel:
+                    text = f"{props['Name']} {sd.Meta.Description} {' '.join(sd.Meta.Tags)}"
+                    emb = self._generateEmbedding(text)
+                    if emb is not None:
+                        props["Embedding"] = emb
+                        props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
+                        props["EmbeddingDim"] = len(emb)
+                strategy_nodes.append({
+                    "qsid": props["QSID"],
+                    "props": props,
+                    "now": now,
+                })
 
         # Phase 2: 批量 MERGE 策略节点
         if strategy_nodes:
@@ -2795,10 +2798,11 @@ class QSGraphDB(QSNeo4jObject):
                 for entry in entries:
                     factor_name = entry if isinstance(entry, str) else entry.get("Name", "")
                     if factor_name:
-                        factor_dep_rels.append({
-                            "s_qsid": sd.StrategyInstance.QSID,
-                            "factor_name": factor_name,
-                        })
+                        for strategy_instance in sd.StrategyList:
+                            factor_dep_rels.append({
+                                "s_qsid": strategy_instance.QSID,
+                                "factor_name": factor_name,
+                            })
         if factor_dep_rels:
             self._runCypher("""
                 UNWIND $rels AS rel
@@ -2808,7 +2812,6 @@ class QSGraphDB(QSNeo4jObject):
             """, {"rels": factor_dep_rels})
 
         # 3b. (策略)-[:依赖策略]->(:策略) — 从 StrategyDeps 解析
-        # StrategyDeps key 是模块路径，通过 importlib 解析为 TargetTable 来匹配 Neo4j 节点
         strategy_dep_rels = []
         for sd in strategies:
             for dep_module_path in sd.Meta.StrategyDeps:
@@ -2820,10 +2823,11 @@ class QSGraphDB(QSNeo4jObject):
                     dep_tt = dep_meta.get('TargetTable', dep_module_path)
                 except ImportError:
                     pass
-                strategy_dep_rels.append({
-                    "s_qsid": sd.StrategyInstance.QSID,
-                    "target_table": dep_tt,
-                })
+                for strategy_instance in sd.StrategyList:
+                    strategy_dep_rels.append({
+                        "s_qsid": strategy_instance.QSID,
+                        "target_table": dep_tt,
+                    })
         if strategy_dep_rels:
             self._runCypher("""
                 UNWIND $rels AS rel
@@ -2836,10 +2840,11 @@ class QSGraphDB(QSNeo4jObject):
         output_rels = []
         for sd in strategies:
             if sd.Meta.TargetTable:
-                output_rels.append({
-                    "s_qsid": sd.StrategyInstance.QSID,
-                    "target_table": sd.Meta.TargetTable,
-                })
+                for strategy_instance in sd.StrategyList:
+                    output_rels.append({
+                        "s_qsid": strategy_instance.QSID,
+                        "target_table": sd.Meta.TargetTable,
+                    })
         if output_rels:
             self._runCypher("""
                 UNWIND $rels AS rel
@@ -2863,8 +2868,9 @@ class QSGraphDB(QSNeo4jObject):
                     MERGE (s)-[:`打标签`]->(t)
                 """, {"rels": tag_rels})
 
-        self._QS_Logger.info(f"已批量存储 {len(strategies)} 个策略")
-        return len(strategies)
+        total_instances = sum(len(sd.StrategyList) for sd in strategies)
+        self._QS_Logger.info(f"已批量存储 {total_instances} 个策略实例 (来自 {len(strategies)} 个 StrategyDef)")
+        return total_instances
 
     def searchStrategies(self, name: Optional[str] = None,
                          tag: Optional[str] = None,

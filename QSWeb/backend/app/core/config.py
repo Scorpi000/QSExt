@@ -81,6 +81,26 @@ class Settings:
         }
 
     @property
+    def strategy_def(self) -> dict:
+        """从 QSWebConfig.yaml 读取 strategy_def 配置"""
+        sd_config = {}
+        if os.path.exists(self.QS_CONFIG_PATH):
+            try:
+                with open(self.QS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    sd_config = yaml.safe_load(f).get("strategy_def", {})
+            except Exception:
+                pass
+
+        return {
+            "scripts_dir": (
+                sd_config.get("scripts_dir")
+                or os.path.expanduser("~/StrategyDef/Scripts")
+            ),
+            "settings_path": sd_config.get("settings_path"),
+            "default_id_type": sd_config.get("default_id_type", "A股"),
+        }
+
+    @property
     def ai_workbench(self) -> dict:
         """从 QSWebConfig.yaml 加载 ai_workbench 配置段"""
         if not os.path.exists(self.QS_CONFIG_PATH):

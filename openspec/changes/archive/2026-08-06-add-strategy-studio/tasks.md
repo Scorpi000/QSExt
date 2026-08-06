@@ -5,7 +5,7 @@
 - [x] 1.1 创建 `QSExt/StrategyDef/` 目录结构和 `__init__.py`
 - [x] 1.2 实现 `StrategyDefInput` 类（FDB, Factors, Strategies, ModelArgs, DTs, DTRuler, IDs, SectionIDs）
 - [x] 1.3 实现 `StrategyMeta` 类（TargetTable, IDType, OperatorConfig, FactorDeps, StrategyDeps, DBDeps, ModelArgs, Author, Description, Tags, MaxLookBack, DefScriptPath）
-- [x] 1.4 实现 `StrategyDef` 包装类（Strategy + StrategyClass + Meta）
+- [x] 1.4 实现 `StrategyDef` 包装类（StrategyList + Meta，支持多策略实例，提供 StrategyNames / getStrategy）
 - [x] 1.5 实现 `build_dep_sd()` 递归依赖解析（先解析 FactorDeps→复用 build_dep_fd，再解析 StrategyDeps→递归执行 defStrategy，注入 sdi.Factors 和 sdi.Strategies）
 - [x] 1.6 实现 `compute_max_lookback` 对策略链的适配
 - [x] 1.7 编写策略框架单元测试（StrategyMeta 校验、build_dep_sd 基础/循环依赖场景）
@@ -51,17 +51,17 @@
 ## 5. QSWeb 前端策略工作台
 
 - [x] 5.1 创建 `services/strategy.ts`（TypeScript 接口 + API 函数）
-- [x] 5.2 创建 `pages/StrategyStudio/index.tsx` 页面主组件（左右分栏布局）
+- [x] 5.2 创建 `pages/StrategyStudio/index.tsx` 页面主组件（左右分栏，右侧 Tab 切换策略代码/回测结果）
 - [x] 5.3 创建 `pages/StrategyStudio/StrategyList.tsx`（策略搜索/列表/新建）
 - [x] 5.4 创建 `pages/StrategyStudio/StrategyEditor.tsx`（Monaco Editor 封装，Python 语法高亮）
-- [x] 5.5 创建 `pages/StrategyStudio/StrategyConfig.tsx`（OperatorConfig 表单 + 因子/策略依赖选择器）
-- [x] 5.6 创建 `pages/StrategyStudio/StrategyResult.tsx`（回测结果展示：净值曲线 Plotly + 绩效卡片 + 交易记录表格 + 持仓 Tab）
+- [x] 5.5 创建 `pages/StrategyStudio/StrategyConfig.tsx`（OperatorConfig 表单 + 日期范围，使用 dayjs）
+- [x] 5.6 创建 `pages/StrategyStudio/StrategyResult.tsx`（复用 ResultTree + ResultLeaf 组件：左侧结果树，右侧 Plotly 图表/数据表，轮询检查 data.type 判断完成）
 - [x] 5.7 在 `App.tsx` 添加 `/strategy` 路由（lazy load）
-- [x] 5.8 在 `MainLayout.tsx` 添加"策略工作台"导航菜单项
+- [x] 5.8 在 `MainLayout.tsx` 添加"策略工作台"导航菜单项（位于回测工作台下方）
 
 ## 6. 配置和文档
 
-- [x] 6.1 在 `QSWebConfig.yaml` schema 中添加 `strategy` 配置节（scripts_dir, neo4j 配置引用）
+- [x] 6.1 在 `QSWebConfig.yaml` 中添加 `strategy_def` 配置节（scripts_dir, settings_path【必填】, default_id_type）
 - [x] 6.2 更新 `CLAUDE.md` 中的项目架构说明（新增 StrategyDef 模块）
 - [x] 6.3 编写 StrategyDef 框架使用文档（docs/策略定义/）
 - [x] 6.4 更新 MCP 服务 `qs_registry.py` 暴露策略相关工具（search_strategies, get_strategy_info, get_strategy_code）

@@ -25,14 +25,21 @@ QSWeb 后端策略回测 API，提供策略代码的动态加载、策略实例�
 - **WHEN** 调用 `POST /api/strategy/import/preview`
 - **THEN** 仅验证和返回元信息摘要，不执行磁盘写入和 Neo4j 注册
 
-### Requirement: 策略代码存储
+### Requirement: 策略代码存储与 Neo4j 注册
 
-`POST /api/strategy/import` SHALL 将验证通过的策略脚本保存到约定目录（可通过 `QSWebConfig.yaml` 中 `strategy.scripts_dir` 配置），若文件名重复自动重命名。
+`POST /api/strategy/import` SHALL 将验证通过的策略脚本保存到约定目录（通过 `QSWebConfig.yaml` 中 `strategy_def.scripts_dir` 配置），若文件名重复自动重命名。保存后通过 `register_strategies_to_graphdb.main()` 异步注册到 Neo4j。
 
-#### Scenario: 保存策略脚本
+注册要求 `QSWebConfig.yaml` 中 `strategy_def.settings_path` 必填，指向 StrategyDef 的 settings.py。若未配置则返回 400 错误。
 
-- **WHEN** 验证通过
-- **THEN** 策略 `.py` 文件写入 `scripts_dir` 目录，文件名唯一化处理，同时后台异步注册到 Neo4j
+#### Scenario: 保存策略脚本并注册
+
+- **WHEN** 验证通过且 `strategy_def.settings_path` 已配置
+- **THEN** 策略 `.py` 文件写入 `scripts_dir` 目录，后台调用 `register_strategies_to_graphdb.main()` 通过完整管线（含 JYDB 连接、ID 解析、defStrategy 执行）注册到 Neo4j
+
+#### Scenario: 未配置 settings_path 时拒绝
+
+- **WHEN** `strategy_def.settings_path` 为空
+- **THEN** 返回 HTTP 400，提示"未配置 strategy_def.settings_path，请在 QSWebConfig.yaml 中设置"
 
 ### Requirement: 策略元信息查询
 
@@ -68,11 +75,11 @@ QSWeb 后端策略回测 API，提供策略代码的动态加载、策略实例�
 
 回测执行流程：
 1. 动态加载策略模块（从代码字符串或文件路径）
-2. 连接因子库、解析依赖因子和依赖策略
-3. 构造 `StrategyDefInput`（含 Factors、Strategies、ModelArgs 覆盖值）
-4. 调用 `defStrategy(sdi)` 得到策略因子实例
-5. 构造 `AccountReport(strategy_factor)` 作为 BTNode
-6. 通过 `Engine.run()` 执行
+2. 连接因子库获取 IDs（证券列表）和 DTs（交易日列表），未连接时返回明确错误
+3. 构造 `StrategyDefInput`（含 FDB、Factors、Strategies、ModelArgs 覆盖值、DTs、IDs）
+4. 调用 `defStrategy(sdi)` 得到策略因子实例列表
+5. 取第一个策略实例构造 `AccountReport(strategy_factor)` 作为 BTNode
+6. 通过 `Engine.run()` 执行，`fwd_data_list=[FactorLocalContext(DTs=dts, IDs=ids)]`（IDs 为必填字段）
 7. 序列化结果为 `ResultNode` 树
 
 #### Scenario: 以代码方式提交回测
@@ -89,6 +96,20 @@ QSWeb 后端策略回测 API，提供策略代码的动态加载、策略实例�
 
 - **WHEN** 策略依赖另一个策略（StrategyDeps 非空）
 - **THEN** 后端先加载并实例化依赖策略，将其输出因子注入 `sdi.Strategies`，再执行主策略
+
+### Requirement: 回测结果轮询
+
+前端 SHALL 通过轮询 `GET /api/strategy/backtest/{task_id}/result` 获取回测结果。因后端 202 响应被 axios 视为成功（2xx），轮询逻辑通过检查返回数据是否含 `type` 字段判断是否完成（有效 ResultNode 必有 `type` 字段）。
+
+#### Scenario: 回测运行中
+
+- **WHEN** 轮询返回 202 状态的 `{"detail": "任务正在运行中"}`
+- **THEN** 前端检测到数据无 `type` 字段，保持 loading 状态继续轮询
+
+#### Scenario: 回测完成
+
+- **WHEN** 轮询返回含 `type` 字段的 ResultNode 数据
+- **THEN** 停止轮询，渲染结果树
 
 ### Requirement: 回测结果序列化
 
