@@ -57,6 +57,7 @@ class RiskService:
                 "description": cfg.get("description", ""),
                 "connected": db_id in self._risk_dbs,
                 "source": source,
+                "args": cfg.get("args", {}),
             })
         return result
 
@@ -65,12 +66,15 @@ class RiskService:
         cfg = self._db_configs.get(db_id)
         if cfg is None:
             raise NotFoundException("风险库", db_id)
+        source = "settings" if db_id in getattr(self, "_settings_names", set()) else "neo4j"
         return {
             "id": db_id,
             "name": cfg.get("name", db_id),
-            "db_type": cfg.get("db_type", "HDF5RDB"),
+            "db_type": cfg.get("class", cfg.get("db_type", "HDF5RDB")),
             "description": cfg.get("description", ""),
             "connected": db_id in self._risk_dbs,
+            "source": source,
+            "args": cfg.get("args", {}),
         }
 
     def create_database(self, name: str, db_type: str, args: dict, description: str = "") -> Dict[str, Any]:
@@ -133,7 +137,7 @@ class RiskService:
         cfg = self._db_configs.get(db_id)
         if cfg is None:
             raise NotFoundException("风险库", db_id)
-        db_type = cfg.get("db_type", "HDF5RDB")
+        db_type = cfg.get("class", cfg.get("db_type", "HDF5RDB"))
         args = cfg.get("args", {})
         loop = asyncio.get_running_loop()
         try:
@@ -165,7 +169,7 @@ class RiskService:
         if cfg is None:
             raise NotFoundException("风险库", db_id)
 
-        db_type = cfg.get("db_type", "HDF5RDB")
+        db_type = cfg.get("class", cfg.get("db_type", "HDF5RDB"))
         args = cfg.get("args", {})
 
         loop = asyncio.get_running_loop()

@@ -55,9 +55,12 @@ function FactorDetail() {
     )
   }
 
-  const getFactorClassColor = (cls: string) => {
-    return cls === 'AtomicFactor' ? 'blue' : 'purple'
+  const factorClassMap: Record<string, { label: string; color: string }> = {
+    DataFactor: { label: '数据因子', color: 'blue' },
+    FactorTableFactor: { label: '因子表因子', color: 'geekblue' },
+    DerivativeFactor: { label: '衍生因子', color: 'purple' },
   }
+  const classInfo = factorClassMap[selectedFactor.factor_class] || { label: selectedFactor.factor_class, color: 'default' }
 
   return (
     <div style={{ padding: '12px', overflow: 'auto', height: '100%' }}>
@@ -67,8 +70,8 @@ function FactorDetail() {
           <Text code style={{ fontSize: 11 }}>{selectedFactor.qsid}</Text>
         </Descriptions.Item>
         <Descriptions.Item label="类型">
-          <Tag color={getFactorClassColor(selectedFactor.factor_class)}>
-            {selectedFactor.factor_class === 'AtomicFactor' ? '原子因子' : '衍生因子'}
+          <Tag color={classInfo.color}>
+            {classInfo.label}
           </Tag>
         </Descriptions.Item>
         {selectedFactor.data_type && (

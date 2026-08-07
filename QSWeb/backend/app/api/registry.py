@@ -52,10 +52,21 @@ async def get_factor_detail(qsid: str):
 
 
 @router.get("/factors/{qsid}/dag")
-async def get_factor_dag(qsid: str):
+async def get_factor_dag(qsid: str, max_depth: Optional[int] = Query(None, ge=1, description="最大深度限制")):
     """获取因子依赖 DAG 数据（从 Neo4j 获取依赖关系，已计算布局）"""
     try:
-        return await registry_service.get_factor_dag(qsid)
+        return await registry_service.get_factor_dag(qsid, max_depth=max_depth)
+    except ValueError as e:
+        raise NotFoundException("因子", qsid)
+    except Exception as e:
+        raise ValidationException(str(e))
+
+
+@router.get("/factors/{qsid}/neighbors")
+async def get_factor_neighbors(qsid: str):
+    """获取因子的直接邻居（1 层依赖 + 被依赖），用于 DAG 逐节点展开"""
+    try:
+        return await registry_service.get_factor_neighbors(qsid)
     except ValueError as e:
         raise NotFoundException("因子", qsid)
     except Exception as e:

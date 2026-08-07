@@ -11,6 +11,7 @@ export interface RiskDBInfo {
   description: string
   connected: boolean
   source?: string
+  args?: Record<string, any>
 }
 
 export interface RiskTableInfo {

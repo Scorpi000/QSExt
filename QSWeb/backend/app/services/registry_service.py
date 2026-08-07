@@ -192,8 +192,13 @@ class RegistryService:
 
     # ─── DAG ──────────────────────────────────────────────────
 
-    async def get_factor_dag(self, qsid: str) -> Dict[str, Any]:
-        """获取因子依赖 DAG 数据（节点 + 边，含布局信息）"""
+    async def get_factor_dag(self, qsid: str, max_depth: int = None) -> Dict[str, Any]:
+        """获取因子依赖 DAG 数据（节点 + 边，含布局信息）
+
+        Args:
+            qsid: 目标因子 QSID
+            max_depth: 最大深度限制，None 表示不限制
+        """
         gdb = await self._get_gdb()
 
         def _sync():
@@ -201,7 +206,7 @@ class RegistryService:
             if node is None:
                 raise ValueError(f"因子不存在: {qsid}")
 
-            dep_graph = gdb.getDependencyGraph(qsid, direction="both")
+            dep_graph = gdb.getDependencyGraph(qsid, direction="both", max_depth=max_depth)
 
             nodes = []
             edges = []
@@ -239,6 +244,53 @@ class RegistryService:
                 if i < len(layout):
                     n["x"] = layout[i]["x"]
                     n["y"] = layout[i]["y"]
+
+            return {
+                "root_qsid": qsid,
+                "nodes": nodes,
+                "edges": edges,
+            }
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _sync)
+
+    # ─── 邻居查询 ───────────────────────────────────────────────
+
+    async def get_factor_neighbors(self, qsid: str) -> Dict[str, Any]:
+        """获取因子的直接邻居（1 层依赖 + 被依赖），不含中心节点本身"""
+        gdb = await self._get_gdb()
+
+        def _sync():
+            node = gdb.getFactorByQSID(qsid)
+            if node is None:
+                raise ValueError(f"因子不存在: {qsid}")
+
+            dep_graph = gdb.getDependencyGraph(qsid, direction="both", max_depth=1)
+
+            nodes = []
+            edges = []
+            seen_nodes = set()
+
+            for n in dep_graph.get("nodes", []):
+                n_qsid = n.get("QSID", "")
+                # 排除中心节点自身
+                if n_qsid == qsid or n_qsid in seen_nodes:
+                    continue
+                seen_nodes.add(n_qsid)
+                nodes.append({
+                    "qsid": n_qsid,
+                    "name": n.get("Name", ""),
+                    "factor_class": n.get("FactorClass", ""),
+                    "operator_type": n.get("OperatorType", ""),
+                    "data_type": n.get("DataType", ""),
+                })
+
+            for e in dep_graph.get("edges", []):
+                edges.append({
+                    "source": e.get("source", ""),
+                    "target": e.get("target", ""),
+                    "order": e.get("order") or 0,
+                })
 
             return {
                 "root_qsid": qsid,
