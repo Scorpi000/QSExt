@@ -20,5 +20,6 @@ Example:
 """
 
 from QSExt.MarketRegime.operators import ThresholdClassify, QuantileClassify
+from QSExt.MarketRegime.regime_report import RegimePerformanceReport
 
-__all__ = ["ThresholdClassify", "QuantileClassify"]
+__all__ = ["ThresholdClassify", "QuantileClassify", "RegimePerformanceReport"]

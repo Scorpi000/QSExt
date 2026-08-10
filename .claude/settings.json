@@ -55,7 +55,9 @@
       "Bash(cp -r \"openspec/changes/add-mining-studio\" \"openspec/changes/archive/2026-08-06-add-mining-studio\")",
       "Bash(rm -rf \"openspec/changes/add-mining-studio\")",
       "Bash(sort -k5,6)",
-      "mcp__qs-registry__get_strategy_info"
+      "mcp__qs-registry__get_strategy_info",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_MarketRegime/test_regime_report.py -v -s)",
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_MarketRegime/test_regime_report.py::TestRegimePerformanceReport::test_backward_compute -v -s)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"

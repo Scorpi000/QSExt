@@ -8,15 +8,12 @@
     QuantileClassify  — 基于滚动分位数（TimeOperator）
 """
 import datetime as dt
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 import numpy as np
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import (
-    PointOperator, PointOperation,
-    TimeOperator, TimeOperation,
-)
+from QuantStudio.Factor.FactorOperation import PointOperator, TimeOperator
 
 
 # ============================================================================
