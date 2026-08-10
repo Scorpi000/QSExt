@@ -1504,22 +1504,24 @@ class QSGraphDB(QSNeo4jObject):
             results = [r for r in results if r["score"] >= min_score]
         return [{"Similarity": round(r["score"], 6), **r["f"]} for r in results]
 
-    def getDependencyGraph(self, qsid: str, direction: str = "both") -> Dict:
+    def getDependencyGraph(self, qsid: str, direction: str = "both", max_depth: int = None) -> Dict:
         """获取因子的依赖子图
 
         Args:
             qsid: 目标因子 QSID
             direction: "down"（输入）/ "up"（下游）/ "both"（双向）
+            max_depth: 最大深度限制，None 表示不限制
 
         Returns:
             {"root": qsid, "nodes": [...], "edges": [...]}
         """
         nodes = {}
         edges = []
+        hop_expr = f"*1..{max_depth}" if max_depth is not None else "*"
         if direction in ("down", "both"):
             results = self._runCypher(
-                """
-                MATCH path = (root:`因子` {QSID: $qsid})-[:`依赖`*]->(leaf:`因子`)
+                f"""
+                MATCH path = (root:`因子` {{QSID: $qsid}})-[:`依赖`{hop_expr}]->(leaf:`因子`)
                 UNWIND nodes(path) AS n
                 WITH DISTINCT n
                 RETURN n
@@ -1542,8 +1544,8 @@ class QSGraphDB(QSNeo4jObject):
             edges.extend(edge_results)
         if direction in ("up", "both"):
             results = self._runCypher(
-                """
-                MATCH (dependent:`因子`)-[:`依赖`*]->(target:`因子` {QSID: $qsid})
+                f"""
+                MATCH (dependent:`因子`)-[:`依赖`{hop_expr}]->(target:`因子` {{QSID: $qsid}})
                 RETURN DISTINCT dependent
                 """,
                 {"qsid": qsid}

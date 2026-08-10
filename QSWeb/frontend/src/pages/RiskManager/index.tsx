@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Row, Col, Card, Tree, Select, Tabs, Spin, Empty, message,
-  Button, Modal, Form, Input, InputNumber, Popconfirm, Space, Tooltip, Divider, Tag,
+  Button, Modal, Form, Input, InputNumber, Popconfirm, Space, Tooltip, Divider, Tag, Descriptions,
 } from 'antd'
 import {
   SafetyOutlined, TableOutlined, PlusOutlined,
@@ -50,6 +50,7 @@ function RiskManager() {
   const [databases, setDatabases] = useState<RiskDBInfo[]>([])
   const [loadingDBs, setLoadingDBs] = useState(false)
   const [treeData, setTreeData] = useState<DataNode[]>([])
+  const [loadedKeys, setLoadedKeys] = useState<string[]>([])
   const [selectedDb, setSelectedDb] = useState<string | null>(null)
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
   const [selectedDt, setSelectedDt] = useState<string | null>(null)
@@ -80,7 +81,6 @@ function RiskManager() {
         title: <span>{db.name}<SourceTag source={db.source} /></span>,
         icon: <SafetyOutlined />,
         isLeaf: false,
-        children: [],
       }))
       setTreeData(nodes)
     } catch {
@@ -108,6 +108,7 @@ function RiskManager() {
       setTreeData((prev) =>
         prev.map((n) => (n.key === key ? { ...n, children } : n))
       )
+      setLoadedKeys((prev) => [...prev, key as string])
     } catch {
       message.error('加载风险表列表失败')
     }
@@ -288,6 +289,7 @@ function RiskManager() {
                 <Tree.DirectoryTree
                   showIcon
                   loadData={onLoadData}
+                  loadedKeys={loadedKeys}
                   onSelect={onSelect}
                   treeData={treeData}
                   selectedKeys={
@@ -297,13 +299,12 @@ function RiskManager() {
                   }
                 />
                 {/* 选中风险库的管理操作 */}
-                {selectedDb && !selectedTable && (
+                {selectedDb && !selectedTable && (() => {
+                  const selectedDbInfo = databases.find((d) => d.id === selectedDb)
+                  const isSettingsSource = selectedDbInfo?.source === 'settings'
+                  return (
                   <div style={{ marginTop: 8 }}>
                     <Divider style={{ margin: '8px 0' }} />
-                    {(() => {
-                      const selectedDbInfo = databases.find((d) => d.id === selectedDb)
-                      const isSettingsSource = selectedDbInfo?.source === 'settings'
-                      return (
                     <Space size={4}>
                       <Tooltip title={isSettingsSource ? 'settings 来源不可编辑' : '编辑'}>
                         <Button
@@ -334,10 +335,21 @@ function RiskManager() {
                         />
                       </Tooltip>
                     </Space>
-                      )
-                    })()}
+                    {/* 风险库参数信息 */}
+                    {selectedDbInfo && Object.keys(selectedDbInfo.args || {}).length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <Descriptions title="连接参数" column={1} size="small"
+                          labelStyle={{ color: '#666', fontSize: 12, padding: '2px 8px 2px 0' }}
+                          contentStyle={{ fontSize: 12, padding: '2px 0' }}>
+                          {Object.entries(selectedDbInfo.args!).map(([key, value]) => (
+                            <Descriptions.Item key={key} label={key}>{JSON.stringify(value, null, 2)}</Descriptions.Item>
+                          ))}
+                        </Descriptions>
+                      </div>
+                    )}
                   </div>
-                )}
+                  )
+                })()}
               </>
             )}
           </Card>

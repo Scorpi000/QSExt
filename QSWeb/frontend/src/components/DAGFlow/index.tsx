@@ -7,7 +7,7 @@
  * 节点样式由调用方通过 ReactFlow Node 的 data.label 自行控制。
  */
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Spin, Empty, Button, Space } from 'antd'
 import { ApartmentOutlined, ReloadOutlined } from '@ant-design/icons'
 import ReactFlow, {
@@ -21,6 +21,7 @@ import ReactFlow, {
   MarkerType,
   NodeChange,
   EdgeChange,
+  ReactFlowInstance,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import dagre from 'dagre'
@@ -41,7 +42,7 @@ function applyDagreLayout(
   edges: Edge[],
   options?: { rankdir?: 'TB' | 'LR'; nodesep?: number; ranksep?: number },
 ): Node[] {
-  const { rankdir = 'TB', nodesep = 60, ranksep = 80 } = options || {}
+  const { rankdir = 'TB', nodesep = 80, ranksep = 100 } = options || {}
 
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
@@ -77,6 +78,8 @@ export interface DAGFlowProps {
   onNodesChange?: (changes: NodeChange[]) => void
   onEdgesChange?: (changes: EdgeChange[]) => void
   onNodeClick?: (event: React.MouseEvent, node: Node) => void
+  onNodeDoubleClick?: (event: React.MouseEvent, node: Node) => void
+  onNodeContextMenu?: (event: React.MouseEvent, node: Node) => void
   loading?: boolean
   emptyText?: string
   /** 节点类型 → 颜色，用于 MiniMap 着色 */
@@ -84,6 +87,10 @@ export interface DAGFlowProps {
   /** 是否显示工具栏 */
   showToolbar?: boolean
   onRefresh?: () => void
+  /** 工具栏额外内容（如深度控制） */
+  toolbarExtra?: React.ReactNode
+  /** fitView 版本号，变化时触发 fitView；0 表示初始加载时自动 fit */
+  fitVersion?: number
 }
 
 // ─── 组件 ────────────────────────────────────────────────────
@@ -94,11 +101,15 @@ function DAGFlow({
   onNodesChange,
   onEdgesChange,
   onNodeClick,
+  onNodeDoubleClick,
+  onNodeContextMenu,
   loading,
   emptyText = '无数据',
   nodeColorMap = DEFAULT_NODE_COLORS,
   showToolbar = false,
   onRefresh,
+  toolbarExtra,
+  fitVersion = 0,
 }: DAGFlowProps) {
   // 自动布局
   const layoutNodes = useMemo(
@@ -108,18 +119,34 @@ function DAGFlow({
 
   const [nodes, setNodes, handleNodesChange] = useNodesState(layoutNodes)
   const [edges, setEdges, handleEdgesChange] = useEdgesState(rawEdges)
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
+  const prevFitVersion = useRef(fitVersion)
+  const hasInitialFit = useRef(false)
 
   // 同步外部数据变化（如新数据加载）
   useEffect(() => {
     setNodes(layoutNodes)
     setEdges(rawEdges.map((e) => ({
       ...e,
-      type: e.type || 'smoothstep',
-      animated: e.animated ?? true,
+      type: e.type || 'default',
+      animated: e.animated ?? false,
       style: e.style || { stroke: '#91caff', strokeWidth: 1.5 },
       markerEnd: e.markerEnd || { type: MarkerType.ArrowClosed, color: '#91caff', width: 12, height: 12 },
     })))
   }, [layoutNodes, rawEdges, setNodes, setEdges])
+
+  // fitView 控制：仅当 fitVersion 变化或初始加载时触发
+  useEffect(() => {
+    if (!rawNodes.length || !rfInstanceRef.current) return
+    if (fitVersion === 0 && hasInitialFit.current) return
+    if (fitVersion > 0 && fitVersion === prevFitVersion.current) return
+
+    prevFitVersion.current = fitVersion
+    hasInitialFit.current = true
+    // 延迟一帧等 ReactFlow 布局完成
+    const timer = setTimeout(() => rfInstanceRef.current?.fitView({ duration: 200, padding: 0.2 }), 50)
+    return () => clearTimeout(timer)
+  }, [fitVersion, rawNodes.length])
 
   // 获取节点类型（从 data 中读取，兼容不同的 key 名）
   const getNodeType = (n: Node): string => {
@@ -154,6 +181,7 @@ function DAGFlow({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: 12,
         }}>
           <Space size="small">
             <ApartmentOutlined />
@@ -161,11 +189,14 @@ function DAGFlow({
               {rawNodes.length} 节点, {rawEdges.length} 边
             </span>
           </Space>
-          {onRefresh && (
-            <Button size="small" icon={<ReloadOutlined />} onClick={onRefresh}>
-              刷新
-            </Button>
-          )}
+          <Space size="small">
+            {toolbarExtra}
+            {onRefresh && (
+              <Button size="small" icon={<ReloadOutlined />} onClick={onRefresh}>
+                刷新
+              </Button>
+            )}
+          </Space>
         </div>
       )}
       <div style={{ flex: 1 }}>
@@ -181,7 +212,10 @@ function DAGFlow({
             onEdgesChange?.(changes)
           }}
           onNodeClick={onNodeClick}
-          fitView
+          onNodeDoubleClick={onNodeDoubleClick}
+          onNodeContextMenu={onNodeContextMenu}
+          fitView={false}
+          onInit={(instance) => { rfInstanceRef.current = instance }}
           attributionPosition="bottom-left"
         >
           <Background />

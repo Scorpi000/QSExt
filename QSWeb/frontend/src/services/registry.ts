@@ -79,8 +79,15 @@ export const getFactorDetail = (qsid: string) => {
 }
 
 // 获取因子 DAG
-export const getFactorDAG = (qsid: string) => {
-  return api.get<DAGData>(`/factors/${qsid}/dag`)
+export const getFactorDAG = (qsid: string, maxDepth?: number) => {
+  const params: Record<string, any> = {}
+  if (maxDepth !== undefined) params.max_depth = maxDepth
+  return api.get<DAGData>(`/factors/${qsid}/dag`, { params })
+}
+
+// 获取因子直接邻居（1 层依赖 + 被依赖）
+export const getFactorNeighbors = (qsid: string) => {
+  return api.get<DAGData>(`/factors/${qsid}/neighbors`)
 }
 
 // 获取算子列表（保留用于算子详情展示）
