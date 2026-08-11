@@ -1,6 +1,13 @@
 # coding=utf-8
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from QSExt.MarketRegime.transition import BaseTransitionDetector
 
 # ============================================================================
 # StrategyRegimeAnalyzer — 策略市场状态适应性分析
@@ -178,3 +185,152 @@ class StrategyRegimeAnalyzer:
             'mrp_vs_total': (mrp / total_sharpe
                              if not np.isnan(total_sharpe) else np.nan),
         }
+
+    # ---- 状态转换冲击分析 ----
+
+    def transition_impact_analysis(
+        self,
+        dimension: str = None,
+        detector: 'BaseTransitionDetector | None' = None,
+        windows: list[int] = [5, 10, 20],
+    ) -> dict:
+        """状态转换冲击分析。
+
+        检测状态转换点，计算转换前后的收益表现差异。
+
+        Args:
+            dimension: 状态维度名。若为 None 则使用第一个维度。
+            detector: 转换检测器。若为 None 则使用相邻标签变化检测。
+            windows: 转换前后观察窗口列表（交易日数）。
+
+        Returns:
+            dict，包含以下键:
+            - ``transitions``: 转换点明细 DataFrame
+              (columns: date, from_regime, to_regime)
+            - ``window_returns``: 各窗口期的平均转换收益 DataFrame
+              (index: 窗口名, columns: 转换前收益, 转换后收益)
+            - ``direction_impact``: 方向敏感性 DataFrame
+              (index: from→to, columns: 平均转换后收益, 转换次数)
+            - ``transition_loss_ratio``: 转换期亏损占总亏损的比例
+        """
+        if dimension is None:
+            dimension = self.dimensions[0]
+
+        labels = self._regimes[dimension]
+
+        # 检测转换点
+        if detector is not None:
+            transitions = detector.detect(labels)
+        else:
+            transitions = self._default_detect_transitions(labels)
+
+        if transitions.empty:
+            return {
+                "transitions": transitions,
+                "window_returns": pd.DataFrame(),
+                "direction_impact": pd.DataFrame(),
+                "transition_loss_ratio": np.nan,
+            }
+
+        returns = self._returns
+
+        # ---- 各窗口期转换收益 ----
+        window_records = []
+        for w in windows:
+            pre_returns = []
+            post_returns = []
+            for _, row in transitions.iterrows():
+                dt = row["date"]
+                loc = returns.index.get_loc(dt)
+                if loc is None:
+                    continue
+                # 转换前 w 日
+                start = max(0, loc - w)
+                pre = returns.iloc[start:loc]
+                if len(pre) > 0:
+                    pre_returns.append(pre.mean() * 252)
+                # 转换后 w 日
+                end = min(len(returns), loc + w)
+                post = returns.iloc[loc:end]
+                if len(post) > 0:
+                    post_returns.append(post.mean() * 252)
+
+            window_records.append({
+                "窗口": f"±{w}日",
+                "转换前收益": np.mean(pre_returns) if pre_returns else np.nan,
+                "转换后收益": np.mean(post_returns) if post_returns else np.nan,
+            })
+
+        window_df = pd.DataFrame(window_records).set_index("窗口")
+
+        # ---- 方向敏感性 ----
+        direction_groups = {}
+        for _, row in transitions.iterrows():
+            dt = row["date"]
+            key = f"{row['from_regime']}→{row['to_regime']}"
+            loc = returns.index.get_loc(dt)
+            # 转换后收益（取最大窗口）
+            max_w = max(windows)
+            end = min(len(returns), loc + max_w)
+            post = returns.iloc[loc:end]
+            if len(post) > 0:
+                direction_groups.setdefault(key, []).append(post.mean() * 252)
+
+        direction_records = []
+        for key, vals in direction_groups.items():
+            direction_records.append({
+                "转换方向": key,
+                "平均转换后收益": np.mean(vals),
+                "转换次数": len(vals),
+            })
+        direction_df = pd.DataFrame(direction_records).set_index("转换方向")
+
+        # ---- 转换期亏损占比 ----
+        # 转换窗口内的负收益 / 全部负收益
+        max_w = max(windows)
+        transition_neg = 0.0
+        for _, row in transitions.iterrows():
+            dt = row["date"]
+            loc = returns.index.get_loc(dt)
+            start = max(0, loc - max_w)
+            end = min(len(returns), loc + max_w)
+            sub = returns.iloc[start:end]
+            transition_neg += sub[sub < 0].sum()
+
+        total_neg = returns[returns < 0].sum()
+        loss_ratio = (transition_neg / total_neg
+                      if abs(total_neg) > 1e-12 else np.nan)
+
+        return {
+            "transitions": transitions,
+            "window_returns": window_df,
+            "direction_impact": direction_df,
+            "transition_loss_ratio": loss_ratio,
+        }
+
+    @staticmethod
+    def _default_detect_transitions(labels: pd.Series) -> pd.DataFrame:
+        """默认转换点检测：相邻标签变化。"""
+        prev = labels.shift(1)
+        changed = labels != prev
+        change_idx = changed[changed].index
+
+        if len(change_idx) == 0:
+            return pd.DataFrame(columns=["date", "from_regime", "to_regime"])
+
+        records = []
+        for dt in change_idx:
+            loc = labels.index.get_loc(dt)
+            if loc == 0:
+                continue
+            from_val = labels.iloc[loc - 1]
+            to_val = labels.iloc[loc]
+            # 跳过 NaN
+            if pd.isna(from_val) or pd.isna(to_val):
+                continue
+            records.append({
+                "date": dt,
+                "from_regime": str(from_val),
+                "to_regime": str(to_val),
+            })
+        return pd.DataFrame(records)

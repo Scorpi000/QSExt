@@ -18,6 +18,7 @@ from matplotlib.ticker import FuncFormatter
 from QuantStudio.BackTest.BackTestModel import BTNode
 from QuantStudio.Factor.Factor import Factor, FactorInitData, FactorLocalContext
 from QSExt.MarketRegime.strategy_analysis import StrategyRegimeAnalyzer
+from QSExt.MarketRegime.transition import CUSUMDetector, KSTestDetector
 
 
 def _fmt_pct(x, pos=None):
@@ -34,13 +35,16 @@ class RegimePerformanceReport(BTNode):
         nv: 策略净值 Factor，DataFrame(index=dts, columns=ids)，取第一列。
         regime_label: 市场状态标签 Factor，DataFrame(index=dts, columns=ids)，
             值为状态标签字符串。多列时每列代表一个状态维度。
-        args: 参数集，支持 ``GenReport``、``HeatmapFreq``、``Dimension``。
+        args: 参数集，支持 ``GenReport``、``HeatmapFreq``、``Dimension``、
+            ``TransitionDetector``（可选值: ``"default"`` / ``"CUSUM"`` / ``"KS"``）。
     """
 
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="状态适应性分析", frozen=True, title="名称")
         HeatmapFreq: str = Field(default="Q", frozen=True, title="热力图频率")
         Dimension: Optional[str] = Field(default=None, frozen=True, title="状态维度")
+        TransitionDetector: str = Field(default="default", frozen=True,
+                                        title="转换检测器")
 
     def __init__(self, nv: Factor, regime_label: Factor,
                  args: dict = {}, config_file: Optional[str] = None, **kwargs):
@@ -116,6 +120,19 @@ class RegimePerformanceReport(BTNode):
         )
         Output["MRP"] = mrp_summary
         Output["各状态夏普"] = regime_sharpes
+
+        # 转换冲击分析
+        detector_name = getattr(self._QSArgs, "TransitionDetector", "default")
+        detector = None
+        if detector_name == "CUSUM":
+            detector = CUSUMDetector()
+        elif detector_name == "KS":
+            detector = KSTestDetector()
+        # "default" → detector=None，使用相邻标签变化检测
+
+        transition_result = analyzer.transition_impact_analysis(
+            dimension=dimension, detector=detector)
+        Output["转换冲击"] = transition_result
 
         if self._QSArgs.GenReport:
             Output["Report"] = self.genReport(Output)
@@ -231,6 +248,42 @@ class RegimePerformanceReport(BTNode):
             Pos = iHTML.find(">")
             HTML += iHTML[:Pos] + ' align="center"' + iHTML[Pos:]
 
+        # 转换冲击分析
+        ti = output.get("转换冲击")
+        if ti is not None:
+            transitions = ti.get("transitions")
+            if transitions is not None and not transitions.empty:
+                HTML += "<h4>状态转换点</h4>"
+                iHTML = transitions.to_html(index=False)
+                Pos = iHTML.find(">")
+                HTML += iHTML[:Pos] + ' align="center"' + iHTML[Pos:]
+
+            window_df = ti.get("window_returns")
+            if window_df is not None and not window_df.empty:
+                HTML += "<h4>转换窗口期收益</h4>"
+                fmt_wr = window_df.copy()
+                for col in fmt_wr.columns:
+                    fmt_wr[col] = fmt_wr[col].apply(
+                        lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+                iHTML = fmt_wr.to_html()
+                Pos = iHTML.find(">")
+                HTML += iHTML[:Pos] + ' align="center"' + iHTML[Pos:]
+
+            direction_df = ti.get("direction_impact")
+            if direction_df is not None and not direction_df.empty:
+                HTML += "<h4>方向敏感性</h4>"
+                fmt_di = direction_df.copy()
+                if "平均转换后收益" in fmt_di.columns:
+                    fmt_di["平均转换后收益"] = fmt_di["平均转换后收益"].apply(
+                        lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+                iHTML = fmt_di.to_html()
+                Pos = iHTML.find(">")
+                HTML += iHTML[:Pos] + ' align="center"' + iHTML[Pos:]
+
+            loss_ratio = ti.get("transition_loss_ratio")
+            if loss_ratio is not None and not np.isnan(loss_ratio):
+                HTML += f"<p>转换期亏损占比: <b>{loss_ratio:.2%}</b></p>"
+
         # 图表
         Fig = RegimePerformanceReport.genMatplotlibFig(output)
         Buffer = BytesIO()
@@ -248,6 +301,8 @@ class RegimePerformanceReport(BTNode):
         HTML += f"<li>热力图频率: {self._QSArgs.HeatmapFreq}</li>"
         if self._QSArgs.Dimension:
             HTML += f"<li>状态维度: {self._QSArgs.Dimension}</li>"
+        detector_name = getattr(self._QSArgs, "TransitionDetector", "default")
+        HTML += f"<li>转换检测器: {detector_name}</li>"
         HTML += "</ul>"
         HTML += "\n" + RegimePerformanceReport.genOutputReport(output=output)
         return HTML

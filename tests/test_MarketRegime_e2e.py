@@ -19,7 +19,7 @@ from QuantStudio.Factor.Factor import DataFactor
 from QuantStudio.Factor.FactorOperation import PointOperator, makeFactorOperator
 
 from QSExt.MarketRegime.operators import ThresholdClassify, QuantileClassify
-from QSExt.Tools.StrategyAnalysis import StrategyRegimeAnalyzer
+from QSExt.MarketRegime.strategy_analysis import StrategyRegimeAnalyzer
 
 
 # ============================================================================
