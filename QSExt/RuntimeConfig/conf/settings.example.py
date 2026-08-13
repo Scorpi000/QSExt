@@ -85,11 +85,22 @@ TRADING_DAY_SOURCE = {
 }
 
 # 截面 ID 数据源 (按 IDType，name 匹配 FACTOR_DATABASES 中的库名)
+# 自定义 IDType 只需添加对应条目，method_args 中的参数会透传给 method
 SECTION_ID_SOURCES = {
     "A股": {
         "name": "JYDB",
         "method": "getStockID",
         "method_args": {},
+    },
+    "ETF": {
+        "name": "JYDB",
+        "method": "getStockID",
+        "method_args": {"type": "ETF"},
+    },
+    "申万一级行业": {
+        "name": "JYDB",
+        "method": "getStockID",
+        "method_args": {"standard": "申万行业分类(新)", "level": 1},
     },
 }
 

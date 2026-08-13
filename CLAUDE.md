@@ -170,7 +170,7 @@ QSExt/FactorDef/
 
 运行时配置统一由 `QSExt/RuntimeConfig/` 管理：
 - `DBDef` / `DBPool` — 数据库连接定义与连接池
-- `RuntimeSettings` — 统一配置基类（FactorDef/StrategyDef/QSWeb 共享）
+- `RuntimeSettings` — 统一配置基类（FactorDef/StrategyDef 共享）
 - 用户配置文件放在 `~/QuantStudioConfig/settings.py`
 - 支持 `__INHERIT_FROM__` 链式继承，项目级配置可覆盖全局配置
 
@@ -305,8 +305,7 @@ evaluation_config = pipeline_config.load_evaluation_config()
 数据库连接配置存放在 `~/QuantStudioConfig/` 目录：
 - `JYDBConfig.json`：聚源数据库（PostgreSQL）
 - `Neo4jDBConfig.json`：Neo4j 图数据库
-- `QSWebConfig.yaml`：QSWeb 专用配置（AI Workbench、因子挖掘、报告等）
-- `settings.py`：统一运行时配置（FactorDef/StrategyDef/QSWeb 共享）
+- `settings.py`：统一运行时配置（FactorDef/StrategyDef 共享）
 - 其他数据库配置文件
 
 MCP 服务配置文件：`.mcp.json.example`（项目根目录），用于配置 MCP 客户端连接 QSRegistry 服务。

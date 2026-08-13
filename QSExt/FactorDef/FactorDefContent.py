@@ -274,33 +274,21 @@ class FactorDefInputBuilder:
     def _get_ids_from_source(self, id_type: str, is_current: bool = False) -> List[str]:
         """根据 id_type 从数据源获取证券 ID 列表。
 
-        使用 settings.section_id_sources 中配置的数据源名称和方法。
+        使用 settings.section_id_sources 中配置的数据源名称、方法和方法参数。
+        自定义 id_type 只需在 settings.py 的 section_id_sources 中添加对应条目即可。
         """
         section_source = self.settings.section_id_sources.get(id_type, {})
+        if not section_source:
+            raise ValueError(
+                f"IDType '{id_type}' 未在 settings.section_id_sources 中配置，"
+                f"请添加对应的 {{name, method, method_args}} 配置项"
+            )
         source_name = section_source.get("name", "JYDB")
         source_method = section_source.get("method", "getStockID")
         source_method_args = section_source.get("method_args", {})
         id_source = self._pool[source_name]
         method = getattr(id_source, source_method)
-
-        if id_type == "A股":
-            return method(is_current=is_current, **source_method_args)
-        elif id_type == "公募基金":
-            return method(is_current=is_current, **source_method_args)
-        elif id_type == "期货":
-            return method(is_current=is_current, **source_method_args)
-        elif id_type == "期权":
-            return method(is_current=is_current, **source_method_args)
-        elif id_type == "ETF":
-            return method(type="ETF", is_current=is_current, **source_method_args)
-        elif id_type == "申万一级行业指数":
-            return method(type="申万一级行业指数", is_current=is_current, **source_method_args)
-        elif id_type == "申万一级行业":
-            return method(standard="申万行业分类(新)", level=1, is_current=is_current, **source_method_args)
-        elif id_type == "指数":
-            return method(is_current=is_current, **source_method_args)
-        else:
-            raise ValueError(f"不支持的 ID_TYPE: {id_type}，可选: A股 | 公募基金 | 期货 | 期权 | ETF | 指数 | 申万一级行业指数 | 申万一级行业")
+        return method(is_current=is_current, **source_method_args)
 
     def resolve_ids_for(self, profile: "FactorDefProfile") -> Tuple[List[str], List[str]]:
         """根据 FactorDefProfile 解析 IDs 和 SectionIDs"""

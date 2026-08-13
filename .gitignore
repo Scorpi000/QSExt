@@ -9,7 +9,6 @@ _eric*/
 backup/
 TestCoverage.bat
 .DS_Store
-QSWeb/logs/
 *.coverage
 *.e4p
 *.bak
@@ -31,24 +30,3 @@ CLAUDE.local.md
 .mcp.json
 output/
 local/
-
-# QSWeb
-QSWeb/frontend/node_modules/
-QSWeb/frontend/dist/
-QSWeb/frontend/.env
-QSWeb/frontend/.env.local
-QSWeb/frontend/.env.*.local
-QSWeb/frontend/npm-debug.log*
-QSWeb/frontend/yarn-debug.log*
-QSWeb/frontend/yarn-error.log*
-QSWeb/frontend/pnpm-debug.log*
-
-QSWeb/backend/venv/
-QSWeb/backend/.venv/
-QSWeb/backend/__pycache__/
-QSWeb/backend/*.pyc
-QSWeb/backend/.env
-QSWeb/backend/.env.local
-QSWeb/backend/.env.*.local
-QSWeb/backend/QSWebConfig.json
-QSWeb/backend/*.egg-info/

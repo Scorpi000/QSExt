@@ -234,8 +234,10 @@ class RuntimeSettings(__QS_Args__):
         title="交易日历数据源",
     )
     section_id_sources: dict = Field(
-        default={"A股": {"name": "JYDB", "method": "getStockID", "method_args": {}}},
-        title="截面 ID 数据源（按 IDType）",
+        default={
+            "A股": {"name": "JYDB", "method": "getStockID", "method_args": {}}
+        },
+        title="截面 ID 数据源（按 IDType），自定义 IDType 只需添加对应条目",
     )
 
     # ---- 时间范围 ----
