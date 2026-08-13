@@ -1,1 +1,1 @@
-QuantStudio
+psycopg2
