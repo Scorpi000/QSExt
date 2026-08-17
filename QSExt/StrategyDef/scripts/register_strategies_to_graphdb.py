@@ -103,6 +103,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
     Logger.info(f"策略图数据库注册启动 — 进程: {os.getpid()}, 时间: {__NOW__}")
 
     extra_args = {k: v for k, v in cmd_overrides.items() if k.startswith("_")}
+    user_id = cmd_overrides.pop("user_id", None)
     settings_overrides = {k: v for k, v in cmd_overrides.items() if not k.startswith("_")}
 
     # 1. 加载配置
@@ -178,7 +179,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
 
             Logger.info(f"开始批量注册 {len(all_strategies)} 个策略到图数据库 ...")
             try:
-                success_count = fgdb.storeStrategies(all_strategies, tags=tags_map)
+                success_count = fgdb.storeStrategies(all_strategies, tags=tags_map, user_id=user_id)
                 Logger.info(f"注册完成: {success_count}/{len(all_strategies)} 成功")
             except Exception as e:
                 Logger.error(f"批量注册失败: {e}")

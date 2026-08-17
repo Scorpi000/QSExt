@@ -494,7 +494,8 @@ class QSGraphDB(QSNeo4jObject):
         )
         return results[0] if results else None
 
-    def saveFactorPool(self, name: str, qsids: List[str]) -> None:
+    def saveFactorPool(self, name: str, qsids: List[str],
+                       user_id: Optional[str] = None) -> None:
         """保存因子池到图数据库
 
         创建或更新 ``因子池`` 节点，对池中每个因子建立 ``[:包含]`` 关系。
@@ -502,16 +503,27 @@ class QSGraphDB(QSNeo4jObject):
         Args:
             name: 因子池名称
             qsids: 池中因子的 QSID 列表
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
         """
         now = dt.datetime.now(dt.timezone.utc).isoformat()
-        self._runCypher(
-            """
-            MERGE (p:`因子池` {Name: $name})
-            ON CREATE SET p.CreatedAt = $now
-            ON MATCH SET p.UpdatedAt = $now
-            """,
-            {"name": name, "now": now}
-        )
+        if user_id:
+            self._runCypher(
+                """
+                MERGE (p:`因子池` {Name: $name})
+                ON CREATE SET p.CreatedAt = $now, p.userId = $user_id
+                ON MATCH SET p.UpdatedAt = $now, p.userId = $user_id
+                """,
+                {"name": name, "now": now, "user_id": user_id}
+            )
+        else:
+            self._runCypher(
+                """
+                MERGE (p:`因子池` {Name: $name})
+                ON CREATE SET p.CreatedAt = $now
+                ON MATCH SET p.UpdatedAt = $now
+                """,
+                {"name": name, "now": now}
+            )
         # 先删除旧关系再建立新关系（覆盖保存）
         self._runCypher(
             """
@@ -531,38 +543,66 @@ class QSGraphDB(QSNeo4jObject):
             )
         self._QS_Logger.info(f"已保存因子池 '{name}'，包含 {len(qsids)} 个因子")
 
-    def loadFactorPool(self, name: str) -> List[Dict]:
+    def loadFactorPool(self, name: str, user_id: Optional[str] = None) -> List[Dict]:
         """从图数据库加载因子池
 
         Args:
             name: 因子池名称
+            user_id: 资源隔离的用户 ID，非空时仅匹配公共资源与该用户的私有资源
 
         Returns:
             [{QSID, Name, FactorClass, ...}, ...] 池中因子列表
         """
-        results = self._runCypher(
-            """
-            MATCH (p:`因子池` {Name: $name})-[:`包含`]->(f:`因子`)
-            RETURN f
-            """,
-            {"name": name}
-        )
+        if user_id is None:
+            results = self._runCypher(
+                """
+                MATCH (p:`因子池` {Name: $name})-[:`包含`]->(f:`因子`)
+                RETURN f
+                """,
+                {"name": name}
+            )
+        else:
+            results = self._runCypher(
+                """
+                MATCH (p:`因子池` {Name: $name})-[:`包含`]->(f:`因子`)
+                WHERE (p.userId IS NULL OR p.userId = $user_id)
+                  AND (f.userId IS NULL OR f.userId = $user_id)
+                RETURN f
+                """,
+                {"name": name, "user_id": user_id}
+            )
         return [r["f"] for r in results]
 
-    def listFactorPools(self) -> List[Dict]:
+    def listFactorPools(self, user_id: Optional[str] = None) -> List[Dict]:
         """列出所有已保存的因子池
+
+        Args:
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             [{Name, CreatedAt, UpdatedAt, FactorCount}, ...]
         """
-        results = self._runCypher(
-            """
-            MATCH (p:`因子池`)
-            OPTIONAL MATCH (p)-[:`包含`]->(f:`因子`)
-            RETURN p.Name AS Name, p.CreatedAt AS CreatedAt, p.UpdatedAt AS UpdatedAt, count(f) AS FactorCount
-            ORDER BY p.Name
-            """
-        )
+        if user_id is None:
+            results = self._runCypher(
+                """
+                MATCH (p:`因子池`)
+                OPTIONAL MATCH (p)-[:`包含`]->(f:`因子`)
+                RETURN p.Name AS Name, p.CreatedAt AS CreatedAt, p.UpdatedAt AS UpdatedAt, count(f) AS FactorCount
+                ORDER BY p.Name
+                """
+            )
+        else:
+            results = self._runCypher(
+                """
+                MATCH (p:`因子池`)
+                WHERE (p.userId IS NULL OR p.userId = $user_id)
+                OPTIONAL MATCH (p)-[:`包含`]->(f:`因子`)
+                WHERE (f.userId IS NULL OR f.userId = $user_id)
+                RETURN p.Name AS Name, p.CreatedAt AS CreatedAt, p.UpdatedAt AS UpdatedAt, count(f) AS FactorCount
+                ORDER BY p.Name
+                """,
+                {"user_id": user_id}
+            )
         return results
 
     def deleteFactorPool(self, name: str) -> bool:
@@ -650,7 +690,8 @@ class QSGraphDB(QSNeo4jObject):
         return ft.QSID
 
     def storeFactors(self, factors: List[Factor],
-                     tags: Optional[Dict[str, List[str]]] = None) -> List[str]:
+                     tags: Optional[Dict[str, List[str]]] = None,
+                     user_id: Optional[str] = None) -> List[str]:
         """批量存储多个因子及其完整依赖 DAG
 
         与逐个调用 storeFactor 相比，此方法将所有因子节点、算子节点和关系
@@ -659,6 +700,7 @@ class QSGraphDB(QSNeo4jObject):
         Args:
             factors: 根因子列表
             tags: QSID → 标签列表 的映射（仅对根因子打标签）
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
         Returns:
             各根因子的 QSID 列表（与输入顺序一致）
@@ -705,6 +747,8 @@ class QSGraphDB(QSNeo4jObject):
                 props["Embedding"] = embeddings[factor.QSID]
                 props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
                 props["EmbeddingDim"] = len(embeddings[factor.QSID])
+            if user_id:
+                props["userId"] = user_id
             factor_nodes.append({"qsid": factor.QSID, "props": props, "now": now})
 
         if factor_nodes:
@@ -958,7 +1002,8 @@ class QSGraphDB(QSNeo4jObject):
                 factors.append(dep)
         return factors
 
-    def storeFactorStorer(self, storer: FactorStorer, tags: Optional[List[str]] = None) -> str:
+    def storeFactorStorer(self, storer: FactorStorer, tags: Optional[List[str]] = None,
+                          user_id: Optional[str] = None) -> str:
         """存储因子存储器节点
 
         FactorStorer 是计算图中负责将因子数据写入目标因子库/表的节点。
@@ -967,6 +1012,7 @@ class QSGraphDB(QSNeo4jObject):
         Args:
             storer: FactorStorer 实例
             tags: 可选的标签列表
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
         Returns:
             FactorStorer 的 QSID
@@ -1003,6 +1049,8 @@ class QSGraphDB(QSNeo4jObject):
             "QSArgsJSON": json.dumps(qsargs_serializable, ensure_ascii=False),
             "UpdatedAt": now,
         }
+        if user_id:
+            props["userId"] = user_id
         self._runCypher(
             """
             MERGE (s:`因子存储器` {QSID: $qsid})
@@ -1202,13 +1250,15 @@ class QSGraphDB(QSNeo4jObject):
         return bt_qsids
 
     def storeBacktest(self, bt_node, tags: Optional[List[str]] = None,
-                      dtrange: Optional[tuple] = None) -> str:
+                      dtrange: Optional[tuple] = None,
+                      user_id: Optional[str] = None) -> str:
         """存储回测节点及其依赖关系
 
         Args:
             bt_node: BTNode 实例（IC, QuantilePortfolio, Strategy 等）
             tags: 可选的标签名称列表
             dtrange: 可选的时点范围 (start_dt, end_dt)，用于信息记录
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
         Returns:
             回测节点 QSID
@@ -1224,6 +1274,8 @@ class QSGraphDB(QSNeo4jObject):
             "QSArgsJSON": json.dumps(_sanitizeForJSON(bt_node._QSArgs.serialize()), ensure_ascii=False),
             "UpdatedAt": now,
         }
+        if user_id:
+            props["userId"] = user_id
         if dtrange:
             props["DTRangeJSON"] = json.dumps(
                 {"start": dtrange[0].isoformat(), "end": dtrange[1].isoformat()},
@@ -1421,7 +1473,8 @@ class QSGraphDB(QSNeo4jObject):
 
     def searchFactors(self, name: Optional[str] = None, operator_type: Optional[str] = None,
                       operator_name: Optional[str] = None, tag: Optional[str] = None,
-                      factor_class: Optional[str] = None, limit: int = 100) -> List[Dict]:
+                      factor_class: Optional[str] = None, limit: int = 100,
+                      user_id: Optional[str] = None) -> List[Dict]:
         """多条件组合搜索因子
 
         Args:
@@ -1431,6 +1484,7 @@ class QSGraphDB(QSNeo4jObject):
             tag: 标签名称
             factor_class: 因子类别（DataFactor/DerivativeFactor/FactorTableFactor）
             limit: 返回数量上限
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源（无 userId）与该用户的私有资源
 
         Returns:
             因子属性字典列表
@@ -1449,6 +1503,9 @@ class QSGraphDB(QSNeo4jObject):
         if factor_class:
             conditions.append("f.FactorClass = $factor_class")
             params["factor_class"] = factor_class
+        if user_id is not None:
+            conditions.append("(f.userId IS NULL OR f.userId = $user_id)")
+            params["user_id"] = user_id
         where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
         if tag:
             query = f"""
@@ -1467,7 +1524,8 @@ class QSGraphDB(QSNeo4jObject):
         return [r["f"] for r in results]
 
     def searchFactorsByDescription(self, query_text: str, limit: int = 20,
-                                    min_score: Optional[float] = None) -> List[Dict]:
+                                    min_score: Optional[float] = None,
+                                    user_id: Optional[str] = None) -> List[Dict]:
         """基于描述文本的向量语义检索
 
         使用 Ollama 生成查询文本的嵌入向量，通过 Neo4j 向量索引做余弦相似度搜索。
@@ -1476,6 +1534,7 @@ class QSGraphDB(QSNeo4jObject):
             query_text: 自然语言查询文本
             limit: 返回数量上限
             min_score: 最低相似度阈值 (0~1)，None 表示不过滤
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             因子属性字典列表，每项包含 Similarity 分数
@@ -1492,7 +1551,7 @@ class QSGraphDB(QSNeo4jObject):
                 CALL db.index.vector.queryNodes('factor_embedding', $limit, $embedding)
                 YIELD node AS f, score
                 RETURN f {.Name, .QSID, .FactorClass, .OperatorType,
-                          .OperatorName, .DataType}, score
+                          .OperatorName, .DataType, .userId}, score
                 ORDER BY score DESC
                 """,
                 {"limit": limit, "embedding": query_embedding}
@@ -1502,6 +1561,11 @@ class QSGraphDB(QSNeo4jObject):
             return []
         if min_score is not None:
             results = [r for r in results if r["score"] >= min_score]
+        if user_id is not None:
+            results = [
+                r for r in results
+                if r["f"].get("userId") in (None, "", user_id)
+            ]
         return [{"Similarity": round(r["score"], 6), **r["f"]} for r in results]
 
     def getDependencyGraph(self, qsid: str, direction: str = "both", max_depth: int = None) -> Dict:
@@ -1642,7 +1706,8 @@ class QSGraphDB(QSNeo4jObject):
     def searchBacktests(self, name: Optional[str] = None,
                         category: Optional[str] = None,
                         factor_qsid: Optional[str] = None,
-                        limit: int = 100) -> List[Dict]:
+                        limit: int = 100,
+                        user_id: Optional[str] = None) -> List[Dict]:
         """多条件组合搜索回测
 
         Args:
@@ -1650,6 +1715,7 @@ class QSGraphDB(QSNeo4jObject):
             category: 回测类别（SectionFactor/Strategy/Risk/...）
             factor_qsid: 依赖的因子 QSID（查找使用了该因子的回测）
             limit: 返回数量上限
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             回测属性字典列表
@@ -1666,6 +1732,9 @@ class QSGraphDB(QSNeo4jObject):
             if category:
                 conditions.append("b.BacktestCategory = $category")
                 params["category"] = category
+            if user_id is not None:
+                conditions.append("(b.userId IS NULL OR b.userId = $user_id)")
+                params["user_id"] = user_id
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
             query += f"""
                 {where_clause}
@@ -1680,6 +1749,9 @@ class QSGraphDB(QSNeo4jObject):
             if category:
                 conditions.append("b.BacktestCategory = $category")
                 params["category"] = category
+            if user_id is not None:
+                conditions.append("(b.userId IS NULL OR b.userId = $user_id)")
+                params["user_id"] = user_id
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
             query = f"""
                 MATCH (b:`回测`)
@@ -2178,7 +2250,8 @@ class QSGraphDB(QSNeo4jObject):
     def storeReport(self, report_path: str, factor_qsids: List[str],
                     bt_qsid: Optional[str] = None,
                     scenario_name: Optional[str] = None,
-                    name: Optional[str] = None) -> str:
+                    name: Optional[str] = None,
+                    user_id: Optional[str] = None) -> str:
         """将本地报告文件注册到图数据库。
 
         Args:
@@ -2187,6 +2260,7 @@ class QSGraphDB(QSNeo4jObject):
             bt_qsid: 产生此报告的回测 QSID（可选）
             scenario_name: 场景名称（如 "single_factor"）
             name: 报告名称，默认使用文件名
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
         Returns:
             ReportID
@@ -2225,6 +2299,8 @@ class QSGraphDB(QSNeo4jObject):
             "FileMtime": mtime,
             "UpdatedAt": now,
         }
+        if user_id:
+            props["userId"] = user_id
 
         self._runCypher(
             """
@@ -2314,7 +2390,8 @@ class QSGraphDB(QSNeo4jObject):
                       scenario_name: Optional[str] = None,
                       factor_qsid: Optional[str] = None,
                       fmt: Optional[str] = None,
-                      limit: int = 100) -> List[Dict]:
+                      limit: int = 100,
+                      user_id: Optional[str] = None) -> List[Dict]:
         """搜索报告
 
         Args:
@@ -2323,6 +2400,7 @@ class QSGraphDB(QSNeo4jObject):
             factor_qsid: 关联的因子 QSID
             fmt: 格式 (html/markdown/pdf)
             limit: 返回数量上限
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             报告节点属性字典列表
@@ -2342,6 +2420,9 @@ class QSGraphDB(QSNeo4jObject):
             if fmt:
                 conditions.append("r.Format = $fmt")
                 params["fmt"] = fmt
+            if user_id is not None:
+                conditions.append("(r.userId IS NULL OR r.userId = $user_id)")
+                params["user_id"] = user_id
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
             query += f"""
                 {where_clause}
@@ -2359,6 +2440,9 @@ class QSGraphDB(QSNeo4jObject):
             if fmt:
                 conditions.append("r.Format = $fmt")
                 params["fmt"] = fmt
+            if user_id is not None:
+                conditions.append("(r.userId IS NULL OR r.userId = $user_id)")
+                params["user_id"] = user_id
             where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
             query = f"""
                 MATCH (r:`报告`)
@@ -2739,7 +2823,8 @@ class QSGraphDB(QSNeo4jObject):
         return props
 
     def storeStrategies(self, strategies: list,
-                        tags: Optional[Dict[str, List[str]]] = None) -> int:
+                        tags: Optional[Dict[str, List[str]]] = None,
+                        user_id: Optional[str] = None) -> int:
         """批量存储策略到 Neo4j 图数据库
 
         为每个策略实例（StrategyList 中的每一项）创建 (:策略) 节点，并建立依赖关系：
@@ -2751,6 +2836,7 @@ class QSGraphDB(QSNeo4jObject):
         Args:
             strategies: StrategyDef 列表（每个含 StrategyList 可多个策略实例）
             tags: 策略 QSID → 标签列表的映射
+            user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
         Returns:
             成功存储的策略实例数量
@@ -2768,6 +2854,8 @@ class QSGraphDB(QSNeo4jObject):
         for sd in strategies:
             for strategy_instance in sd.StrategyList:
                 props = self._serializeStrategy(sd, strategy_instance)
+                if user_id:
+                    props["userId"] = user_id
                 # 生成嵌入向量
                 if self._QSArgs.EmbeddingModel:
                     text = f"{props['Name']} {sd.Meta.Description} {' '.join(sd.Meta.Tags)}"
@@ -2877,7 +2965,8 @@ class QSGraphDB(QSNeo4jObject):
     def searchStrategies(self, name: Optional[str] = None,
                          tag: Optional[str] = None,
                          factor_qsid: Optional[str] = None,
-                         limit: int = 100) -> List[Dict]:
+                         limit: int = 100,
+                         user_id: Optional[str] = None) -> List[Dict]:
         """多条件组合搜索策略
 
         Args:
@@ -2885,6 +2974,7 @@ class QSGraphDB(QSNeo4jObject):
             tag: 标签名称
             factor_qsid: 依赖因子的 QSID，查找所有依赖该因子的策略
             limit: 返回数量上限
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             策略属性字典列表
@@ -2895,6 +2985,9 @@ class QSGraphDB(QSNeo4jObject):
         if name:
             conditions.append("s.Name CONTAINS $name")
             params["name"] = name
+        if user_id is not None:
+            conditions.append("(s.userId IS NULL OR s.userId = $user_id)")
+            params["user_id"] = user_id
 
         if factor_qsid:
             query = f"""
@@ -2922,13 +3015,15 @@ class QSGraphDB(QSNeo4jObject):
         return [r["s"] for r in results]
 
     def searchStrategiesByDescription(self, query_text: str, limit: int = 20,
-                                       min_score: Optional[float] = None) -> List[Dict]:
+                                       min_score: Optional[float] = None,
+                                       user_id: Optional[str] = None) -> List[Dict]:
         """基于描述文本的向量语义检索策略
 
         Args:
             query_text: 自然语言查询文本
             limit: 返回数量上限
             min_score: 最低相似度阈值 (0~1)
+            user_id: 资源隔离的用户 ID，非空时仅返回公共资源与该用户的私有资源
 
         Returns:
             策略属性字典列表，每项包含 Similarity 分数
@@ -2946,7 +3041,7 @@ class QSGraphDB(QSNeo4jObject):
                 """
                 CALL db.index.vector.queryNodes('strategy_embedding', $limit, $embedding)
                 YIELD node AS s, score
-                RETURN s {.Name, .QSID, .TargetTable, .IDType, .ClassName, .DefScriptPath}, score
+                RETURN s {.Name, .QSID, .TargetTable, .IDType, .ClassName, .DefScriptPath, .userId}, score
                 ORDER BY score DESC
                 """,
                 {"limit": limit, "embedding": query_embedding}
@@ -2957,6 +3052,11 @@ class QSGraphDB(QSNeo4jObject):
 
         if min_score is not None:
             results = [r for r in results if r["score"] >= min_score]
+        if user_id is not None:
+            results = [
+                r for r in results
+                if r["s"].get("userId") in (None, "", user_id)
+            ]
         return [{"Similarity": round(r["score"], 6), **r["s"]} for r in results]
 
     def getStrategyByQSID(self, qsid: str) -> Optional[Dict]:

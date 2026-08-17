@@ -106,6 +106,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
 
     # 分离 _ 前缀的非 settings 参数
     extra_args = {k: v for k, v in cmd_overrides.items() if k.startswith("_")}
+    user_id = cmd_overrides.pop("user_id", None)
     settings_overrides = {k: v for k, v in cmd_overrides.items() if not k.startswith("_")}
 
     # 1. 加载配置
@@ -185,7 +186,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
 
             Logger.info(f"开始批量注册 {total_factors} 个因子到图数据库 ...")
             try:
-                qsids = fgdb.storeFactors(all_factors, tags=tags_map)
+                qsids = fgdb.storeFactors(all_factors, tags=tags_map, user_id=user_id)
                 success_count = len(qsids)
                 for i, (factor, qsid) in enumerate(zip(all_factors, qsids), 1):
                     Logger.info(f"  [{i:>3}/{total_factors}] ✓ {factor._QSArgs.Name} "
@@ -251,7 +252,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
                             **settings.factor_storer_config,
                         }
                         iStorer = FactorStorer(deps=group["factors"], args=storer_args)
-                        storer_qsid = fgdb.storeFactorStorer(iStorer, tags=extra_tags or None)
+                        storer_qsid = fgdb.storeFactorStorer(iStorer, tags=extra_tags or None, user_id=user_id)
                         storer_count += 1
                         Logger.info(f"  ✓ FactorStorer '{iStorer._QSArgs.Name}' → {target_db_name}/{target_table} (QSID: {storer_qsid[:16]}…)")
                     except Exception as e:
