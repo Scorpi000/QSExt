@@ -2,13 +2,11 @@
 import re
 import json
 import datetime as dt
-from typing import Mapping
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
 
-from QuantStudio.Tools.QSObjects import Panel
+from QuantStudio.Core.QSObject import Panel
 
 # 解析日期
 def find_date(string):

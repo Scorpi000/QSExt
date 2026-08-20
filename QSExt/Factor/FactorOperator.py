@@ -1,5 +1,4 @@
 # coding=utf-8
-"""内置的因子运算"""
 import datetime as dt
 from typing import Optional, Dict, List
 
@@ -174,7 +173,6 @@ class MinMaxStandardization(SectionOperator):
         if cat_data is not None: Factors.append(cat_data)
         factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {"mask": (mask is not None), "cat_data": (cat_data is not None)}
         return super().__call__(*Factors, factor_args=factor_args, **kwargs)
-
 
 class Orthogonalization(SectionOperator):
     """截面正交化"""

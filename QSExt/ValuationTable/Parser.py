@@ -4,12 +4,14 @@ import re
 import json
 from collections import OrderedDict
 from difflib import SequenceMatcher
+from typing import Optional, Callable
 
 import numpy as np
 import pandas as pd
+from pydantic import Field, FilePath
 from traits.api import Instance, Callable, Float, File, Enum, Dict
 
-from QuantStudio import __QS_Object__, __QS_Error__
+from QuantStudio.Core import __QS_Object__, __QS_Error__
 from QSExt import __QS_MainPath__
 from QSExt.ValuationTable import special_rule
 from QSExt.ValuationTable.utils import find_date, checkLevel5VT
@@ -18,15 +20,15 @@ from QSExt.ValuationTable.utils import find_date, checkLevel5VT
 # 估值表数据解析，转换为标准格式
 class ValuationTableParser(__QS_Object__):
     class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
-        SymbolInfo = Instance(pd.DataFrame, label="Symbol信息", arg_type="DataFrame", order=101)# DataFrame(columns=["symbol", "reg_code", "name", "abbr"])
-        SymbolFunc = Callable(label="Symbol查询", arg_type="Function", order=102)# 输入 [product_id], 函数范围 DataFrame(index=[product_id], columns=["reg_code", "name", "abbr"])
-        RuleFile = File(os.path.join(__QS_MainPath__, ""), label="规则文件", arg_type="File", order=103, mutable=False)
+        SymbolInfo: pd.DataFrame = Field(title="Symbol信息", description="""DataFrame(columns=["symbol", "reg_code", "name", "abbr"])""")
+        SymbolFunc: Optional[Callable] = Field(title="Symbol查询", description="""输入 [product_id], 函数范围 DataFrame(index=[product_id], columns=["reg_code", "name", "abbr"])""")
+        RuleFile: FilePath = Field(default=os.path.join(__QS_MainPath__, ""), title="规则文件", frozen=True)
         # RuleName = Enum("自动判断", label="规则名称", arg_type="SingleOption", order=104, option_range=())
-        RuleConfigFile = File(os.path.join(__QS_MainPath__, ""), label="规则配置文件", arg_type="File", order=105, mutable=False)
-        AccountInfoFile = File(os.path.join(__QS_MainPath__, ""), label="科目文件", arg_type="File", order=106, mutable=False)
+        RuleConfigFile: FilePath = Field(default=os.path.join(__QS_MainPath__, ""), title="规则配置文件", frozen=True)
+        AccountInfoFile: FilePath = Field(default=os.path.join(__QS_MainPath__, ""), title="科目文件", frozen=True)
         # AccountSystem = Enum("自动判断", label="科目体系", arg_type="SingleOption", order=107, option_range=())
-        MinAccountNameMatchRatio = Float(1, label="科目名最小相似度", arg_type="Float", order=108)
-        ExternalInfo = Dict({}, label="外部信息", arg_type="Dict", order=109)
+        MinAccountNameMatchRatio: float = Field(default=1.0, title="科目名最小相似度")
+        ExternalInfo:dict = Field(default={}, title="外部信息")
 
         def __QS_initArgs__(self, args={}):
             super().__QS_initArgs__(args=args)
