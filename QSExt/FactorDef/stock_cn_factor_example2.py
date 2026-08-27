@@ -18,7 +18,6 @@ from typing import List
 import numpy as np
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.BasicOperator import rename
 from QuantStudio.Factor import FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
 from QSExt.FactorDef.FactorDefContent import FactorDefInput
@@ -29,24 +28,23 @@ from QSExt.FactorDef.FactorDefContent import FactorDefInput
 # ============================================================
 __FACTOR_META__ = {
     # ---- 必填 ----
-    "TargetTable": "stock_cn_factor_example",   # 输出因子表名
+    "TargetTable": "stock_cn_factor_example2",   # 输出因子表名
     "IDType": "A股",                             # 证券类型
     "Description": "示例因子：演示 FactorDef 框架用法，含动量因子和简单变换因子",
 
     # ---- 可选 ----
     "Author": "示例作者",
     "MaxLookBack": 365 * 2,                      # 最大回溯天数
-    "Tags": ["示例", "动量", "教学"],
+    "Tags": ["示例", "教学", "动量"],
 
     # ---- 依赖声明 ----
     # FactorDeps: 声明需要哪些表的哪些因子，框架自动注入到 fdi.Factors
     "FactorDeps": {
-        "stock_cn_status": ["if_listed"],          # 依赖：上市状态
-        "stock_cn_day_bar_nafilled": ["close"],     # 依赖：收盘价（前复权）
+        "stock_cn_factor_example1": ["close"],     # 依赖：收盘价
     },
 
     # DBDeps: 声明直接访问的因子库，框架校验存在性
-    "DBDeps": {"JYDB": "聚源数据库，提供行情和财务数据"},
+    "DBDeps": {},
 
     "DefScriptPath": __file__,
 }
@@ -116,38 +114,14 @@ def defFactor(fdi: FactorDefInput) -> List[Factor]:
     """
     Factors = []
 
-    # ---- 获取数据库连接 ----
-    JYDB = fdi.FDB["JYDB"]
-
     # ---- 获取依赖因子（由框架根据 FactorDeps 预注入）----
-    IsListed = fdi.Factors["if_listed"]
     Close = fdi.Factors["close"]
 
     # ---- 常用算子 ----
     notnull = fo.NotNull()
 
     # ============================================================
-    # 示例 1：简单因子 —— 从单表读取 + 重命名
-    # ============================================================
-    # 从主板读取
-    FT = JYDB.getTable("日行情表", args={"LookBack": 0})
-    Turnover = FT.getFactor("换手率(%)")
-
-    # 从科创板读取，用 where 合并
-    FT_STAR = JYDB.getTable("科创板日行情", args={"LookBack": 0})
-    Turnover_STAR = FT_STAR.getFactor("换手率(%)")
-    Turnover = fo.Where(dtype="double")(Turnover, notnull(Turnover), Turnover_STAR)
-
-    # 重命名并添加描述
-    TurnoverFactor = rename(
-        Turnover,
-        factor_name="turnover",
-        factor_args={"Meta": {"Description": "日换手率(%)，主板+科创板合并"}},
-    )
-    Factors.append(TurnoverFactor)
-
-    # ============================================================
-    # 示例 2：自定义算子 —— 动量因子
+    # 示例 1：自定义算子 —— 动量因子
     # ============================================================
     MomentumRaw = calcMomentum(
         Close,
@@ -157,13 +131,12 @@ def defFactor(fdi: FactorDefInput) -> List[Factor]:
         },
     )
 
-    # 过滤未上市或停牌样本
-    MomentumFiltered = fo.Where(dtype="double")(MomentumRaw, IsListed == 1, np.nan)
-
+    # 过滤价格缺失样本
+    MomentumFiltered = fo.Where(dtype="double")(MomentumRaw, notnull(Close), np.nan)
     Factors.append(MomentumFiltered)
 
     # ============================================================
-    # 示例 3：算子组合 —— 动量 Z-Score
+    # 示例 2：算子组合 —— 动量 Z-Score
     # ============================================================
     MomentumZ = calcZScore(
         MomentumRaw,

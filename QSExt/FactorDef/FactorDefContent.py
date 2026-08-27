@@ -336,12 +336,12 @@ class FactorDefInputBuilder:
 
                 字符串::
 
-                    "QSExt.FactorDef.example_factor"
+                    "QSExt.FactorDef.stock_cn_factor_example1"
 
                 字典::
 
                     {
-                        "module": "QSExt.FactorDef.example_factor",
+                        "module": "QSExt.FactorDef.stock_cn_factor_example1",
                         "model_args": {"industry_factor": "sw2021_code_level1", ...},
                         "factor_meta": {                   # 可选，覆盖 __FACTOR_META__ 字段
                             "TargetTable": "...",
@@ -691,8 +691,8 @@ def build_dep_fd(
     dep_fd 已包含所有声明过的依赖。
 
     依赖名支持两种写法：
-      - 完整路径: "QSExt.FactorDef.example_factor"
-      - 短名（同包下）: "stock_cn_status"
+      - 完整路径: "QSExt.FactorDef.stock_cn_factor_example1"
+      - 短名（同包下）: "stock_cn_factor_example2"
 
     Args:
         modules: resolve_modules_for() 返回的模块列表，每项为 (module, model_args, factor_meta)

@@ -13,7 +13,7 @@ def expand_glob(pattern: str) -> list:
 
     模式格式: 'package.subpkg.glob_pattern'
     例如: 'QSExt.FactorDef.stock_cn_*'
-      → ['QSExt.FactorDef.example_factor', ...]
+      → ['QSExt.FactorDef.stock_cn_factor_example1', ...]
 
     不含通配符时原样返回。
     """

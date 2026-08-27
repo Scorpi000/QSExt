@@ -9,7 +9,7 @@
     python register_factors_to_graphdb.py
     python register_factors_to_graphdb.py --settings settings_prod
     python register_factors_to_graphdb.py --debug --dry-run
-    python register_factors_to_graphdb.py --modules QSExt.FactorDef.example_factor
+    python register_factors_to_graphdb.py --modules QSExt.FactorDef.stock_cn_factor_example1
     python register_factors_to_graphdb.py --tags 动量 实验因子
     python register_factors_to_graphdb.py --skip-embedding
 
@@ -372,7 +372,7 @@ def _parse_args():
   python register_factors_to_graphdb.py
   python register_factors_to_graphdb.py --settings settings_prod
   python register_factors_to_graphdb.py --debug --dry-run
-  python register_factors_to_graphdb.py --modules QSExt.FactorDef.example_factor
+  python register_factors_to_graphdb.py --modules QSExt.FactorDef.stock_cn_factor_example1
   python register_factors_to_graphdb.py --tags 动量 实验因子
   python register_factors_to_graphdb.py --skip-embedding
         """,

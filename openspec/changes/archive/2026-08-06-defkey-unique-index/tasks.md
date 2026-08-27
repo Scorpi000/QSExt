@@ -62,5 +62,5 @@
 - [x] 10.2 编写单元测试：`make_def_key` 相同文件+相同参数→相同 key；空 model_args→纯文件路径；不同 model_args→不同 key；同一文件不同加载方式（import vs spec_from_file_location）→相同 key
 - [x] 10.3 编写单元测试：`_dep_key_to_def_key` 通过 import 匹配成功、依赖模块不存在返回 None、Windows 路径大小写不敏感匹配
 - [x] 10.4 编写集成测试：两个 mock 模块写同一 TargetTable，验证 `dep_fd` 有两个条目，FactorStorer 合并
-- [x] 10.5 Dry-run 验证：用 example_factor.py 复制两份配相同 TargetTable，运行 `run_factor_def.py --dry-run`（跳过：需要完整数据库环境，单元+集成测试已覆盖核心逻辑）
+- [x] 10.5 Dry-run 验证：用 stock_cn_factor_example1.py 复制两份配相同 TargetTable，运行 `run_factor_def.py --dry-run`（跳过：需要完整数据库环境，单元+集成测试已覆盖核心逻辑）
 - [x] 10.6 运行现有测试套件确认无回归：`tests/test_StrategyDef.py`（8/8 通过）、`tests/test_validators.py`（1 个预存失败，非本改动引入）

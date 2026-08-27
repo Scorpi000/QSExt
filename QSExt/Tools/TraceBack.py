@@ -16,6 +16,7 @@ def filterWarnings():
     warnings.filterwarnings('ignore', 'invalid value encountered in log')
     warnings.filterwarnings('ignore', 'invalid value encountered in divide')
     warnings.filterwarnings('ignore', 'invalid value encountered in scalar divide')
+    warnings.filterwarnings('ignore', "invalid value encountered in cast")
     warnings.filterwarnings('ignore', 'divide by zero encountered in log')
     warnings.filterwarnings('ignore', 'divide by zero encountered in divide')
     warnings.filterwarnings('ignore', 'Degrees of freedom <= 0 for slice')

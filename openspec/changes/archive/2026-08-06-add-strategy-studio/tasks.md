@@ -14,7 +14,7 @@
 
 - [x] 2.1 实现 `StrategyDefSettings` 类（与 FactorDefSettings 对齐，from_module 工厂方法）
 - [x] 2.2 实现 `StrategyDefInputBuilder` 类（从 settings 构造 StrategyDefInput，含因子库连接、DTs/IDs 解析）
-- [x] 2.3 创建 `conf/settings.example.py` 配置模板（含策略目录、输出 HDF5 配置、Neo4j 配置）
+- [x] 2.3 创建 `conf/settings_example.py` 配置模板（含策略目录、输出 HDF5 配置、Neo4j 配置）
 - [x] 2.4 实现 `scripts/run_strategy_def.py` 执行管线（settings → builder → build_dep_sd → defStrategy → 写 HDF5）
 - [x] 2.5 创建示例策略模块 `example_strategy.py`（含 __STRATEGY_META__ + MakeStrategy 子类 + defStrategy）
 

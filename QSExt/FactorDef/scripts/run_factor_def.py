@@ -26,6 +26,8 @@ from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorI
 from QuantStudio.Factor.FactorCache import FeatherFactorCache
 from QuantStudio.Factor.FactorStorer import FactorStorer
 from QSExt.FactorDef.FactorDefContent import FactorDefSettings, FactorDefInputBuilder, build_dep_fd
+from QSExt.Tools.TraceBack import filterWarnings
+filterWarnings()
 
 
 __NOW__ = dt.datetime.now()
@@ -219,7 +221,7 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
         }
         iStorer = FactorStorer(deps=group["factors"], args=storer_args)
         StorerList.append(iStorer)
-        fwd_data.append(FactorLocalContext(DTs=fdi.DTs, IDs=fdi.IDs))
+        fwd_data.append(FactorLocalContext(DTs=fdi.DTs, IDs=fdi.IDs, SectionIDs=fdi.SectionIDs))
         init_data.append(FactorInitData(DTRange=(fdi.DTs[0], fdi.DTs[-1]), SectionIDs=fdi.SectionIDs))
 
         Logger.info(f"  → TargetTable='{target_table}', 因子数={factor_count}, MaxLookBack={iFactorDef.Meta.MaxLookBack}")

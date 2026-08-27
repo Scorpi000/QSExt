@@ -62,7 +62,6 @@ class ReplaceDownSignal(SectionOperator):
             raise __QS_Error__(f"算子的上层信号的 ID 到下层信号截面的映射与到下层信号的映射不匹配")
         Factors = [top_signal] + [top2down_signal[iID] for iID in sorted(top2down_signal.keys())]
         return super().__call__(*Factors, factor_args=factor_args, **kwargs)
-    
 
 class MergeTopDownSignal(SectionOperator):
     """将上下两个配置型策略信号(比如行业配置和选股)融合成一个策略信号
@@ -107,6 +106,36 @@ class MergeTopDownSignal(SectionOperator):
             算子作用后产生的新配置型策略信号
         """
         return super().__call__(top_signal, down_signal, down2top, factor_args=factor_args, **kwargs)
+
+class MergePeerSignal(SectionOperator):
+    """横向拼接配置型策略信号
+    
+    Args:
+        signal_sections: 各个信号的截面 ID 序列
+        weights: 各个信号的权重，默认 None 表示等权
+        rescaled: 是否将最终的信号重新归一化，默认 False
+    """
+
+    def __init__(self, signal_sections:List[List[str]]=[], weights:Optional[List[float]]=None, rescaled:bool=False, args:dict={}, config_file:Optional[str]=None, **kwargs):
+        Arity = args.get("Arity", None) or max(1, len(signal_sections))
+        Args = {"Name": "mergePeerSignal"} | args | {"DTMode": "多时点", "DataType": "double"}
+        Args["ModelArgs"] = {"weights": weights, "rescaled": rescaled} | Args.get("ModelArgs", {})
+        DescriptorSection = Args.get("DescriptorSection", signal_sections)
+        Args["DescriptorSection"] = DescriptorSection[:Arity] + [None] * max(0, Arity - len(DescriptorSection))
+        return super().__init__(args=Args, config_file=config_file, **kwargs)
+        
+    def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
+        SignalSections = self.Args.DescriptorSection
+        Weights = [1/len(x)] * len(x) if not args["weights"] else args["weights"]
+        TotalWeight = np.sum(Weights)
+        Signal = pd.DataFrame(0, index=idt, columns=iid)
+        for i, ix in enumerate(x):
+            iSignal = pd.DataFrame(ix, index=idt, columns=(iid if SignalSections[i] is None else SignalSections[i]))
+            Signal = Signal.add(iSignal * Weights[i], fill_value=0)
+        Signal = Signal.reindex(columns=iid) / TotalWeight
+        if args["rescaled"]: Signal = (Signal.T / Signal.sum(axis=1)).T
+        return Signal
+
 
 # ----------------------面板运算--------------------------------
 class AlphaEnhanceStrategy(SectionOperator):

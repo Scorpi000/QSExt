@@ -35,19 +35,17 @@ DRY_RUN = False
 # ============================================================
 FACTOR_DATABASES = [
     {
-        "name": "JYDB",
-        "class": "JYDB",               # 支持短名 (JYDB, HDF5DB, SQLDB 等)
+        "name": "BSDB",
+        "class": "BaoStockDB",               # 支持短名 (JYDB, HDF5DB, SQLDB 等)
         "role": "source",
-        "args": {
-            "FTArgs": {"PreFilterID": False},
-        },
+        "args": {},
     },
     {
         "name": "TDB",
         "class": "HDF5DB",
         "role": "target",
         "args": {
-            "MainDir": r"D:\Data\HDF5DB",
+            "MainDir": r"D:\Data\HDF5DB_Test",
         },
     },
     {
@@ -64,14 +62,14 @@ FACTOR_DATABASES = [
 PROXY_TABLE_MAPPING = {}
 
 # 风险数据库 (factor_databases 已覆盖连接定义，此处为风险库专用)
-RISK_DATABASES = {
-    # "0926704e": {
+RISK_DATABASES = [
+    # {
     #     "name": "Barra 风险库",
     #     "db_type": "HDF5FRDB",
     #     "description": "",
     #     "args": {"MainDir": "D:/Data/HDF5RDB"},
     # },
-}
+]
 
 
 # ============================================================
@@ -79,7 +77,7 @@ RISK_DATABASES = {
 # ============================================================
 # 交易日历数据源 (name 匹配 FACTOR_DATABASES 中的库名)
 TRADING_DAY_SOURCE = {
-    "name": "JYDB",
+    "name": "BSDB",
     "method": "getTradeDay",
     "method_args": {"exchange": "SSE"},
 }
@@ -88,20 +86,10 @@ TRADING_DAY_SOURCE = {
 # 自定义 IDType 只需添加对应条目，method_args 中的参数会透传给 method
 SECTION_ID_SOURCES = {
     "A股": {
-        "name": "JYDB",
+        "name": "BSDB",
         "method": "getStockID",
         "method_args": {},
-    },
-    "ETF": {
-        "name": "JYDB",
-        "method": "getStockID",
-        "method_args": {"type": "ETF"},
-    },
-    "申万一级行业": {
-        "name": "JYDB",
-        "method": "getStockID",
-        "method_args": {"standard": "申万行业分类(新)", "level": 1},
-    },
+    }
 }
 
 
@@ -122,9 +110,10 @@ DT_FREQ = "1d"                   # 1d | 1w | 2w | 1m | 1q | 1y
 ID_PROFILES = [
     {
         "id_type": "A股",
-        "id_selection": {"type": "all"},
+        "id_selection": {"type": "list", "ids": ["000001.SZ", "000002.SZ", "000003.SZ"]},
         "factor_modules": [
-            # "QSExt.FactorDef.example_Factor",
+            "QSExt.FactorDef.stock_cn_factor_example1",
+            "QSExt.FactorDef.stock_cn_factor_example2",
         ],
         "strategy_modules": [
             # "QSExt.StrategyDef.example_strategy",
@@ -185,4 +174,4 @@ LOG_LEVEL = "INFO"
 # ============================================================
 # def init_db(pool):
 #     """库连接后的自定义初始化。"""
-#     pool["JYDB"].setOutputMode("pandas")
+#     pool["BSDB"].setOutputMode("pandas")

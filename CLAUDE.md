@@ -162,7 +162,7 @@ QSExt/FactorDef/
 │                                 #       FactorDefInputBuilder / build_dep_fd
 ├── utils.py                      # expand_glob()
 ├── conf/
-│   └── settings.example.py       # 指向 RuntimeConfig 统一配置
+│   └── settings_example.py       # 指向 RuntimeConfig 统一配置
 └── scripts/
     ├── run_factor_def.py                 # 执行入口
     └── register_factors_to_graphdb.py    # 图数据库注册
@@ -221,7 +221,7 @@ QSExt/StrategyDef/
 │                                   #       StrategyDefInputBuilder / build_dep_sd
 ├── utils.py                        # expand_glob()
 ├── conf/
-│   └── settings.example.py         # 指向 RuntimeConfig 统一配置
+│   └── settings_example.py         # 指向 RuntimeConfig 统一配置
 ├── scripts/
 │   ├── run_strategy_def.py                 # 执行入口
 │   └── register_strategies_to_graphdb.py   # 图数据库注册
@@ -314,7 +314,7 @@ MCP 服务配置文件：`.mcp.json.example`（项目根目录），用于配置
 
 `QSExt/RuntimeConfig/` 提供统一的运行时配置框架：
 - `config.py`：`DBDef`（数据库定义）、`DBPool`（连接池）、`RuntimeSettings`（统一配置基类）
-- `conf/settings.example.py`：配置模板
+- `conf/settings_example.py`：配置模板
 
 配置覆盖优先级（从低到高）：
 1. `__INHERIT_FROM__` 父模块（链式继承）
