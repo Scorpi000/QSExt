@@ -56,6 +56,7 @@ _SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT report_id IF NOT EXISTS FOR (r:`报告`) REQUIRE r.ReportID IS UNIQUE",
     "CREATE CONSTRAINT storer_qsid IF NOT EXISTS FOR (s:`因子存储器`) REQUIRE s.QSID IS UNIQUE",
     "CREATE CONSTRAINT strategy_qsid IF NOT EXISTS FOR (s:`策略`) REQUIRE s.QSID IS UNIQUE",
+    "CREATE CONSTRAINT script_qsid IF NOT EXISTS FOR (s:`脚本`) REQUIRE s.QSID IS UNIQUE",
 ]
 
 _SCHEMA_INDEXES = [
@@ -80,6 +81,11 @@ _SCHEMA_INDEXES = [
     "CREATE INDEX storer_target_table IF NOT EXISTS FOR (s:`因子存储器`) ON (s.TargetTable)",
     "CREATE INDEX strategy_name IF NOT EXISTS FOR (s:`策略`) ON (s.Name)",
     "CREATE INDEX strategy_target_table IF NOT EXISTS FOR (s:`策略`) ON (s.TargetTable)",
+    "CREATE INDEX script_name IF NOT EXISTS FOR (s:`脚本`) ON (s.Name)",
+    "CREATE INDEX script_module_type IF NOT EXISTS FOR (s:`脚本`) ON (s.ModuleType)",
+    "CREATE INDEX script_entry IF NOT EXISTS FOR (s:`脚本`) ON (s.EntryFunction)",
+    "CREATE INDEX factor_def_script IF NOT EXISTS FOR (f:`因子`) ON (f.DefScriptQSID)",
+    "CREATE INDEX strategy_def_script IF NOT EXISTS FOR (s:`策略`) ON (s.DefScriptQSID)",
 ]
 
 # endregion
@@ -164,6 +170,21 @@ class QSGraphDB(QSNeo4jObject):
                 {"dim": self._QSArgs.EmbeddingDim}
             )
             self._QS_Logger.info(f"已创建向量索引 strategy_embedding (dim={self._QSArgs.EmbeddingDim})")
+            # 脚本语义搜索向量索引
+            self._runCypher(
+                """
+                CREATE VECTOR INDEX script_embedding IF NOT EXISTS
+                FOR (s:`脚本`) ON (s.Embedding)
+                OPTIONS {
+                  indexConfig: {
+                    `vector.dimensions`: $dim,
+                    `vector.similarity_function`: 'cosine'
+                  }
+                }
+                """,
+                {"dim": self._QSArgs.EmbeddingDim}
+            )
+            self._QS_Logger.info(f"已创建向量索引 script_embedding (dim={self._QSArgs.EmbeddingDim})")
         except Exception as e:
             self._QS_Logger.warning(f"创建向量索引失败（可能 Neo4j 版本不支持）: {e}")
 
@@ -2962,6 +2983,511 @@ class QSGraphDB(QSNeo4jObject):
         self._QS_Logger.info(f"已批量存储 {total_instances} 个策略实例 (来自 {len(strategies)} 个 StrategyDef)")
         return total_instances
 
+    # --- 脚本节点存储 ---
+
+    def storeScript(self, script_path: str, content: Optional[str] = None,
+                    meta: Optional[dict] = None, user_id: Optional[str] = None) -> str:
+        """注册脚本节点到图数据库
+
+        Args:
+            script_path: 脚本文件路径（用于提取文件名和读取内容）
+            content: 脚本内容（为 None 时从 script_path 读取）
+            meta: __FACTOR_META__ 或 __STRATEGY_META__ 内容（为 None 时尝试从脚本中提取）
+            user_id: 资源归属用户 ID
+
+        Returns:
+            脚本节点的 QSID
+        """
+        import hashlib as _hashlib
+
+        # 1. 读取内容
+        if content is None:
+            with open(script_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        # 2. 计算内容哈希和 QSID
+        content_hash = _hashlib.sha256(content.encode("utf-8")).hexdigest()
+        qsid = content_hash[:16]  # 前 16 位作为 QSID
+
+        # 3. 提取文件名
+        script_name = os.path.basename(script_path)
+
+        # 4. 提取或解析 meta
+        if meta is None:
+            meta = self._extractMetaFromScript(content)
+
+        # 5. 确定入口函数和模块类型
+        entry_function = "defFactor" if "defFactor" in content else "defStrategy"
+        module_type = "FactorDef" if entry_function == "defFactor" else "StrategyDef"
+
+        # 6. 构建节点属性
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        props = {
+            "QSID": qsid,
+            "Name": script_name,
+            "Path": script_path,
+            "Content": content,
+            "ContentHash": content_hash,
+            "EntryFunction": entry_function,
+            "ModuleType": module_type,
+            "Author": meta.get("Author", ""),
+            "Description": meta.get("Description", ""),
+            "Tags": meta.get("Tags", []),
+            "MetaJSON": json.dumps(meta, ensure_ascii=False) if meta else "{}",
+            "UpdatedAt": now,
+        }
+        if user_id:
+            props["userId"] = user_id
+
+        # 7. 生成嵌入向量
+        if self._QSArgs.EmbeddingModel and meta.get("Description"):
+            text = f"{script_name} {meta['Description']}"
+            emb = self._generateEmbedding(text)
+            if emb is not None:
+                props["Embedding"] = emb
+                props["EmbeddingModel"] = self._QSArgs.EmbeddingModel
+                props["EmbeddingDim"] = len(emb)
+
+        # 8. MERGE 脚本节点
+        self._runCypher(
+            """
+            MERGE (s:`脚本` {QSID: $qsid})
+            ON CREATE SET s += $props, s.CreatedAt = $now
+            ON MATCH SET s += $props
+            """,
+            {"qsid": qsid, "props": props, "now": now}
+        )
+
+        # 9. 建立与依赖脚本的关系
+        self._createScriptDeps(qsid, meta)
+
+        # 10. 建立与因子库的关系
+        self._createScriptFDBDeps(qsid, meta)
+
+        # 11. 建立标签关系
+        if meta.get("Tags"):
+            for tag_name in meta["Tags"]:
+                self._runCypher(
+                    """
+                    MERGE (t:`标签` {Name: $tag})
+                    WITH t
+                    MATCH (s:`脚本` {QSID: $qsid})
+                    MERGE (s)-[:`打标签`]->(t)
+                    """,
+                    {"qsid": qsid, "tag": tag_name}
+                )
+
+        self._QS_Logger.info(f"已注册脚本: {script_name} (QSID: {qsid})")
+        return qsid
+
+    def _extractMetaFromScript(self, content: str) -> dict:
+        """从脚本内容中提取 __FACTOR_META__ 或 __STRATEGY_META__"""
+        import re as _re
+
+        # 查找 __FACTOR_META__ 或 __STRATEGY_META__ 的起始位置
+        patterns = [r'__FACTOR_META__\s*=\s*\{', r'__STRATEGY_META__\s*=\s*\{']
+        for pattern in patterns:
+            match = _re.search(pattern, content)
+            if match:
+                # 从匹配位置开始，找到完整的字典定义
+                start = match.end() - 1  # 指向 '{'
+                depth = 0
+                in_string = False
+                string_char = None
+                i = start
+                while i < len(content):
+                    ch = content[i]
+                    if in_string:
+                        if ch == '\\':
+                            i += 1  # 跳过转义字符
+                        elif ch == string_char:
+                            in_string = False
+                    else:
+                        if ch in ('"', "'"):
+                            in_string = True
+                            string_char = ch
+                        elif ch == '{':
+                            depth += 1
+                        elif ch == '}':
+                            depth -= 1
+                            if depth == 0:
+                                meta_str = content[start:i + 1]
+                                try:
+                                    return eval(meta_str)
+                                except Exception:
+                                    pass
+                                break
+                    i += 1
+        return {}
+
+    def _createScriptDeps(self, script_qsid: str, meta: dict):
+        """创建脚本间的依赖关系（FactorDeps/StrategyDeps）"""
+        factor_deps = meta.get("FactorDeps", {})
+        strategy_deps = meta.get("StrategyDeps", {})
+
+        # FactorDeps: {target_table: [factor_name, ...]}
+        for target_table, factor_names in factor_deps.items():
+            # 查找目标脚本（通过 TargetTable 匹配）
+            dep_script = self._findScriptByTargetTable(target_table)
+            if dep_script:
+                self._runCypher(
+                    """
+                    MATCH (s:`脚本` {QSID: $source_qsid})
+                    MATCH (t:`脚本` {QSID: $target_qsid})
+                    MERGE (s)-[r:`依赖脚本`]->(t)
+                    SET r.FactorNames = $factor_names
+                    """,
+                    {
+                        "source_qsid": script_qsid,
+                        "target_qsid": dep_script["QSID"],
+                        "factor_names": factor_names,
+                    }
+                )
+
+        # StrategyDeps: {target_table: {factor_name: alias, ...}}
+        for target_table in strategy_deps:
+            dep_script = self._findScriptByTargetTable(target_table)
+            if dep_script:
+                self._runCypher(
+                    """
+                    MATCH (s:`脚本` {QSID: $source_qsid})
+                    MATCH (t:`脚本` {QSID: $target_qsid})
+                    MERGE (s)-[:`依赖脚本`]->(t)
+                    """,
+                    {
+                        "source_qsid": script_qsid,
+                        "target_qsid": dep_script["QSID"],
+                    }
+                )
+
+    def _findScriptByTargetTable(self, target_table: str) -> Optional[Dict]:
+        """通过 TargetTable 查找脚本节点"""
+        results = self._runCypher(
+            """
+            MATCH (s:`脚本`)
+            WHERE s.MetaJSON CONTAINS $target_table
+            RETURN s
+            """,
+            {"target_table": target_table}
+        )
+        for r in results:
+            meta = json.loads(r["s"].get("MetaJSON", "{}"))
+            if meta.get("TargetTable") == target_table:
+                return r["s"]
+        return None
+
+    def _createScriptFDBDeps(self, script_qsid: str, meta: dict):
+        """创建脚本与因子库的依赖关系"""
+        db_deps = meta.get("DBDeps", {})
+        for fdb_name, purpose in db_deps.items():
+            # 查找已注册的因子库
+            fdb_results = self._runCypher(
+                "MATCH (d:`因子库` {Name: $name}) RETURN d",
+                {"name": fdb_name}
+            )
+            if fdb_results:
+                fdb_qsid = fdb_results[0]["d"]["QSID"]
+                self._runCypher(
+                    """
+                    MATCH (s:`脚本` {QSID: $script_qsid})
+                    MATCH (d:`因子库` {QSID: $fdb_qsid})
+                    MERGE (s)-[r:`使用因子库`]->(d)
+                    SET r.Purpose = $purpose
+                    """,
+                    {
+                        "script_qsid": script_qsid,
+                        "fdb_qsid": fdb_qsid,
+                        "purpose": purpose,
+                    }
+                )
+
+    def collectScriptFactors(self, factors: list, script_qsid: str) -> list:
+        """递归收集脚本定义的因子（排除已定义于其他脚本的因子）
+
+        Args:
+            factors: 因子列表（包含 Descriptors 中间因子）
+            script_qsid: 当前脚本的 QSID
+
+        Returns:
+            应关联到当前脚本的因子列表
+        """
+        result = []
+        visited = set()
+
+        def _collect(factors):
+            for factor in factors:
+                qsid = factor.QSID
+                if qsid in visited:
+                    continue
+                visited.add(qsid)
+
+                # 检查因子是否已被其他脚本定义
+                existing = self._runCypher(
+                    """
+                    MATCH (f:`因子` {QSID: $qsid})-[:`定义于`]->(s:`脚本`)
+                    WHERE s.QSID <> $script_qsid
+                    RETURN s.QSID AS script_qsid
+                    """,
+                    {"qsid": qsid, "script_qsid": script_qsid}
+                )
+
+                if existing:
+                    self._QS_Logger.debug(
+                        f"跳过因子 {factor._QSArgs.Name}（已定义于脚本 {existing[0]['script_qsid']}）"
+                    )
+                    continue
+
+                result.append(factor)
+
+                # 递归收集 Descriptors（中间因子）
+                if hasattr(factor, 'Descriptors') and factor.Descriptors:
+                    _collect(factor.Descriptors)
+
+        _collect(factors)
+        return result
+
+    def cleanScriptFactors(self, script_qsid: str) -> int:
+        """清理脚本关联的所有因子（断开"定义于"关系）
+
+        只删除因子与当前脚本的"定义于"关系，不删除因子节点本身。
+        如果因子还被其他脚本定义，因子节点保留。
+
+        Args:
+            script_qsid: 脚本节点 QSID
+
+        Returns:
+            清理的因子数量
+        """
+        # 获取脚本关联的所有因子
+        results = self._runCypher(
+            """
+            MATCH (f:`因子`)-[r:`定义于`]->(s:`脚本` {QSID: $qsid})
+            DELETE r
+            RETURN count(r) AS deleted
+            """,
+            {"qsid": script_qsid}
+        )
+        deleted = results[0]["deleted"] if results else 0
+
+        if deleted > 0:
+            # 清除因子的 DefScriptQSID 属性（仅对不再被任何脚本定义的因子）
+            self._runCypher(
+                """
+                MATCH (f:`因子`)
+                WHERE f.DefScriptQSID = $qsid AND NOT (f)-[:`定义于`]->(:`脚本`)
+                REMOVE f.DefScriptQSID
+                """,
+                {"qsid": script_qsid}
+            )
+            self._QS_Logger.info(f"已清理脚本 {script_qsid} 的 {deleted} 个因子关系")
+
+        return deleted
+
+    def associateFactorsToScript(self, factors: list, script_qsid: str) -> int:
+        """将因子列表关联到脚本（创建"定义于"关系）
+
+        Args:
+            factors: 因子对象列表
+            script_qsid: 脚本节点 QSID
+
+        Returns:
+            成功关联的因子数量
+        """
+        associated = 0
+        for factor in factors:
+            self._runCypher(
+                """
+                MATCH (f:`因子` {QSID: $factor_qsid})
+                MATCH (s:`脚本` {QSID: $script_qsid})
+                MERGE (f)-[:`定义于`]->(s)
+                """,
+                {"factor_qsid": factor.QSID, "script_qsid": script_qsid}
+            )
+            # 更新因子的 DefScriptQSID 属性
+            self._runCypher(
+                """
+                MATCH (f:`因子` {QSID: $factor_qsid})
+                SET f.DefScriptQSID = $script_qsid
+                """,
+                {"factor_qsid": factor.QSID, "script_qsid": script_qsid}
+            )
+            associated += 1
+
+        if associated > 0:
+            self._QS_Logger.info(f"已关联 {associated} 个因子到脚本 {script_qsid}")
+
+        return associated
+
+    def storeFactorDef(self, factor_def, script_path: Optional[str] = None,
+                       user_id: Optional[str] = None, clean_old: bool = True) -> dict:
+        """存储 FactorDef 及其定义脚本
+
+        一体化存储：脚本节点 + 因子节点 + "定义于"关系。
+        默认会清理脚本关联的旧因子关系，再重新关联。
+
+        Args:
+            factor_def: FactorDef 实例（含 FactorList 和 Meta）
+            script_path: 脚本路径（为 None 时从 meta.DefScriptPath 获取）
+            user_id: 用户 ID
+            clean_old: 是否清理旧的因子关系（默认 True）
+
+        Returns:
+            {
+                "factor_count": int,       # 关联的因子数量
+                "script_qsid": "...",      # 脚本节点 QSID
+                "dep_script_qsids": [...]   # 依赖脚本 QSID 列表
+            }
+        """
+        # 1. 获取脚本路径
+        if script_path is None:
+            script_path = factor_def.Meta.DefScriptPath
+        if not script_path:
+            raise ValueError("无法确定脚本路径：请提供 script_path 或在 meta 中设置 DefScriptPath")
+
+        # 2. 构建脚本元信息
+        script_meta = {
+            "TargetTable": factor_def.Meta.TargetTable,
+            "IDType": factor_def.Meta.IDType,
+            "Author": factor_def.Meta.Author,
+            "Description": factor_def.Meta.Description,
+            "Tags": list(factor_def.Meta.Tags),
+            "FactorDeps": factor_def.Meta.FactorDeps,
+            "DBDeps": factor_def.Meta.DBDeps,
+            "ModelArgs": factor_def.Meta.ModelArgs,
+        }
+
+        # 3. 存储脚本节点
+        script_qsid = self.storeScript(script_path, meta=script_meta, user_id=user_id)
+
+        # 4. 存储因子
+        self.storeFactors(factor_def.FactorList, user_id=user_id)
+
+        # 5. 清理旧的因子关系
+        if clean_old:
+            self.cleanScriptFactors(script_qsid)
+
+        # 6. 收集并关联因子（排除已定义于其他脚本的因子）
+        own_factors = self.collectScriptFactors(factor_def.FactorList, script_qsid)
+        factor_count = self.associateFactorsToScript(own_factors, script_qsid)
+
+        # 7. 获取依赖脚本 QSID
+        dep_script_qsids = []
+        dep_results = self._runCypher(
+            """
+            MATCH (s:`脚本` {QSID: $qsid})-[:`依赖脚本`]->(dep:`脚本`)
+            RETURN dep.QSID
+            """,
+            {"qsid": script_qsid}
+        )
+        dep_script_qsids = [r["dep.QSID"] for r in dep_results]
+
+        self._QS_Logger.info(
+            f"已存储 FactorDef: {factor_count} 个因子, "
+            f"脚本 QSID: {script_qsid}, 依赖脚本: {len(dep_script_qsids)} 个"
+        )
+
+        return {
+            "factor_count": factor_count,
+            "script_qsid": script_qsid,
+            "dep_script_qsids": dep_script_qsids,
+        }
+
+    def storeStrategyDef(self, strategy_def, script_path: Optional[str] = None,
+                         user_id: Optional[str] = None, clean_old: bool = True) -> dict:
+        """存储 StrategyDef 及其定义脚本
+
+        一体化存储：脚本节点 + 策略节点 + "定义于"关系。
+        默认会清理脚本关联的旧策略关系，再重新关联。
+
+        Args:
+            strategy_def: StrategyDef 实例（含 StrategyList 和 Meta）
+            script_path: 脚本路径（为 None 时从 meta.DefScriptPath 获取）
+            user_id: 用户 ID
+            clean_old: 是否清理旧的策略关系（默认 True）
+
+        Returns:
+            {
+                "strategy_count": int,       # 存储的策略数量
+                "script_qsid": "...",        # 脚本节点 QSID
+                "dep_script_qsids": [...]     # 依赖脚本 QSID 列表
+            }
+        """
+        # 1. 获取脚本路径
+        if script_path is None:
+            script_path = strategy_def.Meta.DefScriptPath
+        if not script_path:
+            raise ValueError("无法确定脚本路径：请提供 script_path 或在 meta 中设置 DefScriptPath")
+
+        # 2. 构建脚本元信息
+        script_meta = {
+            "TargetTable": strategy_def.Meta.TargetTable,
+            "IDType": strategy_def.Meta.IDType,
+            "Author": strategy_def.Meta.Author,
+            "Description": strategy_def.Meta.Description,
+            "Tags": list(strategy_def.Meta.Tags),
+            "StrategyDeps": strategy_def.Meta.StrategyDeps,
+            "FactorDeps": strategy_def.Meta.FactorDeps,
+            "DBDeps": strategy_def.Meta.DBDeps,
+            "ModelArgs": strategy_def.Meta.ModelArgs,
+        }
+
+        # 3. 存储脚本节点
+        script_qsid = self.storeScript(script_path, meta=script_meta, user_id=user_id)
+
+        # 4. 存储策略
+        strategy_count = self.storeStrategies([strategy_def], user_id=user_id)
+
+        # 5. 清理旧的策略关系（如果需要）
+        if clean_old:
+            self._runCypher(
+                """
+                MATCH (s:`策略`)-[r:`定义于`]->(sc:`脚本` {QSID: $qsid})
+                DELETE r
+                """,
+                {"qsid": script_qsid}
+            )
+
+        # 6. 建立 策略-[:定义于]->脚本 关系
+        for strategy_instance in strategy_def.StrategyList:
+            self._runCypher(
+                """
+                MATCH (s:`策略` {QSID: $strategy_qsid})
+                MATCH (sc:`脚本` {QSID: $script_qsid})
+                MERGE (s)-[:`定义于`]->(sc)
+                """,
+                {"strategy_qsid": strategy_instance.QSID, "script_qsid": script_qsid}
+            )
+            # 更新策略的 DefScriptQSID 属性
+            self._runCypher(
+                """
+                MATCH (s:`策略` {QSID: $strategy_qsid})
+                SET s.DefScriptQSID = $script_qsid
+                """,
+                {"strategy_qsid": strategy_instance.QSID, "script_qsid": script_qsid}
+            )
+
+        # 7. 获取依赖脚本 QSID
+        dep_script_qsids = []
+        dep_results = self._runCypher(
+            """
+            MATCH (s:`脚本` {QSID: $qsid})-[:`依赖脚本`]->(dep:`脚本`)
+            RETURN dep.QSID
+            """,
+            {"qsid": script_qsid}
+        )
+        dep_script_qsids = [r["dep.QSID"] for r in dep_results]
+
+        self._QS_Logger.info(
+            f"已存储 StrategyDef: {strategy_count} 个策略, "
+            f"脚本 QSID: {script_qsid}, 依赖脚本: {len(dep_script_qsids)} 个"
+        )
+
+        return {
+            "strategy_count": strategy_count,
+            "script_qsid": script_qsid,
+            "dep_script_qsids": dep_script_qsids,
+        }
+
     def searchStrategies(self, name: Optional[str] = None,
                          tag: Optional[str] = None,
                          factor_qsid: Optional[str] = None,
@@ -3073,6 +3599,306 @@ class QSGraphDB(QSNeo4jObject):
             {"qsid": qsid}
         )
         return results[0]["s"] if results else None
+
+    # --- 脚本节点查询 ---
+
+    def getScriptByQSID(self, qsid: str) -> Optional[Dict]:
+        """按 QSID 查询脚本节点
+
+        Args:
+            qsid: 脚本节点 QSID
+
+        Returns:
+            脚本节点属性字典，未找到返回 None
+        """
+        results = self._runCypher(
+            "MATCH (s:`脚本` {QSID: $qsid}) RETURN s",
+            {"qsid": qsid}
+        )
+        return results[0]["s"] if results else None
+
+    def searchScripts(self, name: Optional[str] = None,
+                      module_type: Optional[str] = None,
+                      query_text: Optional[str] = None,
+                      limit: int = 20,
+                      user_id: Optional[str] = None) -> List[Dict]:
+        """搜索脚本节点
+
+        Args:
+            name: 脚本文件名（模糊匹配）
+            module_type: 模块类型（FactorDef / StrategyDef）
+            query_text: 语义搜索文本（使用嵌入向量）
+            limit: 返回数量上限
+            user_id: 资源隔离的用户 ID
+
+        Returns:
+            脚本节点属性字典列表
+        """
+        # 优先使用语义搜索
+        if query_text and self._QSArgs.EmbeddingModel:
+            return self._searchScriptsByDescription(query_text, limit, user_id=user_id)
+
+        conditions = []
+        params = {"limit": limit}
+        if name:
+            conditions.append("s.Name CONTAINS $name")
+            params["name"] = name
+        if module_type:
+            conditions.append("s.ModuleType = $module_type")
+            params["module_type"] = module_type
+        if user_id is not None:
+            conditions.append("(s.userId IS NULL OR s.userId = $user_id)")
+            params["user_id"] = user_id
+
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        query = f"""
+            MATCH (s:`脚本`)
+            {where_clause}
+            RETURN s ORDER BY s.Name LIMIT $limit
+        """
+        results = self._runCypher(query, params)
+        return [r["s"] for r in results]
+
+    def _searchScriptsByDescription(self, query_text: str, limit: int = 20,
+                                     user_id: Optional[str] = None) -> List[Dict]:
+        """基于描述文本的向量语义检索脚本"""
+        query_embedding = self._generateEmbedding(query_text)
+        if query_embedding is None:
+            return []
+        try:
+            results = self._runCypher(
+                """
+                CALL db.index.vector.queryNodes('script_embedding', $limit, $embedding)
+                YIELD node AS s, score
+                RETURN s {.Name, .QSID, .ModuleType, .EntryFunction, .Author, .Description, .userId}, score
+                ORDER BY score DESC
+                """,
+                {"limit": limit, "embedding": query_embedding}
+            )
+        except Exception as e:
+            self._QS_Logger.warning(f"脚本向量检索失败: {e}")
+            return []
+        if user_id is not None:
+            results = [
+                r for r in results
+                if r["s"].get("userId") in (None, "", user_id)
+            ]
+        return [{"Similarity": round(r["score"], 6), **r["s"]} for r in results]
+
+    def getScriptFactors(self, script_qsid: str) -> List[Dict]:
+        """获取脚本定义的所有因子
+
+        Args:
+            script_qsid: 脚本节点 QSID
+
+        Returns:
+            因子节点属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (f:`因子`)-[:`定义于`]->(s:`脚本` {QSID: $qsid})
+            RETURN f
+            """,
+            {"qsid": script_qsid}
+        )
+        return [r["f"] for r in results]
+
+    def getScriptStrategies(self, script_qsid: str) -> List[Dict]:
+        """获取脚本定义的所有策略
+
+        Args:
+            script_qsid: 脚本节点 QSID
+
+        Returns:
+            策略节点属性字典列表
+        """
+        results = self._runCypher(
+            """
+            MATCH (s:`策略`)-[:`定义于`]->(sc:`脚本` {QSID: $qsid})
+            RETURN s
+            """,
+            {"qsid": script_qsid}
+        )
+        return [r["s"] for r in results]
+
+    def getScriptDeps(self, script_qsid: str, depth: int = 1) -> Dict:
+        """获取脚本的依赖链（递归）
+
+        Args:
+            script_qsid: 脚本节点 QSID
+            depth: 递归深度
+
+        Returns:
+            {
+                "script_qsid": "...",
+                "dependencies": [
+                    {"qsid": "...", "name": "...", "depth": 1, "factor_names": [...]},
+                    ...
+                ]
+            }
+        """
+        # Neo4j 可变长度关系语法: [:`关系类型`*min..max]
+        query = (
+            "MATCH path = (s:`脚本` {QSID: $qsid})-[:`依赖脚本`*1.." + str(depth) + "]->(dep:`脚本`)\n"
+            "RETURN dep, length(path) AS dep_depth,\n"
+            "       [r IN relationships(path) | r.FactorNames] AS factor_names_list\n"
+            "ORDER BY dep_depth"
+        )
+        results = self._runCypher(query, {"qsid": script_qsid})
+        dependencies = []
+        for r in results:
+            dep = r["dep"]
+            factor_names = []
+            for fn_list in r.get("factor_names_list", []):
+                if fn_list:
+                    factor_names.extend(fn_list)
+            dependencies.append({
+                "qsid": dep.get("QSID", ""),
+                "name": dep.get("Name", ""),
+                "depth": r["dep_depth"],
+                "factor_names": factor_names,
+            })
+        return {
+            "script_qsid": script_qsid,
+            "dependencies": dependencies,
+        }
+
+    def getFactorDefScript(self, factor_qsid: str) -> Optional[Dict]:
+        """获取因子的定义脚本（含内容）
+
+        Args:
+            factor_qsid: 因子节点 QSID
+
+        Returns:
+            脚本节点属性字典，未找到返回 None
+        """
+        results = self._runCypher(
+            """
+            MATCH (f:`因子` {QSID: $qsid})-[:`定义于`]->(s:`脚本`)
+            RETURN s
+            """,
+            {"qsid": factor_qsid}
+        )
+        return results[0]["s"] if results else None
+
+    def getStrategyDefScript(self, strategy_qsid: str) -> Optional[Dict]:
+        """获取策略的定义脚本（含内容）
+
+        Args:
+            strategy_qsid: 策略节点 QSID
+
+        Returns:
+            脚本节点属性字典，未找到返回 None
+        """
+        results = self._runCypher(
+            """
+            MATCH (s:`策略` {QSID: $qsid})-[:`定义于`]->(sc:`脚本`)
+            RETURN sc
+            """,
+            {"qsid": strategy_qsid}
+        )
+        return results[0]["sc"] if results else None
+
+    def getScriptImpact(self, script_qsid: str) -> Dict:
+        """分析脚本变更的影响范围
+
+        Args:
+            script_qsid: 脚本节点 QSID
+
+        Returns:
+            {
+                "script_qsid": "...",
+                "script_name": "...",
+                "direct_factors": [...],    # 直接定义的因子
+                "direct_strategies": [...], # 直接定义的策略
+                "downstream_scripts": [...], # 依赖该脚本的其他脚本
+                "affected_backtests": [...], # 受影响的回测
+                "affected_storers": [...],   # 受影响的因子存储器
+            }
+        """
+        # 获取脚本基本信息
+        script = self.getScriptByQSID(script_qsid)
+        if not script:
+            return {"error": f"未找到 QSID 为 {script_qsid} 的脚本"}
+
+        # 1. 直接定义的因子
+        direct_factors = self.getScriptFactors(script_qsid)
+        direct_factors_info = [
+            {"name": f.get("Name", ""), "qsid": f.get("QSID", "")}
+            for f in direct_factors
+        ]
+
+        # 2. 直接定义的策略
+        direct_strategies = self.getScriptStrategies(script_qsid)
+        direct_strategies_info = [
+            {"name": s.get("Name", ""), "qsid": s.get("QSID", "")}
+            for s in direct_strategies
+        ]
+
+        # 3. 依赖该脚本的其他脚本（下游脚本）
+        downstream_results = self._runCypher(
+            """
+            MATCH (downstream:`脚本`)-[:`依赖脚本`]->(s:`脚本` {QSID: $qsid})
+            RETURN downstream
+            """,
+            {"qsid": script_qsid}
+        )
+        downstream_scripts = [
+            {
+                "qsid": r["downstream"].get("QSID", ""),
+                "name": r["downstream"].get("Name", ""),
+            }
+            for r in downstream_results
+        ]
+
+        # 4. 受影响的回测（通过因子关联）
+        affected_backtests = []
+        for factor in direct_factors:
+            bt_results = self._runCypher(
+                """
+                MATCH (b:`回测`)-[:`使用因子`]->(f:`因子` {QSID: $factor_qsid})
+                RETURN b
+                """,
+                {"factor_qsid": factor.get("QSID", "")}
+            )
+            for r in bt_results:
+                bt = r["b"]
+                bt_info = {
+                    "qsid": bt.get("QSID", ""),
+                    "name": bt.get("Name", ""),
+                }
+                if bt_info not in affected_backtests:
+                    affected_backtests.append(bt_info)
+
+        # 5. 受影响的因子存储器（通过因子关联）
+        affected_storers = []
+        for factor in direct_factors:
+            storer_results = self._runCypher(
+                """
+                MATCH (st:`因子存储器`)-[:`依赖`]->(f:`因子` {QSID: $factor_qsid})
+                RETURN st
+                """,
+                {"factor_qsid": factor.get("QSID", "")}
+            )
+            for r in storer_results:
+                st = r["st"]
+                storer_info = {
+                    "qsid": st.get("QSID", ""),
+                    "name": st.get("Name", ""),
+                    "target_table": st.get("TargetTable", ""),
+                }
+                if storer_info not in affected_storers:
+                    affected_storers.append(storer_info)
+
+        return {
+            "script_qsid": script_qsid,
+            "script_name": script.get("Name", ""),
+            "direct_factors": direct_factors_info,
+            "direct_strategies": direct_strategies_info,
+            "downstream_scripts": downstream_scripts,
+            "affected_backtests": affected_backtests,
+            "affected_storers": affected_storers,
+        }
 
     def getStrategyCode(self, qsid: str) -> Optional[str]:
         """根据 QSID 获取策略源代码路径

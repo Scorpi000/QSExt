@@ -12,8 +12,13 @@
     python register_factors_to_graphdb.py --modules QSExt.FactorDef.stock_cn_factor_example1
     python register_factors_to_graphdb.py --tags 动量 实验因子
     python register_factors_to_graphdb.py --skip-embedding
+    python register_factors_to_graphdb.py --no-clean  # 不删除脚本关联的旧因子
 
 配置文件位于 QSExt/FactorDef/conf/ 目录。
+
+行为说明:
+    默认情况下，注册脚本节点时会删除该脚本关联的所有旧因子，然后重新写入。
+    使用 --no-clean 参数可以跳过清理步骤，保留旧因子。
 """
 import os
 import json
@@ -107,6 +112,7 @@ def main(settings_path: str = "settings", **cmd_overrides):
     # 分离 _ 前缀的非 settings 参数
     extra_args = {k: v for k, v in cmd_overrides.items() if k.startswith("_")}
     user_id = cmd_overrides.pop("user_id", None)
+    no_clean = extra_args.get("_no_clean", False)
     settings_overrides = {k: v for k, v in cmd_overrides.items() if not k.startswith("_")}
 
     # 1. 加载配置
@@ -196,6 +202,31 @@ def main(settings_path: str = "settings", **cmd_overrides):
                 success_count = 0
 
             Logger.info(f"注册完成: {success_count}/{total_factors} 成功")
+
+            # 5a. 注册脚本节点并建立 因子-[:定义于]->脚本 关系
+            Logger.info("开始注册脚本节点...")
+            script_count = 0
+            for factor_def in all_factor_defs:
+                script_path = factor_def.Meta.DefScriptPath
+                if not script_path or not os.path.isfile(script_path):
+                    Logger.debug(f"  跳过脚本注册: {factor_def.Meta.TargetTable} (无有效脚本路径)")
+                    continue
+
+                try:
+                    result = fgdb.storeFactorDef(
+                        factor_def,
+                        user_id=user_id,
+                        clean_old=not no_clean,
+                    )
+                    script_count += 1
+                    Logger.info(
+                        f"  ✓ 脚本注册成功: {os.path.basename(script_path)} "
+                        f"(QSID: {result['script_qsid'][:16]}…, 因子: {result['factor_count']})"
+                    )
+                except Exception as e:
+                    Logger.warning(f"  ✗ 脚本注册失败 ({factor_def.Meta.TargetTable}): {e}")
+
+            Logger.info(f"脚本注册完成: {script_count} 个")
 
             # 5b. 构建并注册 FactorStorer
             target_db_name = settings.target_db
@@ -388,6 +419,10 @@ def _parse_args():
     parser.add_argument("--tags", "-t", nargs="*", default=None, help="附加标签")
     parser.add_argument("--skip-embedding", action="store_true", default=None, help="跳过向量嵌入")
     parser.add_argument("--no-vector-demo", action="store_true", default=None, help="跳过向量检索演示")
+    parser.add_argument(
+        "--no-clean", action="store_true", default=None,
+        help="不删除脚本关联的旧因子（默认会删除后重新写入）"
+    )
 
     args = parser.parse_args()
 
@@ -414,6 +449,8 @@ def _parse_args():
         cmd_overrides["_graph_tags"] = args.tags
     if args.no_vector_demo is not None:
         cmd_overrides["_no_vector_demo"] = args.no_vector_demo
+    if args.no_clean is not None:
+        cmd_overrides["_no_clean"] = args.no_clean
 
     return args, cmd_overrides
 

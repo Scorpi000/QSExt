@@ -126,20 +126,20 @@ def defFactor(fdi: FactorDefInput) -> List[Factor]:
     MomentumRaw = calcMomentum(
         Close,
         factor_args={
-            "Name": "momentum_20d",
+            "Name": "momentum_20d_raw",
             "Meta": {"Description": "20日动量(收益率)，基于前复权收盘价计算"},
         },
     )
 
     # 过滤价格缺失样本
-    MomentumFiltered = fo.Where(dtype="double")(MomentumRaw, notnull(Close), np.nan)
+    MomentumFiltered = fo.Where(dtype="double")(MomentumRaw, notnull(Close), np.nan, factor_args={"Name": "momentum_20d"})
     Factors.append(MomentumFiltered)
 
     # ============================================================
     # 示例 2：算子组合 —— 动量 Z-Score
     # ============================================================
     MomentumZ = calcZScore(
-        MomentumRaw,
+        MomentumFiltered,
         factor_args={
             "Name": "momentum_20d_zscore",
             "Meta": {"Description": "20日动量截面Z-Score，去均值除标准差"},

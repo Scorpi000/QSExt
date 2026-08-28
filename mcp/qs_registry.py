@@ -57,6 +57,10 @@ _TOOL_GROUPS = {
     "strategy": {
         "search_strategies", "get_strategy_info", "get_strategy_code",
     },
+    "script": {
+        "search_scripts", "get_script_info", "get_script_factors",
+        "get_script_deps", "get_script_impact",
+    },
 }
 
 _ALL_TOOLS = set().union(*_TOOL_GROUPS.values())
@@ -1024,6 +1028,169 @@ def get_strategy_code(qsid: str) -> dict:
     }
 
 
+# ─── 脚本相关 MCP Tools ──────────────────────────────────────
+
+def _format_script(s: dict, similarity: Optional[float] = None) -> dict:
+    """格式化脚本节点为统一输出格式"""
+    result = {
+        "name": s.get("Name", ""),
+        "qsid": s.get("QSID", ""),
+        "module_type": s.get("ModuleType", ""),
+        "entry_function": s.get("EntryFunction", ""),
+        "author": s.get("Author", ""),
+        "description": s.get("Description", ""),
+    }
+    if similarity is not None:
+        result["similarity"] = similarity
+    return result
+
+
+def search_scripts(query: str = "", module_type: str = "", limit: int = 20) -> list[dict]:
+    """搜索脚本列表。支持按名称模糊匹配和语义搜索。
+
+    Args:
+        query: 查询文本，如 "动量"、"示例因子"；传空字符串查全部
+        module_type: 模块类型过滤（FactorDef / StrategyDef）；传空字符串不过滤
+        limit: 返回结果数量上限，默认 20
+
+    Returns:
+        匹配的脚本列表 [{name, qsid, module_type, entry_function, author, description, similarity}]
+    """
+    gdb = _get_gdb()
+    vector_results = []
+    if gdb._QSArgs.EmbeddingModel and query:
+        try:
+            vector_results = gdb._searchScriptsByDescription(query, limit=limit)
+        except Exception as e:
+            __QS_Logger__.warning(f"脚本向量检索失败，回退到关键词检索: {e}")
+
+    keyword_results = gdb.searchScripts(
+        name=(query if query else None),
+        module_type=(module_type if module_type else None),
+        limit=limit,
+    )
+
+    seen = set()
+    formatted = []
+    for r in vector_results:
+        item = _format_script(r, similarity=r.get("Similarity"))
+        formatted.append(item)
+        seen.add(item["qsid"])
+    for r in keyword_results:
+        item = _format_script(r)
+        if item["qsid"] not in seen:
+            formatted.append(item)
+            seen.add(item["qsid"])
+    return formatted[:limit]
+
+
+def get_script_info(qsid: str) -> dict:
+    """查询脚本的详细信息，包括元信息、定义的因子/策略、依赖关系等。
+
+    Args:
+        qsid: 脚本的 QSID（唯一标识符）
+
+    Returns:
+        脚本详细信息字典
+    """
+    gdb = _get_gdb()
+    node = gdb.getScriptByQSID(qsid)
+    if node is None:
+        return {"error": f"未找到 QSID 为 {qsid} 的脚本"}
+
+    # 解析 MetaJSON
+    meta = _parse_meta_json(node.get("MetaJSON"))
+
+    # 获取定义的因子
+    factors = gdb.getScriptFactors(qsid)
+    factors_info = [{"name": f.get("Name", ""), "qsid": f.get("QSID", "")} for f in factors]
+
+    # 获取定义的策略
+    strategies = gdb.getScriptStrategies(qsid)
+    strategies_info = [{"name": s.get("Name", ""), "qsid": s.get("QSID", "")} for s in strategies]
+
+    # 获取依赖脚本
+    deps = gdb.getScriptDeps(qsid, depth=1)
+
+    # 获取标签
+    tags = node.get("Tags", [])
+
+    return {
+        "name": node.get("Name", ""),
+        "qsid": node.get("QSID", qsid),
+        "path": node.get("Path", ""),
+        "module_type": node.get("ModuleType", ""),
+        "entry_function": node.get("EntryFunction", ""),
+        "author": node.get("Author", ""),
+        "description": node.get("Description", ""),
+        "content_hash": node.get("ContentHash", ""),
+        "meta": {k: str(v) for k, v in meta.items()} if isinstance(meta, dict) else {},
+        "factors": factors_info,
+        "strategies": strategies_info,
+        "dependencies": deps.get("dependencies", []),
+        "tags": tags,
+        "created_at": node.get("CreatedAt", ""),
+        "updated_at": node.get("UpdatedAt", ""),
+    }
+
+
+def get_script_factors(qsid: str) -> list[dict]:
+    """获取脚本定义的所有因子列表。
+
+    Args:
+        qsid: 脚本的 QSID（唯一标识符）
+
+    Returns:
+        因子列表 [{name, qsid, factor_class, data_type}]
+    """
+    gdb = _get_gdb()
+    script = gdb.getScriptByQSID(qsid)
+    if script is None:
+        return [{"error": f"未找到 QSID 为 {qsid} 的脚本"}]
+
+    factors = gdb.getScriptFactors(qsid)
+    return [
+        {
+            "name": f.get("Name", ""),
+            "qsid": f.get("QSID", ""),
+            "factor_class": f.get("FactorClass", ""),
+            "data_type": f.get("DataType", ""),
+        }
+        for f in factors
+    ]
+
+
+def get_script_deps(qsid: str, depth: int = 1) -> dict:
+    """获取脚本的依赖链。
+
+    Args:
+        qsid: 脚本的 QSID（唯一标识符）
+        depth: 递归深度，默认 1（直接依赖）
+
+    Returns:
+        脚本依赖关系字典
+    """
+    gdb = _get_gdb()
+    script = gdb.getScriptByQSID(qsid)
+    if script is None:
+        return {"error": f"未找到 QSID 为 {qsid} 的脚本"}
+
+    return gdb.getScriptDeps(qsid, depth=depth)
+
+
+def get_script_impact(qsid: str) -> dict:
+    """分析脚本变更的影响范围。
+
+    Args:
+        qsid: 脚本的 QSID（唯一标识符）
+
+    Returns:
+        影响范围分析结果
+    """
+    gdb = _get_gdb()
+    return gdb.getScriptImpact(qsid)
+
+
 # ─── 工具注册 ────────────────────────────────────────────────
 
 def _register_tools():
@@ -1047,6 +1214,11 @@ def _register_tools():
         (search_strategies, "strategy"),
         (get_strategy_info, "strategy"),
         (get_strategy_code, "strategy"),
+        (search_scripts, "script"),
+        (get_script_info, "script"),
+        (get_script_factors, "script"),
+        (get_script_deps, "script"),
+        (get_script_impact, "script"),
     ]
     registered = 0
     for fn, group in tools:
