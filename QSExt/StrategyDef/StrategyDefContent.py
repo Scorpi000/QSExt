@@ -303,10 +303,18 @@ def build_dep_sd(
                     # 2b. 注入 Factors
                     sdi.Factors = _build_factors_for_strategy(effective_meta, dep_fd, sdi)
 
-                    # 2c. 调用 defStrategy
-                    strategy_instances = module.defStrategy(sdi=sdi)
-                    if not isinstance(strategy_instances, list):
-                        strategy_instances = [strategy_instances]
+                    # 2c. 调用 defStrategy 或使用 StrategyObjects（notebook 模式）
+                    if hasattr(module, 'defStrategy'):
+                        strategy_instances = module.defStrategy(sdi=sdi)
+                        if not isinstance(strategy_instances, list):
+                            strategy_instances = [strategy_instances]
+                    elif hasattr(module, 'StrategyObjects'):
+                        strategy_instances = list(module.StrategyObjects)
+                    else:
+                        mod_name = getattr(module, '__name__', str(module))
+                        raise AttributeError(
+                            f"策略模块 '{mod_name}' 既没有 defStrategy 函数也没有 StrategyObjects 属性"
+                        )
                 finally:
                     sdi.ModelArgs = saved_args
                     sdi.Factors = saved_factors
@@ -333,9 +341,17 @@ def build_dep_sd(
             sdi.Factors = {}
             sdi.Strategies = {}
             try:
-                strategy_instances = module.defStrategy(sdi=sdi)
-                if not isinstance(strategy_instances, list):
-                    strategy_instances = [strategy_instances]
+                if hasattr(module, 'defStrategy'):
+                    strategy_instances = module.defStrategy(sdi=sdi)
+                    if not isinstance(strategy_instances, list):
+                        strategy_instances = [strategy_instances]
+                elif hasattr(module, 'StrategyObjects'):
+                    strategy_instances = list(module.StrategyObjects)
+                else:
+                    mod_name = getattr(module, '__name__', str(module))
+                    raise AttributeError(
+                        f"策略模块 '{mod_name}' 既没有 defStrategy 函数也没有 StrategyObjects 属性"
+                    )
             finally:
                 sdi.ModelArgs = saved_args
                 sdi.Factors = saved_factors
@@ -620,6 +636,11 @@ class StrategyDefInputBuilder:
         return all_modules
 
     def _resolve_module(self, name: str) -> object:
+        if isinstance(name, str) and name.endswith(".ipynb"):
+            from QSExt.StrategyDef.utils import load_notebook_as_module
+            if not os.path.isabs(name):
+                name = os.path.abspath(name)
+            return load_notebook_as_module(name)
         return importlib.import_module(name)
 
     def _resolve_modules_for(self, strategy_modules: list) -> List[Tuple[object, dict, dict]]:

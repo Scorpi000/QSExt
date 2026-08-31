@@ -12,6 +12,7 @@
 """
 import pandas as pd
 
+from QuantStudio.Factor import FactorOperator as fo
 from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy
 from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
 
@@ -126,18 +127,19 @@ def defStrategy(sdi: StrategyDefInput) -> list:
     if isinstance(short_allowed, str):
         short_allowed = short_allowed.lower() in ("true", "1", "yes")
 
-    # 构造策略实例
-    op = MACrossStrategy(
+    # 构造策略实例（x_lookback 指定每个依赖因子的回溯期数）
+    makeStrategy = MACrossStrategy(
         signal_type=signal_type,
         init_cash=init_cash,
         short_allowed=short_allowed,
+        x_lookback=[short_window - 1, long_window - 1],
+        x_section_ids=[None, None],
     )
 
-    # 计算短期和长期均线（通过简单的 rolling 算子）
-    from QuantStudio.Factor import FactorOperator as fo
-
-    ma_short = fo.rolling_mean(close, window=short_window, min_periods=1)
-    ma_long = fo.rolling_mean(close, window=long_window, min_periods=1)
+    # 计算短期和长期均线
+    ma_short = fo.RollingMean(window=short_window, min_periods=1)(close)
+    ma_long = fo.RollingMean(window=long_window, min_periods=1)(close)
 
     # 调用策略算子，传入均线因子和价格因子
-    return [op(ma_short, ma_long, last_price=close)]
+    Strategy = makeStrategy(ma_short, ma_long, last_price=close)
+    return [Strategy]
