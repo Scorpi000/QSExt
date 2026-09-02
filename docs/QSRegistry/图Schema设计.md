@@ -168,6 +168,9 @@
 因子存储器 -[:`写入因子表`]-> 因子表
 因子存储器 -[:`打标签`]->  标签
 因子     -[:`存入因子表`]-> 因子表
+策略       -[:`产生结果集`]->  回测结果集
+回测结果集 -[:`存储于`]->      回测结果库
+回测结果集 -[:`打标签`]->      标签
 ```
 
 | 关系 | 方向 | 属性 | 语义 |
@@ -183,6 +186,9 @@
 | `依赖` | 因子存储器 → 因子 | 无 | 因子存储器依赖该因子（将其数据持久化） |
 | `写入因子表` | 因子存储器 → 因子表 | 无 | 存储器写入目标因子表（若目标表在因子库中存在但未注册，则自动注册后再建立关系） |
 | `存入因子表` | 因子 → 因子表 | 无 | 因子数据被 FactorStorer 存入目标因子表（若目标表在因子库中存在但未注册，则自动注册后再建立关系） |
+| `产生结果集` | 策略 → 回测结果集 | 无 | 策略产生该回测结果集 |
+| `存储于` | 回测结果集 → 回测结果库 | 无 | 结果集存储在目标结果库中 |
+| `打标签` | 回测结果集 → 标签 | 无 | 结果集被标记了某个标签 |
 
 ## 约束与索引
 
@@ -417,6 +423,80 @@ CREATE INDEX report_format IF NOT EXISTS FOR (r:`报告`) ON (r.Format);
 - "momentum 因子被哪些存储器持久化？" → 查找 `(因子存储器)-[:依赖]->(momentum)`
 - "哪些因子数据被存入 HDF5DB/TestTable？" → 查找 `(因子)-[:存入因子表]->(TestTable)`
 - "momentum 因子被存入了哪些表？" → 查找 `(momentum)-[:存入因子表]->(因子表)`
+
+## 回测结果库 / 回测结果集
+
+### 回测结果库节点 (`回测结果库`)
+
+表示一个回测结果存储后端（QuantStudio `BTResultDB`），对标的 `因子库` / `风险库`。
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `Name` | string | **唯一标识**，结果库名称（如 "BTResultDB"） |
+| `ClassName` | string | Python 类名（`HDF5BTResultDB`） |
+| `ModulePath` | string | Python 完整模块路径 |
+| `QSArgsJSON` | string | JSON 编码的参数集（如 MainDir） |
+| `CreatedAt` | datetime | 注册时间 |
+| `UpdatedAt` | datetime | 最后更新时间 |
+
+### 回测结果集节点 (`回测结果集`)
+
+表示一个策略回测结果集，以 GroupName 为唯一标识，连接策略和回测结果库。
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `Name` | string | **唯一标识**，即 GroupName |
+| `GroupName` | string | 同 Name，结果组名称（如 "A股/strategy_signals/MACrossStrategy"） |
+| `MetadataJSON` | string | JSON 编码的元信息标签 |
+| `CreatedAt` | datetime | 注册时间 |
+| `UpdatedAt` | datetime | 最后更新时间 |
+
+### 回测结果集关系类型
+
+```
+策略       -[:`产生结果集`]->  回测结果集   # 策略产生该结果集
+回测结果集 -[:`存储于`]->      回测结果库   # 结果集存储在哪个结果库
+回测结果集 -[:`打标签`]->      标签         # 复用标签机制
+```
+
+| 关系 | 方向 | 语义 |
+|------|------|------|
+| `产生结果集` | 策略 → 回测结果集 | 策略产生该回测结果集 |
+| `存储于` | 回测结果集 → 回测结果库 | 结果集存储在目标结果库中 |
+| `打标签` | 回测结果集 → 标签 | 结果集被标记了某个标签 |
+
+### 回测结果集约束与索引
+
+```cypher
+-- 唯一性约束
+CREATE CONSTRAINT bt_resultdb_name IF NOT EXISTS
+    FOR (d:`回测结果库`) REQUIRE d.Name IS UNIQUE;
+CREATE CONSTRAINT bt_resultset_name IF NOT EXISTS
+    FOR (s:`回测结果集`) REQUIRE s.Name IS UNIQUE;
+
+-- 查询索引
+CREATE INDEX bt_resultdb_class IF NOT EXISTS FOR (d:`回测结果库`) ON (d.ClassName);
+CREATE INDEX bt_resultset_group IF NOT EXISTS FOR (s:`回测结果集`) ON (s.GroupName);
+```
+
+### 回测结果集示例
+
+```
+(ma_cross:`策略` {Name: "MACrossStrategy", TargetTable: "strategy_signals_example"})
+
+(bt_result_db:`回测结果库` {Name: "BTResultDB", ClassName: "HDF5BTResultDB"})
+
+(result_set:`回测结果集` {Name: "A股/strategy_signals_example/MACrossStrategy"})
+    -[:`存储于`]-> (bt_result_db)
+    -[:`打标签`]-> (标签)
+
+(ma_cross)-[:`产生结果集`]->(result_set)
+```
+
+从这个图可以回答：
+- "MACrossStrategy 的回测结果存在哪里？" → `(策略)-[:产生结果集]->(回测结果集)-[:存储于]->(BTResultDB)`
+- "BTResultDB 存储了哪些策略的结果？" → `(策略)-[:产生结果集]->(回测结果集)-[:存储于]->(BTResultDB)`
+- "GroupName 为 'A股/...' 的结果集关联了哪个策略？" → `(策略)-[:产生结果集]->(回测结果集 {GroupName: ...})`
 
 ## 脚本节点（规划中）
 

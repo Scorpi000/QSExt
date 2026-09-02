@@ -9,7 +9,7 @@
     python register_strategies_to_graphdb.py
     python register_strategies_to_graphdb.py --settings settings_prod
     python register_strategies_to_graphdb.py --debug --dry-run
-    python register_strategies_to_graphdb.py --modules QSExt.StrategyDef.example_strategy
+    python register_strategies_to_graphdb.py --modules QSExt.StrategyDef.stock_cn_strategy_example
     python register_strategies_to_graphdb.py --tags 趋势跟踪 实验策略
     python register_strategies_to_graphdb.py --skip-embedding
 
@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from QuantStudio.Core import setDefaultLogLevel
 setDefaultLogLevel(logging.DEBUG)
 from QuantStudio.Core import __QS_Logger__ as Logger
+from QuantStudio.BackTest.BTResultDB import HDF5BTResultDB
 from QSExt.QSRegistry.api import QSGraphDB
 from QSExt.StrategyDef.StrategyDefContent import (
     StrategyDef, StrategyDefSettings, StrategyDefInputBuilder, build_dep_sd,
@@ -94,6 +95,21 @@ def _init_graphdb(
     except Exception as e:
         Logger.warning(f"QSGraphDB 连接失败: {e}")
         return None
+
+
+
+# ---- 回测结果集辅助函数 -----------------------------------------------------------
+
+def _generate_group_name(strategy_def: StrategyDef, strategy_instance) -> str:
+    """为策略实例生成回测结果集 GroupName
+
+    优先使用 StrategyMeta.ResultKey 模板，否则使用默认格式 TargetTable/StrategyName。
+    """
+    meta = strategy_def.Meta
+    result_key = meta.ResultKey
+    if result_key:
+        return f"{result_key}/{strategy_instance.Name}"
+    return f"{meta.TargetTable}/{strategy_instance.Name}"
 
 
 # ---- 主逻辑 --------------------------------------------------------------------
@@ -185,6 +201,53 @@ def main(settings_path: str = "settings", **cmd_overrides):
                 Logger.error(f"批量注册失败: {e}")
                 success_count = 0
 
+            # 5a-2. 补建 (因子表)-[:属于因子库]->(因子库) 关系
+            target_db_name = settings.target_db
+            if isinstance(target_db_name, list):
+                target_db_name = target_db_name[0]
+            if target_db_name and target_db_name in pool:
+                target_fdb = pool[target_db_name]
+                fgdb.registerFactorDB(target_fdb)
+                target_tables = {sd.Meta.TargetTable for sd in all_strategy_defs if sd.Meta.TargetTable}
+                for table_name in target_tables:
+                    fgdb._runCypher(
+                        """
+                        MATCH (t:`因子表` {Name: $table_name})
+                        MATCH (d:`因子库` {Name: $fdb_name})
+                        MERGE (t)-[:`属于因子库`]->(d)
+                        """,
+                        {"table_name": table_name, "fdb_name": target_fdb.Name}
+                    )
+                    Logger.info(f"已关联因子表: {table_name} → {target_fdb.Name}")
+
+            # 5b. 注册回测结果集 / 回测结果库（如果配置了 bt_store）
+            if settings.bt_store:
+                resultset_count = 0
+                try:
+                    bt_result_db = HDF5BTResultDB(args=dict(settings.bt_store.args))
+                    fgdb.storeBTResultDB(bt_result_db, user_id=user_id)
+
+                    for strategy_def in all_strategy_defs:
+                        base_tags = (extra_tags +
+                                    [strategy_def.Meta.TargetTable,
+                                     strategy_def.Meta.IDType,
+                                     strategy_def.Meta.Author] +
+                                    list(strategy_def.Meta.Tags))
+
+                        for strategy_instance in strategy_def.StrategyList:
+                            group_name = _generate_group_name(strategy_def, strategy_instance)
+                            fgdb.storeBTResultSet(
+                                group_name=group_name,
+                                bt_result_db_name=bt_result_db.Name,
+                                strategy_qsid=strategy_instance.QSID,
+                                tags=base_tags,
+                                user_id=user_id,
+                            )
+                            resultset_count += 1
+                    Logger.info(f"回测结果集注册完成: {resultset_count} 个")
+                except Exception as e:
+                    Logger.error(f"回测结果集注册失败: {e}")
+
             # 6. 图统计
             try:
                 stats = fgdb.getGraphStats()
@@ -219,6 +282,11 @@ def _dry_run(settings: StrategyDefSettings):
     Logger.info(f"Neo4j 配置: {settings.neo4j_config_path}")
     Logger.info(f"嵌入模型: {settings.embedding_model} (dim={settings.embedding_dim})")
     Logger.info(f"跳过嵌入: {settings.skip_embedding}")
+    if settings.bt_store:
+        Logger.info(f"回测结果存储: {settings.bt_store.name} ({settings.bt_store.resolved_class_name})")
+        Logger.info(f"  参数: {settings.bt_store.args}")
+    else:
+        Logger.info("回测结果存储: 未配置")
 
 
 def _parse_args():
@@ -231,7 +299,7 @@ def _parse_args():
   python register_strategies_to_graphdb.py
   python register_strategies_to_graphdb.py --settings settings_prod
   python register_strategies_to_graphdb.py --debug --dry-run
-  python register_strategies_to_graphdb.py --modules QSExt.StrategyDef.example_strategy
+  python register_strategies_to_graphdb.py --modules QSExt.StrategyDef.stock_cn_strategy_example
   python register_strategies_to_graphdb.py --tags 趋势跟踪 实验策略
   python register_strategies_to_graphdb.py --skip-embedding
         """,

@@ -57,6 +57,8 @@ _SCHEMA_CONSTRAINTS = [
     "CREATE CONSTRAINT storer_qsid IF NOT EXISTS FOR (s:`因子存储器`) REQUIRE s.QSID IS UNIQUE",
     "CREATE CONSTRAINT strategy_qsid IF NOT EXISTS FOR (s:`策略`) REQUIRE s.QSID IS UNIQUE",
     "CREATE CONSTRAINT script_qsid IF NOT EXISTS FOR (s:`脚本`) REQUIRE s.QSID IS UNIQUE",
+    "CREATE CONSTRAINT bt_resultdb_name IF NOT EXISTS FOR (d:`回测结果库`) REQUIRE d.Name IS UNIQUE",
+    "CREATE CONSTRAINT bt_resultset_name IF NOT EXISTS FOR (s:`回测结果集`) REQUIRE s.Name IS UNIQUE",
 ]
 
 _SCHEMA_INDEXES = [
@@ -86,6 +88,8 @@ _SCHEMA_INDEXES = [
     "CREATE INDEX script_entry IF NOT EXISTS FOR (s:`脚本`) ON (s.EntryFunction)",
     "CREATE INDEX factor_def_script IF NOT EXISTS FOR (f:`因子`) ON (f.DefScriptQSID)",
     "CREATE INDEX strategy_def_script IF NOT EXISTS FOR (s:`策略`) ON (s.DefScriptQSID)",
+    "CREATE INDEX bt_resultdb_class IF NOT EXISTS FOR (d:`回测结果库`) ON (d.ClassName)",
+    "CREATE INDEX bt_resultset_group IF NOT EXISTS FOR (s:`回测结果集`) ON (s.GroupName)",
 ]
 
 # endregion
@@ -1231,6 +1235,209 @@ class QSGraphDB(QSNeo4jObject):
             {"qsid": qsid}
         )
         self._QS_Logger.info(f"已删除因子存储器: {qsid}")
+
+    # endregion
+
+    # region 回测结果库存储（BTResultDB / BTResultSet）
+
+    def storeBTResultDB(self, bt_result_db, user_id: Optional[str] = None) -> str:
+        """注册回测结果库到图数据库
+
+        对标 registerFactorDB() / registerRiskDB()，存储回测结果库的连接信息。
+        节点标签 :`回测结果库`，唯一键为 Name。
+
+        Args:
+            bt_result_db: BTResultDB 实例（如 HDF5BTResultDB）
+            user_id: 资源归属用户 ID
+
+        Returns:
+            回测结果库名称
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+        # 序列化 QSArgs（排除不可序列化的字段）
+        qsargs_dict = bt_result_db._QSArgs.model_dump()
+        qsargs_serializable = {}
+        for k, v in qsargs_dict.items():
+            qsargs_serializable[k] = _sanitizeForJSON(v)
+
+        props = {
+            "Name": bt_result_db.Name,
+            "ClassName": bt_result_db.__class__.__name__,
+            "ModulePath": bt_result_db.__class__.__module__,
+            "QSArgsJSON": json.dumps(qsargs_serializable, ensure_ascii=False),
+            "UpdatedAt": now,
+        }
+        if user_id:
+            props["userId"] = user_id
+
+        self._runCypher(
+            """
+            MERGE (d:`回测结果库` {Name: $name})
+            ON CREATE SET d += $props, d.CreatedAt = $now
+            ON MATCH SET d += $props
+            """,
+            {"name": bt_result_db.Name, "props": props, "now": now}
+        )
+        self._QS_Logger.info(
+            f"已注册回测结果库: {bt_result_db.Name} ({bt_result_db.__class__.__name__})"
+        )
+        return bt_result_db.Name
+
+    def storeBTResultSet(self, group_name: str, bt_result_db_name: str,
+                         strategy_qsid: Optional[str] = None,
+                         metadata: Optional[dict] = None,
+                         tags: Optional[List[str]] = None,
+                         user_id: Optional[str] = None) -> str:
+        """注册回测结果集节点到图数据库
+
+        回测结果集以 GroupName 为唯一标识，连接策略和回测结果库：
+        - (策略)-[:产生结果集]->(回测结果集)
+        - (回测结果集)-[:存储于]->(回测结果库)
+        - (回测结果集)-[:打标签]->(标签)
+
+        Args:
+            group_name: 结果集名称（GroupName，唯一标识）
+            bt_result_db_name: 目标回测结果库名称
+            strategy_qsid: 关联的策略节点 QSID（建立 产生结果集 关系）
+            metadata: 可选的元信息字典
+            tags: 可选的标签列表
+            user_id: 资源归属用户 ID
+
+        Returns:
+            回测结果集名称（即 GroupName）
+        """
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+
+        props = {
+            "Name": group_name,
+            "GroupName": group_name,
+            "UpdatedAt": now,
+        }
+        if user_id:
+            props["userId"] = user_id
+        if metadata:
+            props["MetadataJSON"] = json.dumps(_sanitizeForJSON(metadata), ensure_ascii=False)
+
+        self._runCypher(
+            """
+            MERGE (s:`回测结果集` {Name: $name})
+            ON CREATE SET s += $props, s.CreatedAt = $now
+            ON MATCH SET s += $props
+            """,
+            {"name": group_name, "props": props, "now": now}
+        )
+
+        # 建立与目标回测结果库的关系
+        self._runCypher(
+            """
+            MATCH (s:`回测结果集` {Name: $name})
+            MATCH (d:`回测结果库` {Name: $db_name})
+            MERGE (s)-[:`存储于`]->(d)
+            """,
+            {"name": group_name, "db_name": bt_result_db_name}
+        )
+
+        # 建立与策略的关系
+        if strategy_qsid:
+            self._runCypher(
+                """
+                MATCH (st:`策略` {QSID: $strategy_qsid})
+                MATCH (s:`回测结果集` {Name: $name})
+                MERGE (st)-[:`产生结果集`]->(s)
+                """,
+                {"strategy_qsid": strategy_qsid, "name": group_name}
+            )
+
+        # 标签
+        if tags:
+            self._runCypher(
+                """
+                UNWIND $rels AS rel
+                MERGE (t:`标签` {Name: rel.tag})
+                WITH t, rel
+                MATCH (s:`回测结果集` {Name: rel.name})
+                MERGE (s)-[:`打标签`]->(t)
+                """,
+                {"rels": [{"name": group_name, "tag": t} for t in tags]}
+            )
+
+        self._QS_Logger.info(
+            f"已注册回测结果集: {group_name} → {bt_result_db_name}"
+        )
+        return group_name
+
+    def getBTResultDBByName(self, name: str) -> Optional[Dict]:
+        """按名称查询回测结果库节点"""
+        results = self._runCypher(
+            "MATCH (d:`回测结果库` {Name: $name}) RETURN d",
+            {"name": name}
+        )
+        return results[0]["d"] if results else None
+
+    def searchBTResultSets(self, strategy_qsid: Optional[str] = None,
+                           bt_resultdb_name: Optional[str] = None,
+                           group_name: Optional[str] = None,
+                           limit: int = 100) -> List[Dict]:
+        """搜索回测结果集
+
+        Args:
+            strategy_qsid: 关联的策略 QSID
+            bt_resultdb_name: 目标回测结果库名称
+            group_name: GroupName（模糊匹配）
+            limit: 返回数量上限
+        """
+        conditions = []
+        params = {"limit": limit}
+        if group_name:
+            conditions.append("s.GroupName CONTAINS $group_name")
+            params["group_name"] = group_name
+        if bt_resultdb_name:
+            conditions.append("d.Name = $db_name")
+            params["db_name"] = bt_resultdb_name
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        if strategy_qsid:
+            results = self._runCypher(
+                f"""
+                MATCH (st:`策略` {{QSID: $strategy_qsid}})-[:`产生结果集`]->(s:`回测结果集`)
+                OPTIONAL MATCH (s)-[:`存储于`]->(d:`回测结果库`)
+                {where_clause}
+                RETURN s, d.Name AS resultdb_name
+                ORDER BY s.GroupName LIMIT $limit
+                """,
+                {**params, "strategy_qsid": strategy_qsid}
+            )
+        elif bt_resultdb_name:
+            results = self._runCypher(
+                f"""
+                MATCH (s:`回测结果集`)-[:`存储于`]->(d:`回测结果库` {{Name: $db_name}})
+                {where_clause}
+                RETURN s, d.Name AS resultdb_name
+                ORDER BY s.GroupName LIMIT $limit
+                """,
+                params
+            )
+        else:
+            results = self._runCypher(
+                f"""
+                MATCH (s:`回测结果集`)
+                OPTIONAL MATCH (s)-[:`存储于`]->(d:`回测结果库`)
+                {where_clause}
+                RETURN s, d.Name AS resultdb_name
+                ORDER BY s.Name LIMIT $limit
+                """,
+                params
+            )
+        return [{"result_set": r["s"], "resultdb_name": r.get("resultdb_name")} for r in results]
+
+    def deleteBTResultSet(self, group_name: str) -> None:
+        """删除回测结果集节点"""
+        self._runCypher(
+            "MATCH (s:`回测结果集` {Name: $name}) DETACH DELETE s",
+            {"name": group_name}
+        )
+        self._QS_Logger.info(f"已删除回测结果集: {group_name}")
 
     # endregion
 
@@ -2851,7 +3058,7 @@ class QSGraphDB(QSNeo4jObject):
         为每个策略实例（StrategyList 中的每一项）创建 (:策略) 节点，并建立依赖关系：
         - (策略)-[:依赖因子]->(:因子) — FactorDeps 中声明的因子依赖
         - (策略)-[:依赖策略]->(:策略) — StrategyDeps 中声明的策略间依赖
-        - (策略)-[:输出到]->(:因子表) — 策略信号输出目标表
+        - (策略)-[:存入因子表]->(:因子表) — 策略信号输出目标表
         - (策略)-[:打标签]->(:标签) — 分类标签
 
         Args:
@@ -2947,7 +3154,7 @@ class QSGraphDB(QSNeo4jObject):
                 MERGE (s)-[:`依赖策略`]->(t)
             """, {"rels": strategy_dep_rels})
 
-        # 3c. (策略)-[:输出到]->(:因子表) — TargetTable
+        # 3c. (策略)-[:存入因子表]->(:因子表) — TargetTable
         output_rels = []
         for sd in strategies:
             if sd.Meta.TargetTable:
@@ -2961,7 +3168,7 @@ class QSGraphDB(QSNeo4jObject):
                 UNWIND $rels AS rel
                 MATCH (s:`策略` {QSID: rel.s_qsid})
                 MERGE (t:`因子表` {Name: rel.target_table})
-                MERGE (s)-[:`输出到`]->(t)
+                MERGE (s)-[:`存入因子表`]->(t)
             """, {"rels": output_rels})
 
         # Phase 4: 标签
@@ -4091,6 +4298,24 @@ class QSGraphDB(QSNeo4jObject):
         )
         return results
 
+    def clearAll(self, confirm: bool = False) -> Dict[str, int]:
+        """清空图数据库中所有节点和关系
+
+        Args:
+            confirm: 必须为 True 才执行，防止误操作
+
+        Returns:
+            删除前的节点统计（便于恢复确认）
+        """
+        if not confirm:
+            raise ValueError("clearAll() 需要 confirm=True 才能执行，防止误操作")
+        stats_before = self.getGraphStats()
+        self._runCypher("MATCH (n) DETACH DELETE n")
+        self._QS_Logger.info(
+            f"图库已清空，删除前节点数: {sum(v for k, v in stats_before.items() if not any(c in k for c in ['依赖', '使用', '属于', '打标', '产生', '写入', '存入', '输出', '运行']))}"
+        )
+        return stats_before
+
     def getGraphStats(self) -> Dict[str, int]:
         """返回各类节点和关系的计数统计"""
         results = self._runCypher("""
@@ -4102,7 +4327,7 @@ class QSGraphDB(QSNeo4jObject):
         for r in results:
             stats[r["label"]] = r["cnt"]
         # 补充未出现的标签为 0
-        for label in ["因子", "算子", "因子表", "因子库", "风险库", "风险表", "组合优化器", "标签", "回测", "回测结果", "报告", "因子存储器", "策略"]:
+        for label in ["因子", "算子", "因子表", "因子库", "风险库", "风险表", "组合优化器", "标签", "回测", "回测结果", "报告", "因子存储器", "策略", "回测结果库", "回测结果集"]:
             stats.setdefault(label, 0)
         # 关系计数
         rel_results = self._runCypher("""
@@ -4112,7 +4337,7 @@ class QSGraphDB(QSNeo4jObject):
         """)
         for r in rel_results:
             stats[r["rel_type"]] = r["cnt"]
-        for rel in ["依赖", "使用算子", "属于因子表", "属于因子库", "属于风险库", "使用优化器", "依赖风险表", "打标签", "产生结果", "产生报告", "有报告", "写入因子表", "存入因子表", "依赖因子", "依赖策略", "输出到", "运行策略"]:
+        for rel in ["依赖", "使用算子", "属于因子表", "属于因子库", "属于风险库", "使用优化器", "依赖风险表", "打标签", "产生结果", "产生报告", "有报告", "写入因子表", "存入因子表", "依赖因子", "依赖策略", "运行策略", "产生结果集", "存储于"]:
             stats.setdefault(rel, 0)
         return stats
 

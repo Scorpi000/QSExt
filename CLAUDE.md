@@ -225,7 +225,8 @@ QSExt/StrategyDef/
 ├── scripts/
 │   ├── run_strategy_def.py                 # 执行入口
 │   └── register_strategies_to_graphdb.py   # 图数据库注册
-└── example_strategy.py                     # 示例策略
+├── stock_cn_strategy_example.py            # 示例策略（.py 模式）
+└── stock_cn_strategy_example.ipynb         # 示例策略（notebook 自足模式）
 ```
 
 策略定义脚本（业务模块）置于使用项目中，通过 `from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput` 引用框架。

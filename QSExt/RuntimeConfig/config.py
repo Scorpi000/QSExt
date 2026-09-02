@@ -128,6 +128,10 @@ class DBPool:
             )
         return self._instances[name]
 
+    def __contains__(self, name: str) -> bool:
+        """支持 `name in pool` 操作。"""
+        return name in self._instances
+
     def get_source(self, name: Optional[str] = None):
         """获取数据源库。name=None 时返回第一个 role='source' 的库。"""
         if name:
@@ -474,7 +478,7 @@ class RuntimeSettings(__QS_Args__):
                 id_selection=p.get("id_selection", {"type": "all"}),
                 factor_modules=p.get("factor_modules", []),
                 strategy_modules=p.get("strategy_modules", []),
-                section_id_list=p.get("section_id_list", []),
+                section_id_list=p.get("section_id_list", {}),
                 proxy_tables=p.get("proxy_tables", None),
             ))
         return profiles

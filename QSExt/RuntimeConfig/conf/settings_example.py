@@ -111,14 +111,19 @@ ID_PROFILES = [
     {
         "id_type": "A股",
         "id_selection": {"type": "list", "ids": ["000001.SZ", "000002.SZ", "000003.SZ"]},
-        "factor_modules": [
-            "QSExt.FactorDef.stock_cn_factor_example1",
-            "QSExt.FactorDef.stock_cn_factor_example2",
-        ],
+        # "factor_modules": [
+        #     "QSExt.FactorDef.stock_cn_factor_example1",
+        #     "QSExt.FactorDef.stock_cn_factor_example2",
+        # ],
         "strategy_modules": [
-            # "QSExt.StrategyDef.example_strategy",
+            "QSExt.StrategyDef.stock_cn_strategy_example",
         ],
-        # "section_id_list": ["000001.SZ", "600000.SH"],
+        # section_id_list 与 id_selection 格式一致:
+        #   {"type": "all"}                       — 全量
+        #   {"type": "current"}                   — 当前截面
+        #   {"type": "list", "ids": [...]}        — 显式列表
+        # 留空 {} 则与 id_selection 保持一致
+        "section_id_list": {"type": "list", "ids": ["000001.SZ", "000002.SZ", "000003.SZ"]},
         # "proxy_tables": ["stock_cn_status", "stock_cn_day_bar_nafilled"],
     },
 ]
@@ -143,7 +148,7 @@ FACTOR_STORER_CONFIG = {
 BT_STORE = {
     "name": "BTResultDB",
     "class": "HDF5BTResultDB",
-    "args": {"MainDir": r"D:\Data\BTResult"},
+    "args": {"MainDir": r"D:\Data\HDF5BTResult"},
 }
 
 

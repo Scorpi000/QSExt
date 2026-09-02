@@ -31,6 +31,7 @@ from QuantStudio.Core import __QS_Logger__ as Logger
 from QuantStudio.Core.CalcEngine import Engine
 from QuantStudio.Core.ParallelEngine import ParallelEngine
 from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
+from QuantStudio.BackTest.BackTestModel import DTInitData, DTLocalContext
 from QuantStudio.Factor.FactorStorer import FactorStorer
 from QuantStudio.BackTest.Strategy.Strategy import AccountStats
 from QuantStudio.BackTest.BTResultDB import HDF5BTResultDB
@@ -93,9 +94,7 @@ def main(settings_path: str = "settings", register_graph: bool = False, **cmd_ov
                 Logger.warning(f"[{profile.id_type}] IDs 为空，跳过该 profile")
                 continue
 
-            storer_list, fwd_list, init_list = _build_storers(
-                settings, pool, sdi, modules, dtruler=dtruler,
-            )
+            storer_list, fwd_list, init_list = _build_storers(settings, pool, sdi, modules, dtruler=dtruler)
             all_storers.extend(storer_list)
             all_fwd.extend(fwd_list)
             all_init.extend(init_list)
@@ -170,7 +169,7 @@ def _build_storers(settings, pool, sdi, modules, dtruler=None):
         }
         iStorer = FactorStorer(deps=signal_factors, args=storer_args)
         StorerList.append(iStorer)
-        fwd_data.append(FactorLocalContext(DTs=sdi.DTs, IDs=sdi.IDs))
+        fwd_data.append(FactorLocalContext(DTs=sdi.DTs, IDs=sdi.IDs, SectionIDs=sdi.SectionIDs))
         init_data.append(FactorInitData(DTRange=(sdi.DTs[0], sdi.DTs[-1]), SectionIDs=sdi.SectionIDs))
 
         Logger.info(f"  → TargetTable='{target_table}', 信号数={len(signal_factors)}, MaxLookBack={iStrategyDef.Meta.MaxLookBack}")
@@ -218,43 +217,30 @@ def _build_bt_storers(settings, strategy_defs, sdi, dtruler=None):
 
         id_type = iStrategyDef.Meta.IDType
         target_table = iStrategyDef.Meta.TargetTable
-
-        for strategy_factor in iStrategyDef.StrategyList:
-            strategy_name = strategy_factor.Name
-
-            # 生成 GroupName
-            result_key = iStrategyDef.Meta.ResultKey
-            if result_key:
-                group_name = result_key.format(
-                    IDType=id_type,
-                    TargetTable=target_table,
-                    StrategyName=strategy_name,
-                )
-            else:
-                group_name = f"{id_type}/{target_table}/{strategy_name}"
-
-            # 从 __STRATEGY_META__ 提取 Metadata
-            metadata = {}
-            for key in ("IDType", "Description", "Author", "Tags", "DefScriptPath", "TargetTable"):
-                val = getattr(iStrategyDef.Meta, key, None)
-                if val is not None and val != "" and val != []:
-                    metadata[key] = val
-
-            # AccountStats → BTStorer
-            account_stats = AccountStats(deps=[strategy_factor])
-            bt_storer = BTStorer(
-                deps=[account_stats],
-                args={
-                    "TargetDB": bt_result_db,
-                    "GroupName": group_name,
-                    "Metadata": metadata or None,
-                },
-            )
-            StorerList.append(bt_storer)
-            fwd_data.append(FactorLocalContext(DTs=sdi.DTs, IDs=sdi.IDs))
-            init_data.append(FactorInitData(DTRange=(sdi.DTs[0], sdi.DTs[-1]), SectionIDs=sdi.SectionIDs))
-
-            Logger.info(f"  → BTStorer: GroupName='{group_name}', 策略='{strategy_name}'")
+        # 生成 GroupName
+        result_key = iStrategyDef.Meta.ResultKey
+        if result_key:
+            group_name = result_key
+        else:
+            group_name = target_table
+        # 从 __STRATEGY_META__ 提取 Metadata
+        metadata = {}
+        for key in ("IDType", "Description", "Author", "Tags", "DefScriptPath", "TargetTable"):
+            val = getattr(iStrategyDef.Meta, key, None)
+            if val is not None and val != "" and val != []:
+                metadata[key] = val
+        bt_storer = BTStorer(
+            deps=[AccountStats(account=strategy_factor, args={"AccountSection": sdi.SectionIDs, "Name": strategy_factor.Name}) for strategy_factor in iStrategyDef.StrategyList],
+            args={
+                "TargetDB": bt_result_db,
+                "GroupName": group_name,
+                "Metadata": metadata or None,
+            },
+        )
+        StorerList.append(bt_storer)
+        fwd_data.append(DTLocalContext(DTs=sdi.DTs))
+        init_data.append(DTInitData(DTRange=(sdi.DTs[0], sdi.DTs[-1])))
+        Logger.info(f"  → BTStorer: GroupName='{group_name}', 策略定义='{target_table}'")
 
     return StorerList, fwd_data, init_data
 

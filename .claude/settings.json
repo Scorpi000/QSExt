@@ -57,10 +57,26 @@
       "Bash(sort -k5,6)",
       "mcp__qs-registry__get_strategy_info",
       "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_MarketRegime/test_regime_report.py -v -s)",
-      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_MarketRegime/test_regime_report.py::TestRegimePerformanceReport::test_backward_compute -v -s)"
+      "Bash(\"C:\\\\Users\\\\hst\\\\Project\\\\PythonEnv\\\\QS\\\\Scripts\\\\python.exe\" -m pytest tests/test_MarketRegime/test_regime_report.py::TestRegimePerformanceReport::test_backward_compute -v -s)",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"import ast; ast.parse\\(open\\(r'd:\\\\HST\\\\QSExt\\\\QSExt\\\\QSRegistry\\\\QSGraphDB.py', encoding='utf-8'\\).read\\(\\)\\); print\\('QSGraphDB.py: OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"import ast; ast.parse\\(open\\(r'd:\\\\HST\\\\QSExt\\\\QSExt\\\\StrategyDef\\\\scripts\\\\register_strategies_to_graphdb.py', encoding='utf-8'\\).read\\(\\)\\); print\\('register_strategies_to_graphdb.py: OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('d:/HST/QSExt/QSExt/QSRegistry/QSGraphDB.py', encoding='utf-8'\\).read\\(\\)\\); print\\('QSGraphDB.py: OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('d:/HST/QSExt/QSExt/StrategyDef/scripts/register_strategies_to_graphdb.py', encoding='utf-8'\\).read\\(\\)\\); print\\('register_strategies_to_graphdb.py: OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.QSRegistry.QSGraphDB import QSGraphDB; print\\('QSGraphDB import OK'\\); print\\([m for m in dir\\(QSGraphDB\\) if 'BT' in m]\\)\")",
+      "Bash(PYTHONPATH='D:/HST/QuantStudio;D:/HST/QSExt' D:/PythonEnv/QS312/Scripts/python.exe -c ' *)",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('d:/HST/QSExt/QSExt/QSRegistry/QSGraphDB.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('d:/HST/QSExt/QSExt/StrategyDef/scripts/run_strategy_def.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(PYTHONPATH='D:/HST/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch' D:/PythonEnv/QS312/Scripts/python.exe -c ' *)",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt;D:/HST/QSResearch\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -m QSExt.StrategyDef.scripts.run_strategy_def --settings QSExt.StrategyDef.conf.settings_local)",
+      "Bash(PYTHONPATH=D:/HST/QuantStudio D:/PythonEnv/QS312/Scripts/python.exe -c ' *)",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"from QSExt.QSRegistry.QSGraphDB import QSGraphDB; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.QSRegistry.QSGraphDB import QSGraphDB; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.StrategyDef.scripts.register_strategies_to_graphdb import main; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -m QSExt.StrategyDef.scripts.register_strategies_to_graphdb --settings QSExt.RuntimeConfig.conf.settings_example --skip-embedding)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs"
+      "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",
+      "D:\\HST\\QSResearch\\QSResearch\\FactorDef\\conf"
     ]
   },
   "profiles": {

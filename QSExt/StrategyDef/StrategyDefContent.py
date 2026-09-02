@@ -479,7 +479,7 @@ class StrategyDefProfile(__QS_Args__):
     id_type: str = Field(default="A股", title="证券类型")
     id_selection: dict = Field(default={"type": "all"}, title="ID 选择策略")
     strategy_modules: list = Field(default=[], title="策略模块列表")
-    section_id_list: List[str] = Field(default=[], title="自定义截面证券列表")
+    section_id_list: dict = Field(default={}, title="自定义截面证券列表", description="与 id_selection 格式一致，留空 {} 则与 id_selection 相同")
 
 
 class StrategyDefSettings(RuntimeSettings):
@@ -525,7 +525,7 @@ class StrategyDefSettings(RuntimeSettings):
                 id_type=p.get("id_type", "A股"),
                 id_selection=p.get("id_selection", {"type": "all"}),
                 strategy_modules=p.get("strategy_modules", []),
-                section_id_list=p.get("section_id_list", []),
+                section_id_list=p.get("section_id_list", {}),
             ))
         return profiles
 
@@ -641,18 +641,27 @@ class StrategyDefInputBuilder:
         method = getattr(id_source, source_method)
         return method(is_current=is_current, **source_method_args)
 
-    def resolve_ids_for(self, profile: "StrategyDefProfile") -> Tuple[List[str], List[str]]:
-        sel = profile.id_selection
+    def _resolve_id_sel(self, sel: dict, id_type: str) -> List[str]:
+        """解析 ID 选择策略 dict。
+
+        支持:
+          - {"type": "all"}             — 全量 ID
+          - {"type": "current"}         — 当前截面 ID
+          - {"type": "list", "ids": [...]} — 显式列表
+        """
         stype = sel.get("type", "all")
         if stype == "all":
-            ids = self._get_ids_from_source(id_type=profile.id_type, is_current=False)
+            return self._get_ids_from_source(id_type=id_type, is_current=False)
         elif stype == "current":
-            ids = self._get_ids_from_source(id_type=profile.id_type, is_current=True)
+            return self._get_ids_from_source(id_type=id_type, is_current=True)
         elif stype == "list":
-            ids = sel.get("ids", [])
+            return sel.get("ids", [])
         else:
-            ids = self._get_ids_from_source(id_type=profile.id_type, is_current=False)
-        section_ids = profile.section_id_list if profile.section_id_list else ids
+            return self._get_ids_from_source(id_type=id_type, is_current=False)
+
+    def resolve_ids_for(self, profile: "StrategyDefProfile") -> Tuple[List[str], List[str]]:
+        ids = self._resolve_id_sel(profile.id_selection, profile.id_type)
+        section_ids = self._resolve_id_sel(profile.section_id_list, profile.id_type) if profile.section_id_list else ids
         return ids, section_ids
 
     def resolve_fdb(self) -> Dict[str, FactorDB]:
