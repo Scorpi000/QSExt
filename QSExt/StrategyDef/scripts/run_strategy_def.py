@@ -32,6 +32,9 @@ from QuantStudio.Core.CalcEngine import Engine
 from QuantStudio.Core.ParallelEngine import ParallelEngine
 from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
 from QuantStudio.Factor.FactorStorer import FactorStorer
+from QuantStudio.BackTest.Strategy.Strategy import AccountStats
+from QuantStudio.BackTest.BTResultDB import HDF5BTResultDB
+from QuantStudio.BackTest.BTStorer import BTStorer
 from QSExt.StrategyDef.StrategyDefContent import StrategyDefSettings, StrategyDefInputBuilder, build_dep_sd
 
 
@@ -172,6 +175,87 @@ def _build_storers(settings, pool, sdi, modules, dtruler=None):
 
         Logger.info(f"  → TargetTable='{target_table}', 信号数={len(signal_factors)}, MaxLookBack={iStrategyDef.Meta.MaxLookBack}")
 
+    # 构建回测结果存储节点
+    bt_storers, bt_fwd, bt_init = _build_bt_storers(settings, strategy_defs, sdi, dtruler=dtruler)
+    StorerList.extend(bt_storers)
+    fwd_data.extend(bt_fwd)
+    init_data.extend(bt_init)
+
+    return StorerList, fwd_data, init_data
+
+
+def _build_bt_storers(settings, strategy_defs, sdi, dtruler=None):
+    """构建回测结果存储节点（AccountStats → BTStorer）
+
+    Args:
+        settings: 运行时配置
+        strategy_defs: build_dep_sd 返回的 requested_results 列表
+        sdi: 策略定义输入
+        dtruler: 时点标尺
+
+    Returns:
+        (bt_storer_list, bt_fwd_data, bt_init_data)
+    """
+    if settings.bt_store is None:
+        return [], [], []
+    if dtruler is None:
+        dtruler = sdi.DTRuler
+
+    bt_db_def = settings.bt_store
+    bt_db_args = dict(bt_db_def.args)
+    # 确保输出目录存在
+    if "MainDir" in bt_db_args:
+        os.makedirs(bt_db_args["MainDir"], exist_ok=True)
+    bt_result_db = HDF5BTResultDB(args=bt_db_args)
+
+    StorerList = []
+    fwd_data = []
+    init_data = []
+
+    for iStrategyDef, strategy_meta in strategy_defs:
+        if iStrategyDef is None:
+            continue
+
+        id_type = iStrategyDef.Meta.IDType
+        target_table = iStrategyDef.Meta.TargetTable
+
+        for strategy_factor in iStrategyDef.StrategyList:
+            strategy_name = strategy_factor.Name
+
+            # 生成 GroupName
+            result_key = iStrategyDef.Meta.ResultKey
+            if result_key:
+                group_name = result_key.format(
+                    IDType=id_type,
+                    TargetTable=target_table,
+                    StrategyName=strategy_name,
+                )
+            else:
+                group_name = f"{id_type}/{target_table}/{strategy_name}"
+
+            # 从 __STRATEGY_META__ 提取 Metadata
+            metadata = {}
+            for key in ("IDType", "Description", "Author", "Tags", "DefScriptPath", "TargetTable"):
+                val = getattr(iStrategyDef.Meta, key, None)
+                if val is not None and val != "" and val != []:
+                    metadata[key] = val
+
+            # AccountStats → BTStorer
+            account_stats = AccountStats(deps=[strategy_factor])
+            bt_storer = BTStorer(
+                deps=[account_stats],
+                args={
+                    "TargetDB": bt_result_db,
+                    "GroupName": group_name,
+                    "Metadata": metadata or None,
+                },
+            )
+            StorerList.append(bt_storer)
+            fwd_data.append(FactorLocalContext(DTs=sdi.DTs, IDs=sdi.IDs))
+            init_data.append(FactorInitData(DTRange=(sdi.DTs[0], sdi.DTs[-1]), SectionIDs=sdi.SectionIDs))
+
+            Logger.info(f"  → BTStorer: GroupName='{group_name}', 策略='{strategy_name}'")
+
     return StorerList, fwd_data, init_data
 
 
@@ -229,6 +313,11 @@ def _dry_run(settings: StrategyDefSettings):
         for item in p.strategy_modules:
             Logger.info(f"    - {item}")
     Logger.info(f"输出目标: {settings.target_db}")
+    if settings.bt_store:
+        Logger.info(f"回测结果存储: {settings.bt_store.name} ({settings.bt_store.resolved_class_name})")
+        Logger.info(f"  参数: {settings.bt_store.args}")
+    else:
+        Logger.info("回测结果存储: 未配置")
 
 
 def _parse_args():

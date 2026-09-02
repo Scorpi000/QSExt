@@ -65,6 +65,13 @@ class StrategyMeta(__QS_Args__):
     DBDeps: Dict[str, str] = Field(default={}, title="因子库依赖")
     ModelArgs: Dict[str, str] = Field(default={}, title="期望的模型参数")
 
+    # ---- 回测结果存储 ----
+    ResultKey: Optional[str] = Field(
+        default=None, title="回测结果键名模板",
+        description="控制 BTStorer 的 GroupName 格式，支持 {StrategyName}、{IDType}、{TargetTable} 占位符，"
+                    "None 时使用默认格式 {IDType}/{TargetTable}/{StrategyName}",
+    )
+
 
 # ============================================================
 # StrategyDef — 策略定义包装类
@@ -476,7 +483,29 @@ class StrategyDefProfile(__QS_Args__):
 
 
 class StrategyDefSettings(RuntimeSettings):
-    """策略定义运行时配置 —— 继承统一 RuntimeSettings，无专属字段。"""
+    """策略定义运行时配置 —— 继承统一 RuntimeSettings，新增回测结果存储配置。"""
+
+    bt_store: Optional[DBDef] = Field(
+        default=None, title="回测结果存储库定义",
+        description="仿照 factor_databases 中单项的格式，包含 name、class、args，为 None 则不存储回测结果",
+    )
+
+    @classmethod
+    def from_dict(cls, data: dict, hooks: Optional[dict] = None) -> "StrategyDefSettings":
+        """从字典构造，额外处理 bt_store dict → DBDef 转换。"""
+        data = dict(data)
+        bt_store = data.pop("bt_store", None)
+        if isinstance(bt_store, dict):
+            data["bt_store"] = DBDef(
+                name=bt_store.get("name", "BTResultDB"),
+                class_path=bt_store.get("class", bt_store.get("class_path", "HDF5BTResultDB")),
+                role=bt_store.get("role", "target"),
+                args=bt_store.get("args", {}),
+                config_file=bt_store.get("config_file"),
+            )
+        elif bt_store is not None:
+            data["bt_store"] = bt_store
+        return super().from_dict(data, hooks)
 
     @classmethod
     def from_module(cls, module_path: str = "settings", **cmd_overrides) -> "StrategyDefSettings":

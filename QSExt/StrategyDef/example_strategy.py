@@ -53,6 +53,9 @@ __STRATEGY_META__ = {
     "Tags": ["示例", "均线", "趋势跟踪"],
     "MaxLookBack": 120,
     "DefScriptPath": __file__,
+
+    # ---- 回测结果存储（可选） ----
+    # "ResultKey": "{IDType}/{TargetTable}/{StrategyName}",  # 控制 BTStorer 的 GroupName 格式
 }
 
 
