@@ -64,11 +64,11 @@ def main(settings_path: str = "settings", register_graph: bool = False, **cmd_ov
     # 2. 初始化 Builder
     with StrategyDefInputBuilder(settings) as builder:
         pool = builder._pool
-        profiles = settings.iter_profiles()
+        profiles = settings.iter_strategy_profiles()
 
-        Logger.info(f"ID_PROFILES: {len(profiles)} 个")
+        Logger.info(f"STRATEGY_PROFILES: {len(profiles)} 个")
         for i, p in enumerate(profiles):
-            Logger.info(f"  Profile {i+1}: id_type={p.id_type}, modules={len(p.strategy_modules)}")
+            Logger.info(f"  Profile {i+1}: modules={len(p.strategy_modules)}")
 
         # 3. 共享时间范围
         dts, dtruler = builder.resolve_dts()
@@ -88,13 +88,13 @@ def main(settings_path: str = "settings", register_graph: bool = False, **cmd_ov
             sdi = builder.build_for_profile(profile, dts=dts, dtruler=dtruler)
             modules = builder._resolve_modules_for(profile.strategy_modules)
 
-            Logger.info(f"[{profile.id_type}] IDs 数量: {len(ids)}, 策略模块: {len(modules)}")
+            Logger.info(f"IDs 数量: {len(ids)}, 策略模块: {len(modules)}")
 
             if not ids:
-                Logger.warning(f"[{profile.id_type}] IDs 为空，跳过该 profile")
+                Logger.warning(f"IDs 为空，跳过该 profile")
                 continue
 
-            storer_list, fwd_list, init_list = _build_storers(settings, pool, sdi, modules, dtruler=dtruler)
+            storer_list, fwd_list, init_list = _build_storers(settings, pool, sdi, modules, profile=profile, dtruler=dtruler)
             all_storers.extend(storer_list)
             all_fwd.extend(fwd_list)
             all_init.extend(init_list)
@@ -113,15 +113,19 @@ def main(settings_path: str = "settings", register_graph: bool = False, **cmd_ov
     Logger.info("策略定义流水线执行完成")
 
 
-def _build_storers(settings, pool, sdi, modules, dtruler=None):
+def _build_storers(settings, pool, sdi, modules, profile=None, dtruler=None):
     """构建 FactorStorer 列表"""
     if dtruler is None:
         dtruler = sdi.DTRuler
 
-    target_db_name = settings.target_db
+    target_db_name = (profile.target_db if profile and profile.target_db else settings.target_db)
     if isinstance(target_db_name, list):
         target_db_name = target_db_name[0]
     TDB = pool[target_db_name]
+
+    storer_config = dict(settings.factor_storer_config)
+    if profile and profile.factor_storer_config:
+        storer_config.update(profile.factor_storer_config)
 
     StorerList = []
     fwd_data = []
@@ -166,6 +170,7 @@ def _build_storers(settings, pool, sdi, modules, dtruler=None):
             "TargetFDB": TDB,
             "TargetTable": target_table,
             "TableMeta": group["table_meta"],
+            **storer_config,
         }
         iStorer = FactorStorer(deps=signal_factors, args=storer_args)
         StorerList.append(iStorer)
@@ -202,9 +207,6 @@ def _build_bt_storers(settings, strategy_defs, sdi, dtruler=None):
 
     bt_db_def = settings.bt_store
     bt_db_args = dict(bt_db_def.args)
-    # 确保输出目录存在
-    if "MainDir" in bt_db_args:
-        os.makedirs(bt_db_args["MainDir"], exist_ok=True)
     bt_result_db = HDF5BTResultDB(args=bt_db_args)
 
     StorerList = []
@@ -291,10 +293,13 @@ def _dry_run(settings: StrategyDefSettings):
     Logger.info(f"因子库:")
     for db_def in settings.factor_databases:
         Logger.info(f"  [{db_def.role}] {db_def.name} ({db_def.class_path})")
-    profiles = settings.iter_profiles()
-    Logger.info(f"ID_PROFILES ({len(profiles)} 个):")
+    Logger.info(f"SECTION_ID_SOURCES:")
+    for key, src in settings.section_id_sources.items():
+        Logger.info(f"  {key}: {src.get('type', '?')}")
+    profiles = settings.iter_strategy_profiles()
+    Logger.info(f"STRATEGY_PROFILES ({len(profiles)} 个):")
     for i, p in enumerate(profiles):
-        Logger.info(f"  Profile {i+1}: id_type={p.id_type}")
+        Logger.info(f"  Profile {i+1}: section_id_list={p.section_id_list}")
         Logger.info(f"    策略模块 ({len(p.strategy_modules)}):")
         for item in p.strategy_modules:
             Logger.info(f"    - {item}")

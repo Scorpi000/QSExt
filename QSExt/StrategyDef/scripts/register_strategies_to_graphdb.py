@@ -274,9 +274,9 @@ def _dry_run(settings: StrategyDefSettings):
     Logger.info(f"因子库:")
     for db_def in settings.factor_databases:
         Logger.info(f"  [{db_def.role}] {db_def.name} ({db_def.class_path})")
-    Logger.info(f"ID_PROFILES:")
-    for i, p in enumerate(settings.iter_profiles()):
-        Logger.info(f"  Profile {i+1}: id_type={p.id_type}, modules={len(p.strategy_modules)}")
+    Logger.info(f"STRATEGY_PROFILES:")
+    for i, p in enumerate(settings.iter_strategy_profiles()):
+        Logger.info(f"  Profile {i+1}: modules={len(p.strategy_modules)}")
         for item in p.strategy_modules:
             Logger.info(f"    - {item}")
     Logger.info(f"Neo4j 配置: {settings.neo4j_config_path}")
@@ -329,9 +329,7 @@ def _parse_args():
     if args.lookback is not None:
         cmd_overrides["lookback"] = args.lookback
     if args.modules is not None:
-        cmd_overrides["id_profiles"] = _build_profiles_from_modules(
-            args.modules, default_id_type=args.id_type
-        )
+        cmd_overrides["strategy_profiles"] = _build_profiles_from_modules(args.modules)
     if args.skip_embedding is not None:
         cmd_overrides["skip_embedding"] = args.skip_embedding
 
@@ -341,21 +339,10 @@ def _parse_args():
     return args, cmd_overrides
 
 
-def _build_profiles_from_modules(module_paths: list, default_id_type: str = "A股") -> list:
-    """按 IDType 分组模块"""
-    groups: dict = {}
-    for m in module_paths:
-        id_type = _read_id_type(m) or default_id_type
-        groups.setdefault(id_type, []).append(m)
-
-    profiles = []
-    for idt, mods in groups.items():
-        profiles.append({
-            "id_type": idt,
-            "strategy_modules": mods,
-        })
-        Logger.info(f"  Profile [{idt}]: {len(mods)} 个模块")
-    return profiles
+def _build_profiles_from_modules(module_paths: list) -> list:
+    """将模块列表构建为单个 profile"""
+    Logger.info(f"  构建 profile: {len(module_paths)} 个模块")
+    return [{"strategy_modules": module_paths}]
 
 
 def _read_id_type(module_path: str) -> Optional[str]:

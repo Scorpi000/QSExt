@@ -317,9 +317,9 @@ def _dry_run(settings: FactorDefSettings):
     Logger.info(f"因子库:")
     for db_def in settings.factor_databases:
         Logger.info(f"  [{db_def.role}] {db_def.name} ({db_def.class_path})")
-    Logger.info(f"ID_PROFILES:")
+    Logger.info(f"FACTOR_PROFILES:")
     for i, p in enumerate(settings.iter_profiles()):
-        Logger.info(f"  Profile {i+1}: id_type={p.id_type}, modules={len(p.factor_modules)}")
+        Logger.info(f"  Profile {i+1}: modules={len(p.factor_modules)}")
         for item in p.factor_modules:
             Logger.info(f"    - {item}")
     Logger.info(f"Neo4j 配置: {settings.neo4j_config_path}")
@@ -364,33 +364,17 @@ def _read_id_type(module_path: str) -> Optional[str]:
     return None
 
 
-def _build_profiles_from_modules(module_paths: list, default_id_type: str = "A股") -> list:
-    """按 IDType 分组模块，未声明 IDType 的用 default_id_type
-
-    每个模块尝试通过 __FACTOR_META__["IDType"] 自动检测证券类型，
-    然后将模块按 IDType 分组生成对应的 profile 列表。
+def _build_profiles_from_modules(module_paths: list) -> list:
+    """将模块列表构建为单个 profile
 
     Args:
         module_paths: 模块路径列表
-        default_id_type: 模块未声明 IDType 时的回退值
 
     Returns:
-        [{"id_type": "A股", "factor_modules": [...]}, ...]
+        [{"factor_modules": [...]}]
     """
-    groups: dict = {}
-    for m in module_paths:
-        id_type = _read_id_type(m) or default_id_type
-        groups.setdefault(id_type, []).append(m)
-
-    profiles = []
-    for idt, mods in groups.items():
-        profiles.append({
-            "id_type": idt,
-            "factor_modules": mods,  # 字符串列表，由 resolve_modules_for 统一处理
-        })
-        Logger.info(f"  Profile [{idt}]: {len(mods)} 个模块")
-
-    return profiles
+    Logger.info(f"  构建 profile: {len(module_paths)} 个模块")
+    return [{"factor_modules": module_paths}]
 
 
 def _parse_args():
@@ -438,9 +422,7 @@ def _parse_args():
     if args.lookback is not None:
         cmd_overrides["lookback"] = args.lookback
     if args.modules is not None:
-        cmd_overrides["id_profiles"] = _build_profiles_from_modules(
-            args.modules, default_id_type=args.id_type
-        )
+        cmd_overrides["factor_profiles"] = _build_profiles_from_modules(args.modules)
     if args.skip_embedding is not None:
         cmd_overrides["skip_embedding"] = args.skip_embedding
 

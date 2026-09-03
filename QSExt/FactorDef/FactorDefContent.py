@@ -130,12 +130,13 @@ class FactorDef(__QS_Args__):
 # ============================================================
 
 class FactorDefProfile(__QS_Args__):
-    """单个 IDType 维度的因子模块分组 —— 用于多 IDType 统一调度"""
-    id_type: str = Field(default="A股", title="证券类型")
-    id_selection: dict = Field(default={"type": "all"}, title="ID 选择策略")
+    """单个维度的因子模块分组"""
+    id_selection: str = Field(default="", title="ID 选择策略", description="引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.IDs")
     factor_modules: list = Field(default=[], title="因子模块列表")
-    section_id_list: dict = Field(default={}, title="自定义截面证券列表", description="与 id_selection 格式一致，留空 {} 则与 id_selection 相同")
+    section_id_list: str = Field(default="", title="截面 ID 列表", description="引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.SectionIDs")
     proxy_tables: Union[List[str], str, None] = Field(default=None, title="代理表", description="None=不代理, '*'=全部代理, ['t1','t2']=指定表代理")
+    target_db: str = Field(default="", title="输出目标库名", description="覆盖全局 TARGET_DB，空字符串使用全局值")
+    factor_storer_config: dict = Field(default={}, title="FactorStorer 参数", description="覆盖全局 FACTOR_STORER_CONFIG，空 dict 使用全局值")
 
 
 class FactorDefSettings(RuntimeSettings):
@@ -152,15 +153,16 @@ class FactorDefSettings(RuntimeSettings):
         return super().from_module(module_path, **cmd_overrides)
 
     def iter_profiles(self) -> List["FactorDefProfile"]:
-        """将 id_profiles 转换为 FactorDefProfile 列表"""
+        """将 factor_profiles 转换为 FactorDefProfile 列表"""
         profiles = []
-        for p in self.id_profiles:
+        for p in self.factor_profiles:
             profiles.append(FactorDefProfile(
-                id_type=p.get("id_type", "A股"),
-                id_selection=p.get("id_selection", {"type": "all"}),
+                id_selection=p.get("id_selection", ""),
                 factor_modules=p.get("factor_modules", []),
-                section_id_list=p.get("section_id_list", {}),
+                section_id_list=p.get("section_id_list", ""),
                 proxy_tables=p.get("proxy_tables", None),
+                target_db=p.get("target_db", ""),
+                factor_storer_config=p.get("factor_storer_config", {}),
             ))
         return profiles
 
@@ -271,47 +273,47 @@ class FactorDefInputBuilder:
         resampled = s.resample(pd_freq).last().dropna()
         return [dts[int(i)] for i in resampled.values]
 
-    def _get_ids_from_source(self, id_type: str, is_current: bool = False) -> List[str]:
-        """根据 id_type 从数据源获取证券 ID 列表。
+    def resolve_section_ids(self, section_key: str) -> List[str]:
+        """根据 SECTION_ID_SOURCES 的 key 解析截面 ID 列表。
 
-        使用 settings.section_id_sources 中配置的数据源名称、方法和方法参数。
-        自定义 id_type 只需在 settings.py 的 section_id_sources 中添加对应条目即可。
+        支持两种格式:
+          - {"type": "list", "ids": [...]}                              — 显式列表
+          - {"type": "fdb_method", "name": "...", "method": "...", "method_args": {...}} — 数据源方法调用
+
+        Args:
+            section_key: SECTION_ID_SOURCES 中的 key
+
+        Returns:
+            ID 列表
+
+        Raises:
+            KeyError: section_key 不存在于 SECTION_ID_SOURCES 中
         """
-        section_source = self.settings.section_id_sources.get(id_type, {})
-        if not section_source:
-            raise ValueError(
-                f"IDType '{id_type}' 未在 settings.section_id_sources 中配置，"
-                f"请添加对应的 {{name, method, method_args}} 配置项"
+        source = self.settings.section_id_sources.get(section_key)
+        if source is None:
+            available = list(self.settings.section_id_sources.keys())
+            raise KeyError(
+                f"SECTION_ID_SOURCES 中未找到 '{section_key}'，可用: {available}"
             )
-        source_name = section_source.get("name", "JYDB")
-        source_method = section_source.get("method", "getStockID")
-        source_method_args = section_source.get("method_args", {})
-        id_source = self._pool[source_name]
-        method = getattr(id_source, source_method)
-        return method(is_current=is_current, **source_method_args)
-
-    def _resolve_id_sel(self, sel: dict, id_type: str) -> List[str]:
-        """解析 ID 选择策略 dict。
-
-        支持:
-          - {"type": "all"}             — 全量 ID
-          - {"type": "current"}         — 当前截面 ID
-          - {"type": "list", "ids": [...]} — 显式列表
-        """
-        stype = sel.get("type", "all")
-        if stype == "all":
-            return self._get_ids_from_source(id_type=id_type, is_current=False)
-        elif stype == "current":
-            return self._get_ids_from_source(id_type=id_type, is_current=True)
-        elif stype == "list":
-            return sel.get("ids", [])
+        stype = source.get("type", "fdb_method")
+        if stype == "list":
+            return source.get("ids", [])
+        elif stype == "fdb_method":
+            db_name = source.get("name", "JYDB")
+            method_name = source.get("method", "getStockID")
+            method_args = source.get("method_args", {})
+            db = self._pool[db_name]
+            return getattr(db, method_name)(**method_args)
         else:
-            return self._get_ids_from_source(id_type=id_type, is_current=False)
+            raise ValueError(
+                f"截面 '{section_key}' 的类型 '{stype}' 不支持，"
+                f"期望 'list' 或 'fdb_method'"
+            )
 
     def resolve_ids_for(self, profile: "FactorDefProfile") -> Tuple[List[str], List[str]]:
         """根据 FactorDefProfile 解析 IDs 和 SectionIDs"""
-        ids = self._resolve_id_sel(profile.id_selection, profile.id_type)
-        section_ids = self._resolve_id_sel(profile.section_id_list, profile.id_type) if profile.section_id_list else ids
+        ids = self.resolve_section_ids(profile.id_selection)
+        section_ids = self.resolve_section_ids(profile.section_id_list) if profile.section_id_list else ids
         return ids, section_ids
 
     def resolve_fdb(self) -> Dict[str, FactorDB]:
@@ -319,7 +321,7 @@ class FactorDefInputBuilder:
         return {name: self._pool[name] for name in self._pool.source_names}
 
     def resolve_modules(self) -> List[Tuple[object, dict, Optional[str]]]:
-        """解析所有 ID_PROFILES 中的因子模块列表（合并所有 profile 的模块）
+        """解析所有 FACTOR_PROFILES 中的因子模块列表（合并所有 profile 的模块）
 
         用于 register_factors_to_graphdb.py 等不需要区分 IDType 的场景。
         """
@@ -333,7 +335,7 @@ class FactorDefInputBuilder:
         return importlib.import_module(name)
 
     def resolve_modules_for(self, factor_modules: list) -> List[Tuple[object, dict, dict]]:
-        """根据指定的因子模块列表解析模块（用于 ID_PROFILES 模式）
+        """根据指定的因子模块列表解析模块（用于 FACTOR_PROFILES 模式）
 
         Args:
             factor_modules: 因子模块列表，每项支持三种格式:
@@ -390,13 +392,13 @@ class FactorDefInputBuilder:
 
     # ---- 构造 ----
     def build(self) -> "FactorDefInput":
-        """组装 FactorDefInput（使用第一个 ID_PROFILES 的配置）"""
+        """组装 FactorDefInput（使用第一个 FACTOR_PROFILES 的配置）"""
         if self._pool is None:
             self.init()
 
         profiles = self.settings.iter_profiles()
         if not profiles:
-            raise ValueError("ID_PROFILES 为空，无法构建 FactorDefInput")
+            raise ValueError("FACTOR_PROFILES 为空，无法构建 FactorDefInput")
 
         return self.build_for_profile(profiles[0])
 
@@ -406,7 +408,7 @@ class FactorDefInputBuilder:
         dts: List[dt.datetime] = None,
         dtruler: List[dt.datetime] = None,
     ) -> "FactorDefInput":
-        """根据 FactorDefProfile 构建 FactorDefInput（用于 ID_PROFILES 模式）
+        """根据 FactorDefProfile 构建 FactorDefInput（用于 FACTOR_PROFILES 模式）
 
         Args:
             profile: IDType 维度配置

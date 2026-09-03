@@ -475,11 +475,11 @@ def compute_max_lookback_sd(
 # ============================================================
 
 class StrategyDefProfile(__QS_Args__):
-    """单个 IDType 维度的策略模块分组"""
-    id_type: str = Field(default="A股", title="证券类型")
-    id_selection: dict = Field(default={"type": "all"}, title="ID 选择策略")
+    """单个维度的策略模块分组"""
     strategy_modules: list = Field(default=[], title="策略模块列表")
-    section_id_list: dict = Field(default={}, title="自定义截面证券列表", description="与 id_selection 格式一致，留空 {} 则与 id_selection 相同")
+    section_id_list: str = Field(default="", title="截面 ID 列表", description="引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.SectionIDs")
+    target_db: str = Field(default="", title="输出目标库名", description="覆盖全局 TARGET_DB，空字符串使用全局值")
+    factor_storer_config: dict = Field(default={}, title="FactorStorer 参数", description="覆盖全局 FACTOR_STORER_CONFIG，空 dict 使用全局值")
 
 
 class StrategyDefSettings(RuntimeSettings):
@@ -518,14 +518,14 @@ class StrategyDefSettings(RuntimeSettings):
         return super().from_module(module_path, **cmd_overrides)
 
     def iter_profiles(self) -> List["StrategyDefProfile"]:
-        """将 id_profiles 转换为 StrategyDefProfile 列表"""
+        """将 strategy_profiles 转换为 StrategyDefProfile 列表"""
         profiles = []
-        for p in self.id_profiles:
+        for p in self.strategy_profiles:
             profiles.append(StrategyDefProfile(
-                id_type=p.get("id_type", "A股"),
-                id_selection=p.get("id_selection", {"type": "all"}),
                 strategy_modules=p.get("strategy_modules", []),
-                section_id_list=p.get("section_id_list", {}),
+                section_id_list=p.get("section_id_list", ""),
+                target_db=p.get("target_db", ""),
+                factor_storer_config=p.get("factor_storer_config", {}),
             ))
         return profiles
 
@@ -622,47 +622,47 @@ class StrategyDefInputBuilder:
         resampled = s.resample(pd_freq).last().dropna()
         return [dts[int(i)] for i in resampled.values]
 
-    def _get_ids_from_source(self, id_type: str, is_current: bool = False) -> List[str]:
-        """根据 id_type 从数据源获取证券 ID 列表。
+    def resolve_section_ids(self, section_key: str) -> List[str]:
+        """根据 SECTION_ID_SOURCES 的 key 解析截面 ID 列表。
 
-        使用 settings.section_id_sources 中配置的数据源名称、方法和方法参数。
-        自定义 id_type 只需在 settings.py 的 section_id_sources 中添加对应条目即可。
+        支持两种格式:
+          - {"type": "list", "ids": [...]}                              — 显式列表
+          - {"type": "fdb_method", "name": "...", "method": "...", "method_args": {...}} — 数据源方法调用
+
+        Args:
+            section_key: SECTION_ID_SOURCES 中的 key
+
+        Returns:
+            ID 列表
         """
-        section_source = self.settings.section_id_sources.get(id_type, {})
-        if not section_source:
-            raise ValueError(
-                f"IDType '{id_type}' 未在 settings.section_id_sources 中配置，"
-                f"请添加对应的 {{name, method, method_args}} 配置项"
+        source = self.settings.section_id_sources.get(section_key)
+        if source is None:
+            available = list(self.settings.section_id_sources.keys())
+            raise KeyError(
+                f"SECTION_ID_SOURCES 中未找到 '{section_key}'，可用: {available}"
             )
-        source_name = section_source.get("name", "JYDB")
-        source_method = section_source.get("method", "getStockID")
-        source_method_args = section_source.get("method_args", {})
-        id_source = self._pool[source_name]
-        method = getattr(id_source, source_method)
-        return method(is_current=is_current, **source_method_args)
-
-    def _resolve_id_sel(self, sel: dict, id_type: str) -> List[str]:
-        """解析 ID 选择策略 dict。
-
-        支持:
-          - {"type": "all"}             — 全量 ID
-          - {"type": "current"}         — 当前截面 ID
-          - {"type": "list", "ids": [...]} — 显式列表
-        """
-        stype = sel.get("type", "all")
-        if stype == "all":
-            return self._get_ids_from_source(id_type=id_type, is_current=False)
-        elif stype == "current":
-            return self._get_ids_from_source(id_type=id_type, is_current=True)
-        elif stype == "list":
-            return sel.get("ids", [])
+        stype = source.get("type", "fdb_method")
+        if stype == "list":
+            return source.get("ids", [])
+        elif stype == "fdb_method":
+            db_name = source.get("name", "JYDB")
+            method_name = source.get("method", "getStockID")
+            method_args = source.get("method_args", {})
+            db = self._pool[db_name]
+            return getattr(db, method_name)(**method_args)
         else:
-            return self._get_ids_from_source(id_type=id_type, is_current=False)
+            raise ValueError(
+                f"截面 '{section_key}' 的类型 '{stype}' 不支持，"
+                f"期望 'list' 或 'fdb_method'"
+            )
 
     def resolve_ids_for(self, profile: "StrategyDefProfile") -> Tuple[List[str], List[str]]:
-        ids = self._resolve_id_sel(profile.id_selection, profile.id_type)
-        section_ids = self._resolve_id_sel(profile.section_id_list, profile.id_type) if profile.section_id_list else ids
-        return ids, section_ids
+        """根据 StrategyDefProfile 解析 IDs 和 SectionIDs。
+
+        策略的 IDs 与 SectionIDs 相同（策略不需要额外的 id_selection）。
+        """
+        section_ids = self.resolve_section_ids(profile.section_id_list)
+        return section_ids, section_ids
 
     def resolve_fdb(self) -> Dict[str, FactorDB]:
         return {name: self._pool[name] for name in self._pool.source_names}
@@ -715,7 +715,7 @@ class StrategyDefInputBuilder:
             self.init()
         profiles = self.settings.iter_profiles()
         if not profiles:
-            raise ValueError("ID_PROFILES 为空，无法构建 StrategyDefInput")
+            raise ValueError("STRATEGY_PROFILES 为空，无法构建 StrategyDefInput")
         return self.build_for_profile(profiles[0])
 
     def build_for_profile(

@@ -239,9 +239,12 @@ class RuntimeSettings(__QS_Args__):
     )
     section_id_sources: dict = Field(
         default={
-            "A股": {"name": "JYDB", "method": "getStockID", "method_args": {}}
+            "全部A股": {"type": "fdb_method", "name": "JYDB", "method": "getStockID", "method_args": {}},
         },
-        title="截面 ID 数据源（按 IDType），自定义 IDType 只需添加对应条目",
+        title="截面 ID 定义集合",
+        description="命名截面配置，支持两种格式: "
+                    "{'type': 'list', 'ids': [...]} 或 "
+                    "{'type': 'fdb_method', 'name': '...', 'method': '...', 'method_args': {...}}",
     )
 
     # ---- 时间范围 ----
@@ -252,8 +255,9 @@ class RuntimeSettings(__QS_Args__):
     dt_type: str = Field(default="交易日", title="时点类型: 交易日 | 自然日")
     dt_freq: str = Field(default="1d", title="DTs 和 DTRuler 的时点频率")
 
-    # ---- ID 类型与模块 ----
-    id_profiles: List[dict] = Field(default=[], title="ID 类型与模块配置列表")
+    # ---- Profile 配置 ----
+    factor_profiles: List[dict] = Field(default=[], title="因子 Profile 列表", description="每个元素包含 id_selection, section_id_list, factor_modules 等")
+    strategy_profiles: List[dict] = Field(default=[], title="策略 Profile 列表", description="每个元素包含 section_id_list, strategy_modules 等")
 
     # ---- 输出 ----
     target_db: Union[str, List[str]] = Field(default="TDB", title="输出目标库名")
@@ -261,6 +265,10 @@ class RuntimeSettings(__QS_Args__):
         default={"IfExists": "update", "UpdateMeta": True},
         title="FactorStorer 参数",
     )
+
+    # ---- 报告 ----
+    report_profiles: dict = Field(default={}, title="报告配置集", description="{配置名: {scenario, section_id_list, factors, ref_factors}}")
+    report_output_dir: str = Field(default="./reports", title="报告输出目录")
 
     # ---- 缓存 ----
     cache_dir: str = Field(default="", title="缓存目录")
@@ -443,6 +451,10 @@ class RuntimeSettings(__QS_Args__):
                 ))
         data["factor_databases"] = db_defs
 
+        # 过滤掉当前类不接受的字段（如 bt_store 只在 StrategyDefSettings 中定义）
+        known_fields = set(cls.model_fields.keys())
+        data = {k: v for k, v in data.items() if k in known_fields}
+
         instance = cls(**data)
         if hooks:
             object.__setattr__(instance, "_hooks", hooks)
@@ -459,27 +471,38 @@ class RuntimeSettings(__QS_Args__):
 
     @property
     def has_profiles(self) -> bool:
-        """是否配置了多 IDType profiles。"""
-        return len(self.id_profiles) > 0
+        """是否配置了因子 Profile。"""
+        return len(self.factor_profiles) > 0
 
     def iter_profiles(self) -> list:
-        """将 id_profiles 转换为 Profile 对象列表。
+        """将 factor_profiles 转换为 Profile 对象列表。
 
-        返回的 Profile 是普通的命名对象，包含:
-          id_type, id_selection, factor_modules, strategy_modules,
-          section_id_list, proxy_tables
+        返回的 Profile 包含: id_selection, section_id_list, factor_modules, proxy_tables
         """
         from types import SimpleNamespace
 
         profiles = []
-        for p in self.id_profiles:
+        for p in self.factor_profiles:
             profiles.append(SimpleNamespace(
-                id_type=p.get("id_type", "A股"),
-                id_selection=p.get("id_selection", {"type": "all"}),
+                id_selection=p.get("id_selection", ""),
                 factor_modules=p.get("factor_modules", []),
-                strategy_modules=p.get("strategy_modules", []),
-                section_id_list=p.get("section_id_list", {}),
+                section_id_list=p.get("section_id_list", ""),
                 proxy_tables=p.get("proxy_tables", None),
+            ))
+        return profiles
+
+    def iter_strategy_profiles(self) -> list:
+        """将 strategy_profiles 转换为 Profile 对象列表。
+
+        返回的 Profile 包含: section_id_list, strategy_modules
+        """
+        from types import SimpleNamespace
+
+        profiles = []
+        for p in self.strategy_profiles:
+            profiles.append(SimpleNamespace(
+                section_id_list=p.get("section_id_list", ""),
+                strategy_modules=p.get("strategy_modules", []),
             ))
         return profiles
 
@@ -490,8 +513,3 @@ class RuntimeSettings(__QS_Args__):
     def get_trading_day_source_name(self) -> str:
         """获取交易日历数据源的库名。"""
         return self.trading_day_source.get("name", "JYDB")
-
-    def get_section_id_source_name(self, id_type: str = "A股") -> str:
-        """获取指定 IDType 的截面 ID 数据源库名。"""
-        source = self.section_id_sources.get(id_type, {})
-        return source.get("name", "JYDB")

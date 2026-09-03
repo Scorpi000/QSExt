@@ -56,9 +56,9 @@ def main(settings_path: str = "settings", use_proxy: bool = False, **cmd_overrid
         pool = builder._pool
         profiles = settings.iter_profiles()
 
-        Logger.info(f"ID_PROFILES: {len(profiles)} 个")
+        Logger.info(f"FACTOR_PROFILES: {len(profiles)} 个")
         for i, p in enumerate(profiles):
-            Logger.info(f"  Profile {i+1}: id_type={p.id_type}, modules={len(p.factor_modules)}")
+            Logger.info(f"  Profile {i+1}: modules={len(p.factor_modules)}")
 
         # 3. 共享时间范围
         dts, dtruler = builder.resolve_dts()
@@ -79,15 +79,15 @@ def main(settings_path: str = "settings", use_proxy: bool = False, **cmd_overrid
             fdi = builder.build_for_profile(profile, dts=dts, dtruler=dtruler)
             modules = builder.resolve_modules_for(profile.factor_modules)
 
-            Logger.info(f"[{profile.id_type}] IDs 数量: {len(ids)}, 因子模块: {len(modules)}")
-            Logger.info(f"[{profile.id_type}] {_module_names(modules)}")
+            Logger.info(f"IDs 数量: {len(ids)}, 因子模块: {len(modules)}")
+            Logger.info(f"  {_module_names(modules)}")
 
             if not ids:
-                Logger.warning(f"[{profile.id_type}] IDs 为空，跳过该 profile")
+                Logger.warning(f"IDs 为空，跳过该 profile")
                 continue
 
             storer_list, fwd_list, init_list, dtruler = _build_storers(
-                settings, pool, fdi, modules, dtruler=dtruler, use_proxy=use_proxy,
+                settings, pool, fdi, modules, profile=profile, dtruler=dtruler, use_proxy=use_proxy,
                 proxy_tables=profile.proxy_tables,
             )
             all_storers.extend(storer_list)
@@ -104,10 +104,11 @@ def main(settings_path: str = "settings", use_proxy: bool = False, **cmd_overrid
     Logger.info("因子定义流水线执行完成")
 
 
-def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, proxy_tables=None):
+def _build_storers(settings, pool, fdi, modules, profile=None, dtruler=None, use_proxy=False, proxy_tables=None):
     """构建 FactorStorer 列表和对应的 fwd_data / init_data
 
     Args:
+        profile: FactorDefProfile，若提供则其 target_db / factor_storer_config 覆盖全局配置
         use_proxy: 是否使用代理因子库
         proxy_tables: 代理表控制，"*" 全部代理，列表指定表名，None 不代理
 
@@ -117,10 +118,15 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
     if dtruler is None:
         dtruler = fdi.DTRuler
 
-    target_db_name = settings.target_db
+    # profile 级覆盖全局
+    target_db_name = (profile.target_db if profile and profile.target_db else settings.target_db)
     if isinstance(target_db_name, list):
         target_db_name = target_db_name[0]
     TDB = pool[target_db_name]
+
+    storer_config = dict(settings.factor_storer_config)
+    if profile and profile.factor_storer_config:
+        storer_config.update(profile.factor_storer_config)
 
     MaxLookBack = settings.max_lookback
     StorerList = []
@@ -217,7 +223,7 @@ def _build_storers(settings, pool, fdi, modules, dtruler=None, use_proxy=False, 
             "TargetFDB": TDB,
             "TargetTable": target_table,
             "TableMeta": group["table_meta"],
-            **settings.factor_storer_config,
+            **storer_config,
         }
         iStorer = FactorStorer(deps=group["factors"], args=storer_args)
         StorerList.append(iStorer)
@@ -291,17 +297,19 @@ def _dry_run(settings: FactorDefSettings):
         Logger.info(f"  [{db_def.role}] {db_def.name} ({db_def.class_path})")
 
     profiles = settings.iter_profiles()
-    Logger.info(f"ID_PROFILES ({len(profiles)} 个):")
+    Logger.info(f"FACTOR_PROFILES ({len(profiles)} 个):")
     for i, p in enumerate(profiles):
-        Logger.info(f"  Profile {i+1}: id_type={p.id_type}, id_selection={p.id_selection}")
-        if p.section_id_list:
-            Logger.info(f"    section_id_list: {p.section_id_list}")
+        Logger.info(f"  Profile {i+1}: id_selection={p.id_selection}, section_id_list={p.section_id_list}")
+        if p.target_db:
+            Logger.info(f"    target_db: {p.target_db} (覆盖全局)")
+        if p.factor_storer_config:
+            Logger.info(f"    factor_storer_config: {p.factor_storer_config} (覆盖全局)")
         Logger.info(f"    因子模块 ({len(p.factor_modules)}):")
         for item in p.factor_modules:
             name = item[0].__name__ if isinstance(item, tuple) and hasattr(item[0], "__name__") else str(item)
             Logger.info(f"    - {name}")
 
-    Logger.info(f"输出目标: {settings.target_db}")
+    Logger.info(f"输出目标 (全局): {settings.target_db}")
     Logger.info(f"缓存目录: {settings.cache_dir}")
 
 

@@ -5,9 +5,9 @@
 提供基于 YAML 配置 + 组件库的报告生成框架。
 
 核心设计：
-- ``ReportGenerator`` 是通用的报告生成计算图节点，继承自 ``Node``
+- ``ReportGenerator`` 是通用的报告生成计算图节点，继承自 ``ReportNode``
 - ``create_nodes()`` 类方法定义场景所需的上游数据节点（回测、风险、优化器等）
-- ``generate_report()`` 将上游节点产出渲染为报告
+- ``generate_report()`` 将上游节点产出渲染为报告，输出包含 ``ReportKey`` 供 ``BTReport`` 聚合
 
 子类化一个场景::
 
@@ -27,18 +27,20 @@ from typing import Any, Dict, List
 
 from pydantic import Field
 
-from QuantStudio.Core.Node import Node, DTLocalContext
+from QuantStudio.BackTest.BackTestModel import ReportNode
+from QuantStudio.Core.Node import Node
 
 
-class ReportGenerator(Node):
+class ReportGenerator(ReportNode):
     """报告生成计算图节点。
 
+    继承 ``ReportNode``，可直接嵌入回测计算图，也可被 ``BTReport`` 聚合。
     子类需实现两个方法：
     - ``create_nodes()``：定义场景需要哪些上游数据节点
     - ``generate_report()``：将上游节点产出渲染为报告
     """
 
-    class __QS_ArgClass__(Node.__QS_ArgClass__):
+    class __QS_ArgClass__(ReportNode.__QS_ArgClass__):
         Name: str = Field(default="报告生成器", frozen=True, title="名称")
         OutputFormats: list = Field(default=["html"], title="输出格式")
         ThemeName: str = Field(default="default", title="主题名称")
@@ -72,14 +74,16 @@ class ReportGenerator(Node):
 
     # ---- Node DAG 接口 ----
 
-    def forward_compute(self, path, fwd_data, context):
-        return (
-            [DTLocalContext(DTs=fwd_data.DTs)] * len(self.Deps),
-            DTLocalContext(DTs=fwd_data.DTs)
-        )
-
     def backward_compute(self, path, bwd_data_list, context, local_context=None):
-        return self.generate_report(bwd_data_list)
-
-    def merge_result(self, result_list, context):
-        return result_list[0]
+        output = self.generate_report(bwd_data_list)
+        # 确保输出中包含 ReportKey，供 BTReport 聚合使用
+        report_key = self._QSArgs.ReportKey
+        if report_key not in output:
+            reports = output.get("reports", {})
+            sep = '<hr style="border:1px solid #e0e0e0;margin:2em 0">'
+            html_parts = []
+            for factor_name, fmt_dict in reports.items():
+                for fmt, content in fmt_dict.items():
+                    html_parts.append(content)
+            output[report_key] = sep.join(html_parts)
+        return output

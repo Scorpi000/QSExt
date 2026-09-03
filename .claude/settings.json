@@ -72,7 +72,12 @@
       "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"from QSExt.QSRegistry.QSGraphDB import QSGraphDB; print\\('OK'\\)\")",
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.QSRegistry.QSGraphDB import QSGraphDB; print\\('OK'\\)\")",
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.StrategyDef.scripts.register_strategies_to_graphdb import main; print\\('OK'\\)\")",
-      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -m QSExt.StrategyDef.scripts.register_strategies_to_graphdb --settings QSExt.RuntimeConfig.conf.settings_example --skip-embedding)"
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -m QSExt.StrategyDef.scripts.register_strategies_to_graphdb --settings QSExt.RuntimeConfig.conf.settings_example --skip-embedding)",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"from QSExt.ReportGenerator.scenarios import ScenarioRegistry; print\\('Scenarios:', ScenarioRegistry.list_all\\(\\)\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios import ScenarioRegistry; print\\('Scenarios:', ScenarioRegistry.list_all\\(\\)\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_report import main; print\\('Import OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.RuntimeConfig.config import RuntimeSettings; s = RuntimeSettings\\(\\); print\\('report_profiles:', s.report_profiles\\); print\\('report_output_dir:', s.report_output_dir\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios.single_factor.scenario import SingleFactorReport; print\\('Methods:', [m for m in dir\\(SingleFactorReport\\) if m.startswith\\('_normalize'\\) or m.startswith\\('_infer'\\) or m.startswith\\('_inject'\\)]\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",

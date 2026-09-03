@@ -1,195 +1,258 @@
-# ============================================================
-# QSExt 统一运行时配置 (示例)
-# ============================================================
-# 复制此文件为 ~/QuantStudioConfig/settings.py 并根据实际环境修改。
-#
-# 或使用链式继承:
-#   __INHERIT_FROM__ = "~/QuantStudioConfig/settings.py"
-#   # 只写需要覆盖的变量
-#
-# 覆盖优先级 (由低到高):
-#   1. __INHERIT_FROM__ 父模块
-#   2. 本文件变量
-#   3. settings_local.py (不入库，本地覆盖)
-#   4. QS_* 环境变量
-#   5. 命令行 --xxx 参数
+# -*- coding: utf-8 -*-
+"""运行时配置示例 —— 根据实际环境修改后放到 ~/QuantStudioConfig/settings.py。
+
+配置继承链（优先级从低到高）：
+    1. __INHERIT_FROM__ 父模块
+    2. 当前模块变量
+    3. settings_local.py（不入库，本地覆盖）
+    4. QS_* 环境变量
+    5. 命令行 --xxx 参数
+"""
+import os
 
 
 # ============================================================
-# 0. 可选：链式继承
+# 配置继承
 # ============================================================
-# __INHERIT_FROM__ = "~/QuantStudioConfig/settings.py"
+# __INHERIT_FROM__ = os.path.expanduser("~/QuantStudioConfig/settings.py")
 
 
 # ============================================================
-# 1. 运行模式
+# 运行模式
 # ============================================================
+
 DEBUG = False
 UPDATE_DATA = True
-REGISTER_GRAPH = False
 DRY_RUN = False
 
+# ============================================================
+# 因子库定义
+# ============================================================
 
-# ============================================================
-# 2. 因子数据库 (FACTOR_DATABASES)
-# ============================================================
 FACTOR_DATABASES = [
     {
-        "name": "BSDB",
-        "class": "BaoStockDB",               # 支持短名 (JYDB, HDF5DB, SQLDB 等)
+        "name": "JYDB",
+        "class": "JYDB",
         "role": "source",
-        "args": {},
+        "config_file": os.path.expanduser("~/QuantStudioConfig/JYDBConfig.json"),
+    },
+    {
+        "name": "BSDB",
+        "class": "BaoStockDB",
+        "role": "source",
+    },
+    {
+        "name": "LDB",
+        "class": "HDF5DB",
+        "role": "target",
+        "args": {"MainDir": r"D:\Data\HDF5DB"},
     },
     {
         "name": "TDB",
         "class": "HDF5DB",
         "role": "target",
-        "args": {
-            "MainDir": r"D:\Data\HDF5DB_Test",
-        },
+        "args": {"MainDir": r"D:\Data\HDF5DB_Test"},
     },
     {
         "name": "ProxyDB",
         "class": "HDF5DB",
         "role": "proxy",
-        "args": {
-            "MainDir": r"D:\Data\HDF5DB",
-        },
+        "args": {"MainDir": r"D:\Data\HDF5DB"},
     },
 ]
 
-# 代理表名映射
-PROXY_TABLE_MAPPING = {}
-
-# 风险数据库 (factor_databases 已覆盖连接定义，此处为风险库专用)
-RISK_DATABASES = [
-    # {
-    #     "name": "Barra 风险库",
-    #     "db_type": "HDF5FRDB",
-    #     "description": "",
-    #     "args": {"MainDir": "D:/Data/HDF5RDB"},
-    # },
-]
-
-
 # ============================================================
-# 3. 数据源
+# 代理表
 # ============================================================
-# 交易日历数据源 (name 匹配 FACTOR_DATABASES 中的库名)
-TRADING_DAY_SOURCE = {
-    "name": "BSDB",
-    "method": "getTradeDay",
-    "method_args": {"exchange": "SSE"},
+
+PROXY_TABLE_MAPPING = {
+    # "源表名": "代理表名",
 }
 
-# 截面 ID 数据源 (按 IDType，name 匹配 FACTOR_DATABASES 中的库名)
-# 自定义 IDType 只需添加对应条目，method_args 中的参数会透传给 method
+# ============================================================
+# 数据源
+# ============================================================
+
+# 交易日历数据源
+TRADING_DAY_SOURCE = {
+    "name": "JYDB",
+    "method": "getTradeDay",
+    "method_args": {},
+}
+
+# 截面 ID 定义集合 —— 命名截面，供 FACTOR_PROFILES / STRATEGY_PROFILES / REPORT_PROFILES 引用
+# 支持两种格式:
+#   {"type": "list", "ids": [...]}                              — 显式 ID 列表
+#   {"type": "fdb_method", "name": "...", "method": "...", "method_args": {...}} — 数据源方法调用
 SECTION_ID_SOURCES = {
-    "A股": {
-        "name": "BSDB",
+    "全部A股": {
+        "type": "fdb_method",
+        "name": "JYDB",
         "method": "getStockID",
         "method_args": {},
-    }
+    },
+    "当前A股": {
+        "type": "fdb_method",
+        "name": "JYDB",
+        "method": "getStockID",
+        "method_args": {"is_current": True},
+    },
+    "沪深300": {
+        "type": "fdb_method",
+        "name": "JYDB",
+        "method": "getIndexConstituent",
+        "method_args": {"index_code": "000300.SH"},
+    },
+    "中证500": {
+        "type": "fdb_method",
+        "name": "JYDB",
+        "method": "getIndexConstituent",
+        "method_args": {"index_code": "000905.SH"},
+    },
+    # 自定义截面示例
+    "自选股": {
+        "type": "list",
+        "ids": ["000001.SZ", "000002.SZ", "000003.SZ", "600519.SH"],
+    },
 }
 
+# ============================================================
+# 时间范围
+# ============================================================
 
-# ============================================================
-# 4. 时间范围
-# ============================================================
 END_DT = "last_friday"
 START_DT = None
-LOOKBACK = 15
-MAX_LOOKBACK = 365 * 10          # DTRuler 最大回溯天数
-DT_TYPE = "交易日"               # 交易日 | 自然日
-DT_FREQ = "1d"                   # 1d | 1w | 2w | 1m | 1q | 1y
-
+LOOKBACK = 252
+MAX_LOOKBACK = 3650
+DT_TYPE = "交易日"
+DT_FREQ = "1d"
 
 # ============================================================
-# 5. ID 类型与模块 (ID_PROFILES)
+# 因子 Profile —— 定义因子计算的维度分组
 # ============================================================
-ID_PROFILES = [
+# id_selection:    引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.IDs（最终输出的因子 ID 序列）
+# section_id_list: 引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.SectionIDs（计算时使用的截面）
+
+FACTOR_PROFILES = [
     {
-        "id_type": "A股",
-        "id_selection": {"type": "list", "ids": ["000001.SZ", "000002.SZ", "000003.SZ"]},
-        # "factor_modules": [
-        #     "QSExt.FactorDef.stock_cn_factor_example1",
-        #     "QSExt.FactorDef.stock_cn_factor_example2",
-        # ],
+        "id_selection": "自选股",
+        "section_id_list": "自选股",
+        "factor_modules": [
+            "QSExt.FactorDef.stock_cn_factor_example1",
+            "QSExt.FactorDef.stock_cn_factor_example2",
+        ],
+        "proxy_tables": None,
+        # 以下两项可选，配置则覆盖全局 TARGET_DB / FACTOR_STORER_CONFIG
+        "target_db": "TDB",
+        "factor_storer_config": {"IfExists": "update", "UpdateMeta": True},
+    },
+]
+
+# ============================================================
+# 策略 Profile —— 定义策略计算的维度分组
+# ============================================================
+# section_id_list: 引用 SECTION_ID_SOURCES 的 key → FactorLocalContext.SectionIDs
+#                  策略的 IDs 与 SectionIDs 相同
+
+STRATEGY_PROFILES = [
+    {
+        "section_id_list": "自选股",
         "strategy_modules": [
             "QSExt.StrategyDef.stock_cn_strategy_example",
         ],
-        # section_id_list 与 id_selection 格式一致:
-        #   {"type": "all"}                       — 全量
-        #   {"type": "current"}                   — 当前截面
-        #   {"type": "list", "ids": [...]}        — 显式列表
-        # 留空 {} 则与 id_selection 保持一致
-        "section_id_list": {"type": "list", "ids": ["000001.SZ", "000002.SZ", "000003.SZ"]},
-        # "proxy_tables": ["stock_cn_status", "stock_cn_day_bar_nafilled"],
+        # 可选，覆盖全局 TARGET_DB / FACTOR_STORER_CONFIG
+        # "target_db": "TDB",
+        # "factor_storer_config": {"IfExists": "update", "UpdateMeta": True},
     },
 ]
 
+# ============================================================
+# 输出
+# ============================================================
 
-# ============================================================
-# 6. 输出
-# ============================================================
 TARGET_DB = "TDB"
+
 FACTOR_STORER_CONFIG = {
     "IfExists": "update",
     "UpdateMeta": True,
 }
 
-
-# ============================================================
-# 7. 回测结果存储 (BT_STORE，可选，仅 StrategyDef 使用)
-# ============================================================
-# 配置此项即启用回测结果存储，注释掉或设为 None 则不存储。
-# 流水线会自动为每个策略构建 AccountStats → BTStorer 节点链，
-# 将净值曲线、统计数据、交易记录等写入 HDF5BTResultDB。
+# 回测结果存储（StrategyDef 专用，None 则不存储）
 BT_STORE = {
     "name": "BTResultDB",
     "class": "HDF5BTResultDB",
+    "role": "target",
     "args": {"MainDir": r"D:\Data\HDF5BTResult"},
 }
 
+# ============================================================
+# 报告
+# ============================================================
+# section_id_list: 引用 SECTION_ID_SOURCES 的 key，指定报告的截面范围
+# factors: 目标因子列表，每项格式：
+#   - db: 因子库名
+#   - table: 因子表名
+#   - factor: 因子选择，支持三种格式：
+#       "*"                                              — 全部因子
+#       ["close", "volume"]                              — 指定因子名列表
+#       [{"Name": "close", "Alias": "收盘价", "Order": "升序"}, ...]  — 带配置的因子列表
+#         Alias: 可选，重命名后的因子名
+#         Order: 可选，"升序" 表示取负值（默认 "降序" 不处理）
+# ref_factors: 参考因子来源 {逻辑名: {db, table, factor}}
+
+REPORT_PROFILES = {
+    "a_stock_full": {
+        "scenario": "single_factor",
+        "section_id_list": "全部A股",
+        "config": "",
+        "factors": [
+            # {"db": "LDB", "table": "stock_cn_factor_size", "factor": "*"},  # 全部因子
+            {"db": "LDB", "table": "stock_cn_factor_size", "factor": [
+                "float_cap",
+                {"Name": "total_cap", "Alias": "总市值", "Order": "升序"},
+            ]},  # 带重命名和升序配置
+        ],
+        "ref_factors": {
+            "price": {"db": "LDB", "table": "stock_cn_day_bar_adj_backward_nafilled", "factor": "close"},
+            "mask": {"db": "LDB", "table": "stock_cn_status", "factor": "if_listed"},
+        },
+    },
+}
+
+REPORT_OUTPUT_DIR = r"D:\Data\QSReport"
 
 # ============================================================
-# 8. 缓存
+# 缓存
 # ============================================================
-CACHE_DIR = r"D:\Data\Cache\FactorTaskCache"
+
+CACHE_DIR = ""
 USE_TEMP_CACHE = True
-CACHE_START_MODE = "new"         # new | read | all
+CACHE_START_MODE = "new"
 CACHE_SUFFIX = ".pkl"
 
+# ============================================================
+# 执行 & 引擎
+# ============================================================
 
-# ============================================================
-# 9. 执行 & 引擎
-# ============================================================
 WORKERS = 8
 PID_FORMAT = "0-{i}"
+
 ENGINE = {
     "type": "CalcEngine",
     "params": {},
 }
 
+# ============================================================
+# 图数据库
+# ============================================================
 
-# ============================================================
-# 10. 图数据库
-# ============================================================
-NEO4J_CONFIG_PATH = "~/QuantStudioConfig/Neo4jDBConfig.json"
+NEO4J_CONFIG_PATH = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
 EMBEDDING_MODEL = "bge-m3"
 EMBEDDING_DIM = 1024
 SKIP_EMBEDDING = False
 
+# ============================================================
+# 日志
+# ============================================================
 
-# ============================================================
-# 11. 日志
-# ============================================================
 LOG_LEVEL = "INFO"
-
-
-# ============================================================
-# 12. 钩子函数 (可选)
-# ============================================================
-# def init_db(pool):
-#     """库连接后的自定义初始化。"""
-#     pool["BSDB"].setOutputMode("pandas")

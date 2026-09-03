@@ -19,23 +19,27 @@
     # 嵌入计算图
     report_node = SingleFactorReport(
         nodes,
-        args={"OutputFormats": ["html"]},
-        config_file="config.yaml",
+        args={"OutputFormats": ["html"], "ReportConfig": "config.yaml"},
     )
 
     result = Engine().run([report_node], context)[0]
 """
 
 import os
-from typing import Any, Dict, List, Optional
+import datetime as dt
+from typing import Any, List, Optional
 
 import pandas as pd
+
+from pydantic import Field
 
 from QSExt.ReportGenerator import ReportGenerator
 from QSExt.ReportGenerator.core import DataContext, split_output_for_factor
 from QSExt.ReportGenerator.layout import LayoutRenderer
 from QSExt.ReportGenerator.themes.base import Theme
 from QuantStudio.Core.Node import Node
+from QuantStudio.Factor.BasicOperator import rename
+from QuantStudio.Tools.DateTimeFun import transformDateTime
 
 
 class SingleFactorReport(ReportGenerator):
@@ -49,13 +53,33 @@ class SingleFactorReport(ReportGenerator):
     """
 
     class __QS_ArgClass__(ReportGenerator.__QS_ArgClass__):
-        Name: str = "单因子测试报告"
+        Name: str = Field(default="单因子测试报告", frozen=True, title="名称")
+        ReportConfig: str = Field(default="", title="报告配置文件", description="YAML 报告配置文件路径，空字符串使用内置默认配置")
+
+    @classmethod
+    def _load_config(cls, config_path: Optional[str] = None) -> dict:
+        """加载 YAML 配置文件。
+
+        Args:
+            config_path: 配置文件路径，空字符串或 None 使用内置默认配置
+
+        Returns:
+            完整配置 dict
+        """
+        if not config_path:
+            config_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "config.yaml"
+            )
+        import yaml
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
 
     @classmethod
     def create_nodes(cls, factors, /, price=None, mask=None,
                      cat_data=None, weight=None,
-                     descriptor_ids=None, rebalance_dts=None,
-                     config: Optional[dict] = None,
+                     descriptor_ids=None,
+                     dtruler: Optional[List[dt.datetime]] = None,
+                     config: Optional[str] = None,
                      **kwargs) -> List[Node]:
         """创建单因子测试场景所需的上游节点。
 
@@ -66,29 +90,45 @@ class SingleFactorReport(ReportGenerator):
             cat_data: 分类因子/行业（可选）
             weight: 权重因子（可选）
             descriptor_ids: 描述子 ID 列表
-            rebalance_dts: 调仓时点列表
-            config: 模块配置 dict（对应 config.yaml 中 modules 段）。None 时所有模块启用
+            dtruler: 时点标尺列表（可选，用于 calc_freq 变换）
+            config: YAML 配置文件路径，空字符串或 None 使用内置默认配置
 
         Returns:
             上游节点列表，顺序：IC → IC 衰减 → 分位数组合(×N) → 换手率
         """
-        cfg = config or {}
+        full_config = cls._load_config(config)
+        cfg = full_config.get("modules", {})
         nodes = []
+
+        # 处理 calc_freq：变换 DTRuler 生成 CalcDTRuler
+        def get_calc_dtruler(module_cfg):
+            """根据模块配置的 calc_freq 变换 DTRuler"""
+            if not dtruler:
+                return None
+            calc_freq = module_cfg.get("calc_freq", "") if isinstance(module_cfg, dict) else ""
+            if calc_freq:
+                return transformDateTime(dtruler, freq=calc_freq)
+            return None
 
         # 1. IC 分析
         if cfg.get("ic", True):
             from QuantStudio.BackTest.SectionFactor.IC import CalcIC, IC
             ic_cfg = cfg["ic"] if isinstance(cfg.get("ic"), dict) else {}
+            # 使用 rename 创建带 CalcDTRuler 的因子
+            calc_dtruler = get_calc_dtruler(ic_cfg)
+            ic_factors = factors
+            if calc_dtruler:
+                ic_factors = [rename(f, f.Name, {"CalcDTRuler": calc_dtruler}) for f in factors]
             factor_ic = CalcIC(
                 descriptor_ids=descriptor_ids,
                 lookback=ic_cfg.get("lookback", 31),
                 period_lookback=ic_cfg.get("period_lookback", 1),
                 corr_method=ic_cfg.get("corr_method", "spearman"),
-            )(*factors, price=price, mask=mask,
+            )(*ic_factors, price=price, mask=mask,
               cat_data=cat_data, weight=weight)
             nodes.append(IC(factor_ic, args={
                 "RollingAvgPeriod": ic_cfg.get("rolling_avg_period", 12),
-                "GenReport": False,
+
                 "Name": "Rank IC 分析"
             }))
 
@@ -96,17 +136,22 @@ class SingleFactorReport(ReportGenerator):
         if cfg.get("ic_decay", True):
             from QuantStudio.BackTest.SectionFactor.IC import CalcIC, ICDecay
             decay_cfg = cfg["ic_decay"] if isinstance(cfg.get("ic_decay"), dict) else {}
+            # 使用 rename 创建带 CalcDTRuler 的因子
+            calc_dtruler = get_calc_dtruler(decay_cfg)
+            decay_factors = factors
+            if calc_dtruler:
+                decay_factors = [rename(f, f.Name, {"CalcDTRuler": calc_dtruler}) for f in factors]
             periods = decay_cfg.get("periods", [1, 2, 3, 6, 12])
             ic_list = [
                 CalcIC(
                     descriptor_ids=descriptor_ids,
                     lookback=31 * p,
                     period_lookback=p,
-                )(*factors, price=price, mask=mask, cat_data=cat_data)
+                )(*decay_factors, price=price, mask=mask, cat_data=cat_data)
                 for p in periods
             ]
             nodes.append(ICDecay(ic_list, args={
-                "GenReport": False,
+
                 "Name": "IC 衰减分析"
             }))
 
@@ -119,12 +164,14 @@ class SingleFactorReport(ReportGenerator):
                 CalcPortfolioNV
             )
             pf_cfg = cfg["quantile_portfolio"] if isinstance(cfg.get("quantile_portfolio"), dict) else {}
+            # calc_freq 配置的 calc_dtruler 作为 rebalance_dts
+            rebalance_dts = get_calc_dtruler(pf_cfg)
             for f in factors:
                 portfolios = makeQuantilePortfolio(
                     f, mask=mask, cat_data=cat_data, weight=weight,
                     descriptor_ids=descriptor_ids,
                     rebalance_dts=rebalance_dts,
-                    ascending=pf_cfg.get("ascending", False),
+                    ascending=False,  # 升降序已在外部处理（_load_factors 中取负值）
                     group_num=pf_cfg.get("group_num", 5)
                 )
                 calc_nv = CalcPortfolioNV(descriptor_ids=descriptor_ids)
@@ -139,7 +186,7 @@ class SingleFactorReport(ReportGenerator):
                     nv_combined, portfolio_list=portfolios, args={
                         "RebalanceDTs": rebalance_dts,
                         "LSPairs": LSPairs,
-                        "GenReport": False,
+
                         "Name": f"分位数组合({f.Name})"
                     }
                 ))
@@ -150,13 +197,18 @@ class SingleFactorReport(ReportGenerator):
                 CalcFactorTurnover, FactorTurnover
             )
             to_cfg = cfg["factor_turnover"] if isinstance(cfg.get("factor_turnover"), dict) else {}
+            # 使用 rename 创建带 CalcDTRuler 的因子
+            calc_dtruler = get_calc_dtruler(to_cfg)
+            turnover_factors = factors
+            if calc_dtruler:
+                turnover_factors = [rename(f, f.Name, {"CalcDTRuler": calc_dtruler}) for f in factors]
             turnover_factor = CalcFactorTurnover(
                 descriptor_ids=descriptor_ids,
                 lookback=to_cfg.get("lookback", 31),
                 period_lookback=to_cfg.get("period_lookback", 1),
-            )(*factors, mask=mask)
+            )(*turnover_factors, mask=mask)
             nodes.append(FactorTurnover(turnover_factor, args={
-                "GenReport": False,
+
                 "Name": "因子换手率"
             }))
 
@@ -168,37 +220,31 @@ class SingleFactorReport(ReportGenerator):
     _IDX_IC_DECAY = 1
     _IDX_QUANTILE_START = 2  # 分位数组合从索引 2 开始
 
-    def __init__(self, data_nodes, args=None, config_file=None, **kwargs):
-        if args is None:
-            args = {}
-
-        # 加载 YAML 配置文件（QS 框架的 config_file 只支持 JSON，这里单独处理）
-        if config_file is None:
-            config_file = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "config.yaml"
-            )
-
-        import yaml
-        with open(config_file, "r", encoding="utf-8") as f:
-            full_config = yaml.safe_load(f)
-        self._report_config = full_config.get("report", {})
-        self._modules_config = full_config.get("modules", {})
-
-        # 从配置中提取 outputs
-        output_config = full_config.get("output", {})
-        if "OutputFormats" not in args:
-            args["OutputFormats"] = output_config.get("formats", ["html"])
-
-        super().__init__(deps=list(data_nodes), args=args, **kwargs)
-
+    def __init__(self, deps: list = [], args: dict = {}, config_file: Optional[str] = None, **kwargs):
+        # 在 super().__init__ 之前提取，避免传给父类
         factor_names = kwargs.pop("factor_names", [])
         self._factor_names = list(factor_names) if factor_names else []
 
-    def generate_report(self, output_list: List[Any]) -> Dict[str, str]:
+        super().__init__(deps=deps, args=args, config_file=config_file, **kwargs)
+
+        # 加载 YAML 报告配置
+        full_config = self._load_config(self._QSArgs.ReportConfig)
+        self._report_config = full_config.get("report", {})
+        self._modules_config = full_config.get("modules", {})
+
+        # 从配置中提取 OutputFormats（仅当用户未显式指定时）
+        if "OutputFormats" not in (args or {}):
+            output_config = full_config.get("output", {})
+            self._QSArgs.OutputFormats = output_config.get("formats", ["html"])
+
+    def generate_report(self, output_list: List[Any]) -> dict:
         """将上游节点产出组织为 output dict 并渲染报告。
 
         output_list 与 create_nodes 返回的节点一一对应：
         [IC输出, IC衰减输出, 分位数组合(f1), 分位数组合(f2), ..., 换手率输出]
+
+        Returns:
+            dict: 包含 ``ReportKey``（合并 HTML）和 ``"reports"``（按因子拆分的报告）
         """
         # 按约定 key 组织 output dict（与 config.yaml 中 source 引用一致）
         output = {}
@@ -249,7 +295,7 @@ class SingleFactorReport(ReportGenerator):
                                 )], axis=1)
                             elif isinstance(v, dict):
                                 merged.setdefault(k, {}).update(v)
-                output["2-分位数组合"] = merged
+                output["2-分位数组合"] = self._normalize_quantile_keys(merged)
 
         # 换手率
         turnover_idx = self._IDX_QUANTILE_START + n_factors
@@ -268,51 +314,62 @@ class SingleFactorReport(ReportGenerator):
         layout_renderer = LayoutRenderer()
 
         reports = {}
-        factor_names = self._factor_names or _infer_factor_names(output_list)
+        factor_names = self._factor_names or self._infer_factor_names(output_list)
 
         for fname in factor_names:
             single = split_output_for_factor(output, fname)
             ctx = DataContext(single, [fname], report_config)
-            _inject_factor_info(ctx, [fname])
+            self._inject_factor_info(ctx, [fname])
             reports[fname] = {}
             for fmt in output_formats:
                 reports[fname][fmt] = layout_renderer.render(
                     report_config, ctx, theme, fmt
                 )
 
-        return reports
+        # 合并所有因子报告为单个 HTML，写入 ReportKey 供 BTReport 聚合
+        report_key = self._QSArgs.ReportKey
+        sep = '<hr style="border:1px solid #e0e0e0;margin:2em 0">'
+        html_parts = []
+        for fname, fmt_dict in reports.items():
+            for fmt, content in fmt_dict.items():
+                html_parts.append(content)
+        combined_html = sep.join(html_parts)
 
+        return {report_key: combined_html, "reports": reports}
 
-def _infer_factor_names(output_list: list) -> list:
-    """从 output_list 中推断因子名列表（兜底）。"""
-    for item in output_list:
-        if isinstance(item, dict):
-            for v in item.values():
-                if isinstance(v, pd.DataFrame) and not v.empty:
-                    return list(v.columns[:1])
-    return ["未知因子"]
+    # ---- 内部工具方法 ----
 
+    @staticmethod
+    def _infer_factor_names(output_list: list) -> list:
+        """从 output_list 中推断因子名列表（兜底）。"""
+        for item in output_list:
+            if isinstance(item, dict):
+                for v in item.values():
+                    if isinstance(v, pd.DataFrame) and not v.empty:
+                        return list(v.columns[:1])
+        return ["未知因子"]
 
-def _inject_factor_info(ctx: DataContext, factor_names: list) -> None:
-    """注入因子元信息到 DataContext 的 meta 通道。"""
-    dt_start = ctx.get("meta", "dt_start") or "未指定"
-    dt_end = ctx.get("meta", "dt_end") or "未指定"
-    ctx.set("meta", "factor_info", {
-        "name": factor_names[0] if len(factor_names) == 1 else ", ".join(factor_names),
-        "count": len(factor_names),
-        "dt_start": dt_start,
-        "dt_end": dt_end,
-    })
+    @staticmethod
+    def _inject_factor_info(ctx: DataContext, factor_names: list) -> None:
+        """注入因子元信息到 DataContext 的 meta 通道。"""
+        dt_start = ctx.get("meta", "dt_start") or "未指定"
+        dt_end = ctx.get("meta", "dt_end") or "未指定"
+        ctx.set("meta", "factor_info", {
+            "name": factor_names[0] if len(factor_names) == 1 else ", ".join(factor_names),
+            "count": len(factor_names),
+            "dt_start": dt_start,
+            "dt_end": dt_end,
+        })
 
-
-def _normalize_quantile_keys(module_dict: dict) -> dict:
-    """规范化分位数组合模块的子 key 名。"""
-    result = {}
-    for k, v in module_dict.items():
-        if "超额净值" in k:
-            result["超额净值"] = v
-        elif "净值" in k and "超额" not in k:
-            result["净值"] = v
-        else:
-            result[k] = v
-    return result
+    @staticmethod
+    def _normalize_quantile_keys(module_dict: dict) -> dict:
+        """规范化分位数组合模块的子 key 名。"""
+        result = {}
+        for k, v in module_dict.items():
+            if "超额净值" in k:
+                result["超额净值"] = v
+            elif "净值" in k and "超额" not in k:
+                result["净值"] = v
+            else:
+                result[k] = v
+        return result

@@ -133,10 +133,10 @@ def split_output_for_factor(output: dict, factor_name: str) -> dict:
                 elif factor_name in df.index:
                     # 转置结构：index=因子名, columns=统计量名（如 IC 统计数据）
                     factor_module[data_key] = df.loc[[factor_name]]
-                elif any(c.startswith(f"{factor_name}::") for c in df.columns):
+                elif any(isinstance(c, str) and c.startswith(f"{factor_name}::") for c in df.columns):
                     # 合并的多因子数据（列名含 "因子名::" 前缀）
                     prefix = f"{factor_name}::"
-                    cols = [c for c in df.columns if c.startswith(prefix)]
+                    cols = [c for c in df.columns if isinstance(c, str) and c.startswith(prefix)]
                     sub = df[cols].rename(columns=lambda c: c[len(prefix):])
                     factor_module[data_key] = sub
                 else:

@@ -7,23 +7,29 @@ scenario:
 
 # ============================================================
 # 回测模块参数
+# calc_freq: 计算频率，格式 "1m"（月）、"2w"（周）、"1d"（日）等
+#     用于变换 DTRuler 生成计算时点序列，各模块可单独配置
 # ============================================================
 modules:
   ic:
+    calc_freq: "1m"
     lookback: 31
     period_lookback: 1
     corr_method: "spearman"
     rolling_avg_period: 12
 
   ic_decay:
+    calc_freq: "1m"
     periods: [1, 2, 3, 6, 12]
 
   quantile_portfolio:
+    calc_freq: "1m"
     group_num: 5
     ascending: false
     long_short_pairs: [[0, -1]]
 
   factor_turnover:
+    calc_freq: "1m"
     lookback: 31
     period_lookback: 1
 
