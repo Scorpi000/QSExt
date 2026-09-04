@@ -2,7 +2,7 @@
 
 ## 1. 背景与动机
 
-QuantStudio 提供了 IC 分析、分位数组合、因子换手率等回测模块，这些模块的 `backward_compute()` 产出包含 DataFrame 的 dict，但内置的报告功能存在局限：
+QuantStudio 提供了 IC 分析、分位数组合、因子换手率等截面因子回测模块，以及 AccountStats 等策略回测模块，这些模块的 `backward_compute()` 产出包含 DataFrame 的 dict，但内置的报告功能存在局限：
 
 - **样式与代码耦合**：报告样式硬编码在 QuantStudio 源码中
 - **多场景复用困难**：不同需求（单因子报告、多因子对比、策略回测报告）需要重复编写组装和渲染代码
@@ -25,7 +25,7 @@ QSExt/ReportGenerator/
 ├── components/                     # 可复用可视化组件库
 │   ├── base.py                     # Component 抽象基类
 │   ├── registry.py                 # ComponentRegistry 全局注册表
-│   ├── chart.py                    # Chart 组件 + 9 种内置图表类型
+│   ├── chart.py                    # Chart 组件 + 10 种内置图表类型
 │   ├── data_table.py               # DataTable 组件
 │   ├── stat_grid.py                # StatGrid KPI 卡片组
 │   ├── factor_summary.py           # FactorSummary 因子概况
@@ -39,10 +39,21 @@ QSExt/ReportGenerator/
 │   ├── html_renderer.py            # HtmlRenderer（自包含 HTML，图表 base64 内嵌）
 │   └── md_renderer.py              # MarkdownRenderer
 
-└── scenarios/                      # 场景目录
-    └── single_factor/              # 单因子测试场景
-        ├── scenario.py             # SingleFactorReport(ReportGenerator) 子类
-        └── config.yaml             # 参数 + 报告布局声明
+├── scenarios/                      # 场景目录
+│   ├── __init__.py                 # ScenarioRegistry 场景注册表
+│   ├── single_factor/              # 单因子测试场景
+│   │   ├── __init__.py
+│   │   ├── scenario.py             # SingleFactorReport(ReportGenerator) 子类
+│   │   └── config.yaml             # 参数 + 报告布局声明
+│   └── single_strategy/            # 单策略回测场景
+│       ├── __init__.py
+│       ├── scenario.py             # SingleStrategyReport(ReportGenerator) 子类
+│       └── config.yaml             # 参数 + 报告布局声明
+
+└── scripts/                        # 执行脚本
+    ├── run_report.py               # CLI 入口（profile 驱动）
+    ├── run_factor_report_manual.py # 单因子报告手动测试
+    └── run_strategy_report_manual.py # 单策略报告手动测试
 ```
 
 ---
@@ -102,6 +113,7 @@ class Component(ABC):
 | `heatmap` | 相关性热力图 |
 | `bar_chart` | 通用柱状图 |
 | `line_chart` | 通用折线图 |
+| `drawdown_line` | 回撤曲线（水下曲线） |
 
 ### 3.3 DataContext — 数据上下文
 
@@ -119,6 +131,8 @@ meta = ctx.get("meta", "factor_info")      # → dict（因子元信息）
 ---
 
 ## 4. 数据流
+
+### 4.1 单因子报告
 
 ```
 调用者                                  场景子类                             渲染管线
@@ -159,7 +173,46 @@ meta = ctx.get("meta", "factor_info")      # → dict（因子元信息）
   │                      └── assemble_page → 完整报告                              │
   │              │                                                                │
   │              ▼                                                                │
-  │  {"factor_A": {"html": "...", "markdown": "..."}, ...}                         │
+  │  {"Report": "报告内容"}                                                       │
+```
+
+### 4.2 单策略报告
+
+```
+调用者                                  场景子类                             渲染管线
+───────                                 ────────                            ────────
+  │                                                                               │
+  ├── strategy (MakeAccount 因子), bmk_nv (可选)                                  │
+  │        │                                                                      │
+  │        ▼                                                                      │
+  │  SingleStrategyReport.create_nodes(strategy, bmk_nv=...)                      │
+  │        │                                                                      │
+  │        └── → [AccountStats]                                                   │
+  │                  │                                                            │
+  │                  ▼                                                            │
+  │  SingleStrategyReport(nodes, args={...}, strategy_name="...")                 │
+  │        │                                                                      │
+  │        ▼                                                                      │
+  │  Engine.run([report_node], context)                                           │
+  │        │                                                                      │
+  │        │   AccountStats.backward_compute() 产出                                │
+  │        │   output_list = [{"时间序列": df, "统计数据": df, "交易记录": df, ...}]  │
+  │        │                                                                      │
+  │        ▼                                                                      │
+  │  report_node.generate_report(output_list)                                     │
+  │        │                                                                      │
+  │        ├── (1) 从 AccountStats 输出提取数据                                    │
+  │        ├── (2) 计算衍生数据（回撤序列、年度/月度收益、交易统计）                │
+  │        ├── (3) 组织为 DataContext                                              │
+  │        │       {"0-绩效统计": {...}, "1-净值走势": {...}, ...}               │
+  │        │                                                                      │
+  │        └── (4) LayoutRenderer.render(config, ctx, theme, fmt)                 │
+  │                ├── header（策略概况）                                          │
+  │                ├── sections（绩效/净值/回撤/分时段收益/交易统计）               │
+  │                └── assemble_page → 完整报告                                    │
+  │        │                                                                      │
+  │        ▼                                                                      │
+  │  {"Report": "报告内容"}                                                       │
 ```
 
 ---
@@ -240,7 +293,28 @@ report:
 
 **注意**：`data.source` 引用的名称由场景子类在 `generate_report()` 中组织 output dict 时决定，不需要额外的 `data_sources` 配置段。
 
-### 5.3 布局节点通用属性
+### 5.3 各场景数据源映射
+
+**SingleFactorReport** 的 output dict：
+
+| source | key | 说明 |
+|--------|-----|------|
+| `0-Rank IC 分析` | `IC`, `统计数据` | IC 分析结果 |
+| `1-IC 衰减分析` | `统计数据` | 不同周期的 IC 均值 |
+| `2-分位数组合` | `净值`, `超额净值`, `统计数据` | 分位数组合表现 |
+| `3-因子换手率` | `换手率` | 因子换手率序列 |
+
+**SingleStrategyReport** 的 output dict（从 AccountStats 输出加工而来）：
+
+| source | key | 说明 |
+|--------|-----|------|
+| `0-绩效统计` | `绝对表现`, `统计全表` | 核心绩效指标（年化收益、夏普、最大回撤等） |
+| `1-净值走势` | `净值`, `收益率` | 净值曲线和逐期收益率（含基准对比） |
+| `2-回撤分析` | `回撤序列`, `回撤事件` | 水下曲线和主要回撤事件表 |
+| `3-分时段收益` | `年度收益`, `月度收益` | 按年/月分组的收益率矩阵 |
+| `4-交易统计` | `交易概要`, `交易记录` | 交易次数、持仓数等概要和交易明细 |
+
+### 5.4 布局节点通用属性
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
@@ -259,7 +333,7 @@ report:
 
 ## 6. 使用方法
 
-### 6.1 基本用法
+### 6.1 单因子报告
 
 ```python
 from QuantStudio.Core.CalcEngine import Engine
@@ -275,26 +349,41 @@ nodes = SingleFactorReport.create_nodes(
 
 # 2. 创建报告节点并嵌入计算图
 report_node = SingleFactorReport(
-    data_nodes=nodes,
+    deps=nodes,
     factor_names=["动量因子"],
-    args={"OutputFormats": ["html", "markdown"]},
+    args={"OutputFormat": "html"},
 )
 
 # 3. 运行
-reports = Engine().run([report_node], context)[0]
-# reports["动量因子"]["html"]     → HTML 报告
-# reports["动量因子"]["markdown"] → Markdown 报告
+result = Engine().run([report_node], context)[0]
+html_content = result["Report"]
 ```
 
-### 6.2 使用配置文件
+### 6.2 单策略报告
 
 ```python
-report_node = SingleFactorReport(
-    data_nodes=nodes,
-    factor_names=["动量因子"],
-    args={"OutputFormats": ["html"]},
-    config_file="config.yaml",
+from QuantStudio.Core.CalcEngine import Engine
+from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
+from QSExt.ReportGenerator.scenarios.single_strategy import SingleStrategyReport
+
+# 1. 创建策略
+account = MakeAccount(
+    signal_type="目标权重", start_dt=start_dt, init_cash=1e6,
+)(last_price=price, signal=signal)
+
+# 2. 创建上游节点（AccountStats）
+nodes = SingleStrategyReport.create_nodes(account, bmk_nv=benchmark_nv)
+
+# 3. 创建报告节点
+report_node = SingleStrategyReport(
+    deps=nodes,
+    args={"OutputFormat": "html"},
+    strategy_name="动量策略",
 )
+
+# 4. 运行
+result = Engine().run([report_node], context)[0]
+html_content = result["Report"]
 ```
 
 ### 6.3 自定义报告布局
@@ -306,7 +395,17 @@ report_node = SingleFactorReport(
 - **修改图表类型**：修改 `chart` 的 `params.type`
 - **调整表格精度**：修改 `data_table` 的 `params.precision`
 
-### 6.4 报告注册到图数据库
+### 6.4 使用配置文件
+
+```python
+report_node = SingleFactorReport(
+    deps=nodes,
+    factor_names=["动量因子"],
+    args={"OutputFormat": "html", "ReportConfig": "my_config.yaml"},
+)
+```
+
+### 6.5 报告注册到图数据库
 
 ```python
 from QSExt.ReportGenerator.core import register_reports_to_db
@@ -370,13 +469,22 @@ class MyReport(ReportGenerator):
 ```python
 from QSExt.ReportGenerator.components.chart import Chart
 
+# matplotlib 版本
 def _render_my_chart(data, params, theme):
     fig = Figure(figsize=(14, 6))
     ax = fig.add_subplot(111)
     # ... matplotlib 绘图 ...
     return fig
 
-Chart.register_chart_type("my_chart", _render_my_chart)
+# plotly 版本
+def _render_my_chart_plotly(data, params, theme):
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    # ... plotly 绘图 ...
+    return fig
+
+Chart.register_chart_type("matplotlib", "my_chart", _render_my_chart)
+Chart.register_chart_type("plotly", "my_chart", _render_my_chart_plotly)
 # YAML: params.type: my_chart
 ```
 
@@ -451,4 +559,9 @@ ComponentRegistry.register("my_component", MyComponent)
 - `LayoutRenderer` — 端到端 HTML/Markdown 渲染
 - `Config` — YAML 加载
 - `End-to-End` — 完整流水线
-- `SingleFactorReport` — 创建、渲染、Markdown 格式、merge_result
+- `SingleFactorReport` — 创建、渲染、Markdown 格式
+- `SingleStrategyReport` — 创建、数据加工、渲染、回撤分析、分时段收益
+
+手动测试脚本：
+- `scripts/run_factor_report_manual.py` — 单因子报告（BaoStockDB 数据源）
+- `scripts/run_strategy_report_manual.py` — 单策略报告（模拟数据）

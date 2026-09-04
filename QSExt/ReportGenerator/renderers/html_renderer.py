@@ -83,6 +83,11 @@ class HtmlRenderer(ReportRenderer):
             f'</div>'
         )
 
+    def render_plotly_chart(self, fig, title: Optional[str] = None) -> str:
+        """将 plotly Figure 渲染为交互式 HTML 片段。"""
+        html = fig.to_html(include_plotlyjs='cdn', full_html=False)
+        return f'<div class="chart-container">\n{html}\n</div>'
+
     def render_stat_card(self, label: str, value: Any,
                          format_str: str = "") -> str:
         if format_str and isinstance(value, (int, float)):

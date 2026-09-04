@@ -1,0 +1,167 @@
+# ============================================================
+# 单策略回测报告配置
+# ============================================================
+scenario:
+  name: "单策略回测报告"
+  version: "1.0"
+
+# ============================================================
+# 回测模块参数
+# ============================================================
+modules:
+  account_stats:
+    enabled: true
+
+# ============================================================
+# 报告布局
+# ============================================================
+report:
+  theme: default
+  page_title: "{factor_name} — 策略回测报告"
+
+  # ---- 页眉 ----
+  header:
+    component: section
+    params:
+      layout: single
+    children:
+      - component: factor_summary
+        data:
+          source: meta
+          key: strategy_info
+
+  # ---- 报告章节 ----
+  sections:
+    # 第一章：绩效概览
+    - id: performance_overview
+      title: "一、绩效概览"
+      params:
+        layout: single
+      children:
+        - component: stat_grid
+          data:
+            source: 0-绩效统计
+            key: 绝对表现
+          params:
+            title: "核心绩效指标"
+            columns: 4
+            metrics:
+              - {label: "年化收益率", field: "年化收益率", format: ".2%"}
+              - {label: "年化波动率", field: "年化波动率", format: ".2%"}
+              - {label: "Sharpe比率", field: "Sharpe比率", format: ".2f"}
+              - {label: "收益风险比", field: "收益风险比", format: ".2f"}
+              - {label: "最大回撤率", field: "最大回撤率", format: ".2%"}
+              - {label: "胜率", field: "胜率", format: ".1%"}
+              - {label: "总收益率", field: "总收益率", format: ".2%"}
+              - {label: "时点数", field: "时点数", format: ".0f"}
+
+        - component: data_table
+          data:
+            source: 0-绩效统计
+            key: 统计全表
+          params:
+            precision: 4
+            transpose: true
+
+    # 第二章：净值曲线
+    - id: nav_curve
+      title: "二、净值走势"
+      params:
+        layout: two_column
+      children:
+        - component: chart
+          span: left
+          data:
+            source: 1-净值走势
+            key: 净值
+          params:
+            type: nav_curve
+            title: "净值曲线"
+
+        - component: chart
+          span: right
+          data:
+            source: 1-净值走势
+            key: 收益率
+          params:
+            type: bar_chart
+            title: "逐期收益率"
+
+    # 第三章：回撤分析
+    - id: drawdown
+      title: "三、回撤分析"
+      params:
+        layout: single
+      children:
+        - component: chart
+          data:
+            source: 2-回撤分析
+            key: 回撤序列
+          params:
+            type: drawdown_line
+            title: "回撤曲线"
+
+        - component: data_table
+          data:
+            source: 2-回撤分析
+            key: 回撤事件
+          params:
+            title: "主要回撤事件"
+            precision: 4
+
+    # 第四章：年度/月度收益
+    - id: period_returns
+      title: "四、分时段收益"
+      params:
+        layout: two_column
+      children:
+        - component: data_table
+          span: left
+          data:
+            source: 3-分时段收益
+            key: 年度收益
+          params:
+            title: "年度收益"
+            precision: 4
+
+        - component: data_table
+          span: right
+          data:
+            source: 3-分时段收益
+            key: 月度收益
+          params:
+            title: "月度收益"
+            precision: 4
+
+    # 第五章：交易统计
+    - id: trade_stats
+      title: "五、交易统计"
+      params:
+        layout: single
+      children:
+        - component: stat_grid
+          data:
+            source: 4-交易统计
+            key: 交易概要
+          params:
+            title: "交易概要指标"
+            columns: 4
+            metrics:
+              - {label: "总交易次数", field: "总交易次数", format: ".0f"}
+              - {label: "买入次数", field: "买入次数", format: ".0f"}
+              - {label: "卖出次数", field: "卖出次数", format: ".0f"}
+              - {label: "平均持仓数", field: "平均持仓数", format: ".1f"}
+
+        - component: data_table
+          data:
+            source: 4-交易统计
+            key: 交易记录
+          params:
+            title: "交易明细"
+            max_rows: 50
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  formats: ["html", "markdown"]

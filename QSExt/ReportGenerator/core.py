@@ -192,70 +192,59 @@ def register_reports_to_db(
     result: dict,
     factor_qsids: List[str],
     output_dir: str,
+    report_key: str = "Report",
+    output_format: str = "html",
     bt_qsid: Optional[str] = None,
     scenario_name: Optional[str] = None,
-) -> Dict[str, str]:
-    """将 ScenarioResult 中的报告写入文件并注册到图数据库。
+) -> str:
+    """将报告写入文件并注册到图数据库。
 
     Args:
-        result: Scenario.render() 返回的 ScenarioResult
-        factor_qsids: 各因子的 QSID 列表（顺序与 factors 一致）
+        result: generate_report() 返回的 dict，包含 ReportKey 对应的报告内容
+        factor_qsids: 各因子的 QSID 列表
         output_dir: 报告输出目录
+        report_key: 报告内容在 result 中的键名
+        output_format: 输出格式（html / markdown）
         bt_qsid: 关联的回测 QSID
         scenario_name: 场景名称
 
     Returns:
-        {factor_name_fmt: report_id, ...}
+        注册的报告 ID，未注册时返回空字符串
     """
     from QSExt.QSRegistry.QSGraphDB import QSGraphDB
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # 尝试连接图数据库（可能因配置缺失或 Neo4j 不可用而失败）
-    gdb = None
+    content = result.get(report_key, "")
+    if not content:
+        return ""
+
+    fmt_suffix = {"html": "html", "markdown": "md"}
+    suffix = fmt_suffix.get(output_format, output_format)
+    filename = f"{scenario_name or 'report'}.{suffix}"
+    filepath = os.path.join(output_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    # 注册到图数据库
+    report_id = ""
     try:
         gdb = QSGraphDB()
         gdb.connect()
+        fqsids = [q for q in factor_qsids if q] if factor_qsids else []
+        report_id = gdb.storeReport(
+            report_path=filepath,
+            factor_qsids=fqsids,
+            bt_qsid=bt_qsid,
+            scenario_name=scenario_name,
+            name=f"{scenario_name or 'report'} - {output_format.upper()} 报告",
+        )
     except Exception as e:
         import logging
         _logger = logging.getLogger("QS.ReportGenerator")
-        _logger.warning(f"无法连接图数据库，跳过报告注册: {e}")
+        _logger.warning(f"注册报告到图数据库失败: {e}")
 
-    report_ids = {}
-
-    # 按因子名建立 QSID 映射（result.reports 保持插入顺序，与 factor_names 一致）
-    if isinstance(factor_qsids, list):
-        _factor_qsid_map = {}
-        for i, factor_name in enumerate(result.reports.keys()):
-            if i < len(factor_qsids):
-                _factor_qsid_map[factor_name] = factor_qsids[i]
-    else:
-        _factor_qsid_map = {}
-
-    for factor_name, reports in result.reports.items():
-        for fmt, content in reports.items():
-            filename = f"{factor_name}_{scenario_name or 'report'}.{fmt}"
-            filepath = os.path.join(output_dir, filename)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            # 注册到图数据库
-            if gdb is not None:
-                try:
-                    fqsid = _factor_qsid_map.get(factor_name)
-                    fqsids = [fqsid] if fqsid else []
-                    rid = gdb.storeReport(
-                        report_path=filepath,
-                        factor_qsids=fqsids,
-                        bt_qsid=bt_qsid,
-                        scenario_name=scenario_name,
-                        name=f"{factor_name} - {fmt.upper()} 报告",
-                    )
-                    report_ids[f"{factor_name}_{fmt}"] = rid
-                except Exception as e:
-                    _logger.warning(f"注册报告 {filename} 到图数据库失败: {e}")
-
-    return report_ids
+    return report_id
 
 
 # ---- 注册内置组件（在导入时自动完成） ----

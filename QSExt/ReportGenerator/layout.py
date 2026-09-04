@@ -18,7 +18,8 @@ class LayoutRenderer:
     """
 
     def render(self, report_config: dict, data_ctx: "DataContext",  # noqa: F821
-               theme: "Theme", fmt: str = "html") -> str:  # noqa: F821
+               theme: "Theme", fmt: str = "html",
+               global_params: dict = None) -> str:  # noqa: F821
         """渲染完整报告。
 
         Args:
@@ -26,6 +27,7 @@ class LayoutRenderer:
             data_ctx: 数据上下文
             theme: 主题
             fmt: 输出格式 ("html" | "markdown")
+            global_params: 注入到所有组件 params 的全局参数（优先级低于 YAML 中的 params）
 
         Returns:
             完整的报告字符串
@@ -48,7 +50,7 @@ class LayoutRenderer:
         header_cfg = report_config.get("header")
         if header_cfg:
             header_html = self._render_section_node(
-                header_cfg, data_ctx, theme, renderer
+                header_cfg, data_ctx, theme, renderer, global_params
             )
             if header_html:
                 fragments.append(header_html)
@@ -59,7 +61,7 @@ class LayoutRenderer:
             if not self._section_has_data(sec_cfg, data_ctx):
                 continue
             sec_html = self._render_section_node(
-                sec_cfg, data_ctx, theme, renderer
+                sec_cfg, data_ctx, theme, renderer, global_params
             )
             if sec_html:
                 fragments.append(sec_html)
@@ -81,7 +83,8 @@ class LayoutRenderer:
 
     def _render_section_node(self, node: dict, data_ctx: "DataContext",  # noqa: F821
                              theme: "Theme",  # noqa: F821
-                             renderer: "ReportRenderer") -> str:  # noqa: F821
+                             renderer: "ReportRenderer",
+                             global_params: dict = None) -> str:  # noqa: F821
         """渲染一个布局节点（section 或其他带 children 的节点）。
 
         递归处理：
@@ -97,6 +100,10 @@ class LayoutRenderer:
         # 如果没有指定 title 在 params 中，加入
         if title and "title" not in params:
             params["title"] = title
+
+        # 合并全局参数（YAML params 优先）
+        if global_params:
+            params = {**global_params, **params}
 
         # 如果有 children → section 容器
         if children:

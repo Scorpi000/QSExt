@@ -19,7 +19,7 @@
     # 嵌入计算图
     report_node = SingleFactorReport(
         nodes,
-        args={"OutputFormats": ["html"], "ReportConfig": "config.yaml"},
+        args={"OutputFormat": "html", "ReportConfig": "config.yaml"},
     )
 
     result = Engine().run([report_node], context)[0]
@@ -232,10 +232,11 @@ class SingleFactorReport(ReportGenerator):
         self._report_config = full_config.get("report", {})
         self._modules_config = full_config.get("modules", {})
 
-        # 从配置中提取 OutputFormats（仅当用户未显式指定时）
-        if "OutputFormats" not in (args or {}):
+        # 从配置中提取 OutputFormat（仅当用户未显式指定时）
+        if "OutputFormat" not in (args or {}):
             output_config = full_config.get("output", {})
-            self._QSArgs.OutputFormats = output_config.get("formats", ["html"])
+            fmts = output_config.get("formats", ["html"])
+            self._QSArgs.OutputFormat = fmts[0] if fmts else "html"
 
     def generate_report(self, output_list: List[Any]) -> dict:
         """将上游节点产出组织为 output dict 并渲染报告。
@@ -244,7 +245,7 @@ class SingleFactorReport(ReportGenerator):
         [IC输出, IC衰减输出, 分位数组合(f1), 分位数组合(f2), ..., 换手率输出]
 
         Returns:
-            dict: 包含 ``ReportKey``（合并 HTML）和 ``"reports"``（按因子拆分的报告）
+            dict: {ReportKey: 报告内容}
         """
         # 按约定 key 组织 output dict（与 config.yaml 中 source 引用一致）
         output = {}
@@ -309,33 +310,34 @@ class SingleFactorReport(ReportGenerator):
 
         # 渲染
         report_config = self._report_config
-        output_formats = self._QSArgs.OutputFormats
+        fmt = self._QSArgs.OutputFormat
         theme = Theme()
         layout_renderer = LayoutRenderer()
+        global_params = {"engine": self._QSArgs.ChartEngine}
 
-        reports = {}
         factor_names = self._factor_names or self._infer_factor_names(output_list)
+        report_key = self._QSArgs.ReportKey
 
+        if len(factor_names) == 1:
+            single = split_output_for_factor(output, factor_names[0])
+            ctx = DataContext(single, factor_names, report_config)
+            self._inject_factor_info(ctx, factor_names)
+            content = layout_renderer.render(
+                report_config, ctx, theme, fmt, global_params=global_params
+            )
+            return {report_key: content}
+
+        # 多因子：各自渲染后合并
+        sep = '<hr style="border:1px solid #e0e0e0;margin:2em 0">'
+        parts = []
         for fname in factor_names:
             single = split_output_for_factor(output, fname)
             ctx = DataContext(single, [fname], report_config)
             self._inject_factor_info(ctx, [fname])
-            reports[fname] = {}
-            for fmt in output_formats:
-                reports[fname][fmt] = layout_renderer.render(
-                    report_config, ctx, theme, fmt
-                )
-
-        # 合并所有因子报告为单个 HTML，写入 ReportKey 供 BTReport 聚合
-        report_key = self._QSArgs.ReportKey
-        sep = '<hr style="border:1px solid #e0e0e0;margin:2em 0">'
-        html_parts = []
-        for fname, fmt_dict in reports.items():
-            for fmt, content in fmt_dict.items():
-                html_parts.append(content)
-        combined_html = sep.join(html_parts)
-
-        return {report_key: combined_html, "reports": reports}
+            parts.append(layout_renderer.render(
+                report_config, ctx, theme, fmt, global_params=global_params
+            ))
+        return {report_key: sep.join(parts)}
 
     # ---- 内部工具方法 ----
 

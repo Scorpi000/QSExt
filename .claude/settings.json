@@ -77,7 +77,14 @@
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios import ScenarioRegistry; print\\('Scenarios:', ScenarioRegistry.list_all\\(\\)\\)\")",
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_report import main; print\\('Import OK'\\)\")",
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.RuntimeConfig.config import RuntimeSettings; s = RuntimeSettings\\(\\); print\\('report_profiles:', s.report_profiles\\); print\\('report_output_dir:', s.report_output_dir\\)\")",
-      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios.single_factor.scenario import SingleFactorReport; print\\('Methods:', [m for m in dir\\(SingleFactorReport\\) if m.startswith\\('_normalize'\\) or m.startswith\\('_infer'\\) or m.startswith\\('_inject'\\)]\\)\")"
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios.single_factor.scenario import SingleFactorReport; print\\('Methods:', [m for m in dir\\(SingleFactorReport\\) if m.startswith\\('_normalize'\\) or m.startswith\\('_infer'\\) or m.startswith\\('_inject'\\)]\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.components.chart import Chart; print\\('注册的图表类型:', list\\(Chart.CHART_FUNCTIONS.keys\\(\\)\\)[:5], '...'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -m QSExt.ReportGenerator.scripts.run_report_manual)",
+      "Bash(grep -c \"plotly\" \"D:/Data/QSReport/open.html\" 2>&1)",
+      "Read(//d/Data/QSReport/**)",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator import ReportGenerator; print\\('OutputFormat:', ReportGenerator.__QS_ArgClass__.OutputFormat.default\\)\")",
+      "Bash(PYTHONPATH='D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt' 'D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe' -c ' *)",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" \"D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe\" \"QSExt/ReportGenerator/scripts/run_strategy_report_manual.py\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",

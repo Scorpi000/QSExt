@@ -324,34 +324,23 @@ def _execute(settings, report_nodes, dts, dtruler, section_ids):
 
 def _save_reports(report_nodes, factor_names, output_dir):
     """保存报告到文件"""
-    # 格式名到文件后缀的映射
     fmt_suffix = {"html": "html", "markdown": "md"}
 
     Logger.info(f"保存报告到: {output_dir}")
     for node, fname in zip(report_nodes, factor_names):
         result = getattr(node, "_report_result", {})
-        reports = result.get("reports", {})
-        if not reports:
-            # 兜底：尝试从 ReportKey 获取合并 HTML
-            report_key = node._QSArgs.ReportKey
-            html = result.get(report_key, "")
-            if html:
-                filepath = os.path.join(output_dir, f"{fname}.html")
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(html)
-                Logger.info(f"  ✓ {fname}.html")
-            else:
-                Logger.warning(f"  ✗ {fname}: 无报告内容")
+        report_key = node._QSArgs.ReportKey
+        content = result.get(report_key, "")
+        if not content:
+            Logger.warning(f"  ✗ {fname}: 无报告内容")
             continue
-
-        for factor_name, fmt_dict in reports.items():
-            for fmt, content in fmt_dict.items():
-                suffix = fmt_suffix.get(fmt, fmt)
-                filename = f"{factor_name}.{suffix}"
-                filepath = os.path.join(output_dir, filename)
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(content)
-                Logger.info(f"  ✓ {filename}")
+        fmt = node._QSArgs.OutputFormat
+        suffix = fmt_suffix.get(fmt, fmt)
+        filename = f"{fname}.{suffix}"
+        filepath = os.path.join(output_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        Logger.info(f"  ✓ {filename}")
 
 
 def _dry_run(settings, profile_name, profile_cfg):

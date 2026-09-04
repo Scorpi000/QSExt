@@ -54,6 +54,18 @@ class ReportRenderer(metaclass=ABCMeta):
             title: 图表标题
         """
 
+    def render_plotly_chart(self, fig, title: Optional[str] = None) -> str:
+        """渲染 plotly Figure 为交互式 HTML。
+
+        Args:
+            fig: plotly.graph_objects.Figure 对象
+            title: 图表标题
+
+        Returns:
+            HTML 片段（默认回退到静态渲染）
+        """
+        return ""
+
     @abstractmethod
     def render_stat_card(self, label: str, value: Any,
                          format_str: str = "") -> str:

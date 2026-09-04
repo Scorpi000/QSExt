@@ -37,13 +37,14 @@ class ReportGenerator(ReportNode):
     继承 ``ReportNode``，可直接嵌入回测计算图，也可被 ``BTReport`` 聚合。
     子类需实现两个方法：
     - ``create_nodes()``：定义场景需要哪些上游数据节点
-    - ``generate_report()``：将上游节点产出渲染为报告
+    - ``generate_report()``：将上游节点产出渲染为报告，直接写入 ReportKey
     """
 
     class __QS_ArgClass__(ReportNode.__QS_ArgClass__):
         Name: str = Field(default="报告生成器", frozen=True, title="名称")
-        OutputFormats: list = Field(default=["html"], title="输出格式")
+        OutputFormat: str = Field(default="html", title="输出格式", description="报告输出格式：html 或 markdown")
         ThemeName: str = Field(default="default", title="主题名称")
+        ChartEngine: str = Field(default="plotly", title="图表引擎", description="plotly（交互式）或 matplotlib（静态）")
 
     # ---- 子类必须实现 ----
 
@@ -62,28 +63,17 @@ class ReportGenerator(ReportNode):
     def generate_report(self, output_list: List[Any]) -> Dict[str, str]:
         """根据上游节点的运行结果生成报告。
 
-        子类实现此方法，将 output_list 按节点依赖顺序组织数据并渲染。
+        子类实现此方法，将 output_list 渲染后直接写入 ReportKey。
 
         Args:
             output_list: 上游节点的产出列表，顺序与 create_nodes 返回的节点一致
 
         Returns:
-            {报告名称: 报告内容}
+            {ReportKey: 报告内容}
         """
         raise NotImplementedError
 
     # ---- Node DAG 接口 ----
 
     def backward_compute(self, path, bwd_data_list, context, local_context=None):
-        output = self.generate_report(bwd_data_list)
-        # 确保输出中包含 ReportKey，供 BTReport 聚合使用
-        report_key = self._QSArgs.ReportKey
-        if report_key not in output:
-            reports = output.get("reports", {})
-            sep = '<hr style="border:1px solid #e0e0e0;margin:2em 0">'
-            html_parts = []
-            for factor_name, fmt_dict in reports.items():
-                for fmt, content in fmt_dict.items():
-                    html_parts.append(content)
-            output[report_key] = sep.join(html_parts)
-        return output
+        return self.generate_report(bwd_data_list)
