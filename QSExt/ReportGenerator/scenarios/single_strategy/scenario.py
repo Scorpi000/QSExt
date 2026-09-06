@@ -149,7 +149,8 @@ class SingleStrategyReport(ReportGenerator):
         self._build_period_returns(ctx, account_output)
 
         # 4-交易统计
-        self._build_trade_stats(ctx, account_output)
+        trade_freq = self._modules_config.get("trade_freq", "M")
+        self._build_trade_stats(ctx, account_output, trade_freq=trade_freq)
 
         # 渲染
         report_config = self._report_config
@@ -253,8 +254,15 @@ class SingleStrategyReport(ReportGenerator):
             ctx.set("3-分时段收益", "月度收益", monthly)
 
     @staticmethod
-    def _build_trade_stats(ctx: DataContext, output: dict) -> None:
-        """构建交易统计数据。"""
+    def _build_trade_stats(ctx: DataContext, output: dict,
+                           trade_freq: str = "M") -> None:
+        """构建交易统计数据。
+
+        Args:
+            ctx: 数据上下文
+            output: AccountStats 输出字典
+            trade_freq: 交易统计频率，可选 D(日)/W(周)/M(月)/Q(季)/Y(年)
+        """
         trade_record = output.get("交易记录", pd.DataFrame())
         position_num = output.get("持仓数量", pd.DataFrame())
 
@@ -277,10 +285,45 @@ class SingleStrategyReport(ReportGenerator):
         })
         ctx.set("4-交易统计", "交易概要", summary)
 
-        # 交易记录（限制行数避免报告过大）
-        display_cols = [c for c in trade_record.columns if c in ["交易时点", "ID", "交易量", "成交价", "交易费"]]
-        if display_cols:
-            ctx.set("4-交易统计", "交易记录", trade_record[display_cols])
+        # 按频率汇总交易数据（用于图表）
+        if "交易时点" not in trade_record.columns:
+            return
+
+        tr = trade_record.copy()
+        tr["交易时点"] = pd.to_datetime(tr["交易时点"])
+
+        # 交易金额 = |交易量 × 成交价|
+        if "交易量" in tr.columns and "成交价" in tr.columns:
+            tr["交易金额"] = (tr["交易量"].abs() * tr["成交价"]).fillna(0)
+        else:
+            tr["交易金额"] = 0.0
+
+        _FREQ_LABEL = {"D": "日", "W": "周", "M": "月", "Q": "季", "Y": "年"}
+        freq_label = _FREQ_LABEL.get(trade_freq.upper(), trade_freq)
+        period_key = tr["交易时点"].dt.to_period(trade_freq.upper())
+
+        agg = tr.groupby(period_key).agg(
+            交易次数=("交易量", "size"),
+            交易金额=("交易金额", "sum"),
+        )
+        agg.index = agg.index.to_timestamp()
+        agg.index.name = f"按{freq_label}统计"
+
+        ctx.set("4-交易统计", "交易频率", agg[["交易次数"]])
+        ctx.set("4-交易统计", "交易金额", agg[["交易金额"]])
+
+        # 换手率 = 期间交易金额 / 期间账户价值均值
+        ts = output.get("时间序列", pd.DataFrame())
+        if not ts.empty and "账户价值" in ts.columns:
+            acct_val = ts["账户价值"].dropna()
+            if not acct_val.empty:
+                avg_val = acct_val.groupby(acct_val.index.to_period(trade_freq.upper())).mean()
+                avg_val.index = avg_val.index.to_timestamp()
+                turnover = agg["交易金额"] / avg_val.reindex(agg.index)
+                turnover = turnover.dropna().to_frame("换手率")
+                if not turnover.empty:
+                    turnover.index.name = f"按{freq_label}统计"
+                    ctx.set("4-交易统计", "换手率", turnover)
 
 
 # ---- 辅助函数 ----

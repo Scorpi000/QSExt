@@ -11,6 +11,8 @@ scenario:
 modules:
   account_stats:
     enabled: true
+  # 交易统计频率：D=按日, W=按周, M=按月, Q=按季, Y=按年（高频策略建议用 D，低频策略建议用 M 或 Q）
+  trade_freq: "M"
 
 # ============================================================
 # 报告布局
@@ -152,13 +154,29 @@ report:
               - {label: "卖出次数", field: "卖出次数", format: ".0f"}
               - {label: "平均持仓数", field: "平均持仓数", format: ".1f"}
 
-        - component: data_table
+        - component: chart
           data:
             source: 4-交易统计
-            key: 交易记录
+            key: 交易频率
           params:
-            title: "交易明细"
-            max_rows: 50
+            type: bar_chart
+            title: "交易次数"
+
+        - component: chart
+          data:
+            source: 4-交易统计
+            key: 交易金额
+          params:
+            type: bar_chart
+            title: "交易金额"
+
+        - component: chart
+          data:
+            source: 4-交易统计
+            key: 换手率
+          params:
+            type: turnover_area
+            title: "换手率"
 
 # ============================================================
 # 输出配置
