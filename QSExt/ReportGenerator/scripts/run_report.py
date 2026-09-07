@@ -1,6 +1,6 @@
 # coding=utf-8
 """
-报告生成执行脚本 —— 根据配置文件为因子生成测试报告。
+报告生成执行脚本 —— 根据配置文件生成因子或策略测试报告。
 
 使用方式:
     python run_report.py --profile a_stock_full                     # 使用指定报告配置
@@ -13,14 +13,23 @@
     - scenario: 场景类型（在 ScenarioRegistry 中注册的名称）
     - section_id_list: 截面名称（引用 SECTION_ID_SOURCES 的 key）
     - config: YAML 报告配置文件路径（空字符串使用内置默认）
+
+    因子类场景（single_factor / multi_factor）:
     - factors: 目标因子列表 [{db, table, factor}]，factor 支持 "*" 通配符
     - ref_factors: 参考因子 {逻辑名: {db, table, factor}}
+
+    策略类场景（single_strategy / multi_strategy）:
+    - strategies: 策略列表，支持两种模式:
+        模式 A（从 FactorDB 加载信号）: {db, table, signal_factor, name, ...}
+        模式 B（动态导入策略模块）: {module, name, model_args, ...}
+    - ref_factors: 参考因子（如 bmk_nv 基准净值）
 """
 
 import os
 import logging
 import argparse
 import datetime as dt
+import importlib
 
 import pandas as pd
 
@@ -101,80 +110,51 @@ def main(settings_path: str = "settings", profile_name: str = "",
         ref_factors = _load_ref_factors(pool, profile_cfg.get("ref_factors", {}))
         Logger.info(f"参考因子: {list(ref_factors.keys())}")
 
-        # 7. 加载目标因子（支持 * 通配符）
-        target_factors = _load_factors(pool, profile_cfg.get("factors", []))
-        if not target_factors:
-            Logger.warning("目标因子为空，终止执行")
-            return
-        Logger.info(f"目标因子: {len(target_factors)} 个")
-
-        # 8. 解析截面
+        # 7. 解析截面和时间范围
         section_key = profile_cfg.get("section_id_list", "")
         if not section_key:
             Logger.error(f"REPORT_PROFILES['{profile_name}'] 中未配置 section_id_list")
             return
 
-        # 9. 解析时间范围和 ID
         dts, dtruler = builder.resolve_dts()
         if not dts:
             Logger.warning("计算时点为空，终止执行")
             return
 
         section_ids = builder.resolve_section_ids(section_key)
-        ids = section_ids  # 报告的 IDs 与 SectionIDs 相同
-
-        if not ids:
+        if not section_ids:
             Logger.warning(f"IDs 为空，终止执行")
             return
 
         Logger.info(f"时点: {dts[0]} ~ {dts[-1]}, 共 {len(dts)} 个")
-        Logger.info(f"截面: {section_key}, IDs: {len(ids)}")
+        Logger.info(f"截面: {section_key}, IDs: {len(section_ids)}")
 
-        # 10. 为每个因子生成报告
+        # 8. 根据场景类型创建报告节点
+        scenario_type = ScenarioRegistry.get_type(scenario_name)
         report_config = profile_cfg.get("config", "")
-        report_nodes = []
-        report_factor_names = []
 
-        for factor in target_factors:
-            fname = factor._QSArgs.Name
-            Logger.info(f"  创建报告节点: {fname}")
-
-            try:
-                nodes = scenario_cls.create_nodes(
-                    [factor],
-                    price=ref_factors.get("price"),
-                    mask=ref_factors.get("mask"),
-                    cat_data=ref_factors.get("cat_data"),
-                    weight=ref_factors.get("weight"),
-                    descriptor_ids=section_ids,
-                    dtruler=dtruler,
-                    config=report_config,
-                )
-            except Exception as e:
-                Logger.warning(f"  跳过 {fname}: create_nodes 失败 — {e}")
-                continue
-
-            args = {"Name": f"报告-{fname}"}
-            if report_config:
-                args["ReportConfig"] = report_config
-
-            report_node = scenario_cls(
-                deps=nodes, args=args, factor_names=[fname],
+        if scenario_type == "strategy":
+            report_nodes, report_names = _create_strategy_report_nodes(
+                scenario_cls, scenario_name, pool, profile_cfg,
+                ref_factors, section_ids, dtruler, report_config,
             )
-            report_nodes.append(report_node)
-            report_factor_names.append(fname)
+        else:
+            report_nodes, report_names = _create_factor_report_nodes(
+                scenario_cls, pool, profile_cfg,
+                ref_factors, section_ids, dtruler, report_config,
+            )
 
         if not report_nodes:
-            Logger.warning("没有可生成报告的因子")
+            Logger.warning("没有可生成报告的节点")
             return
 
         Logger.info(f"共 {len(report_nodes)} 个报告节点，开始执行...")
 
-        # 13. 执行
+        # 9. 执行
         _execute(settings, report_nodes, dts, dtruler, section_ids)
 
-        # 14. 保存报告
-        _save_reports(report_nodes, report_factor_names, out_dir)
+        # 10. 保存报告
+        _save_reports(report_nodes, report_names, out_dir)
 
     Logger.info("报告生成流水线执行完成")
 
@@ -264,6 +244,267 @@ def _load_factors(pool, factors_cfg: list) -> list:
     return result
 
 
+def _create_factor_report_nodes(scenario_cls, pool, profile_cfg,
+                                 ref_factors, section_ids, dtruler, report_config):
+    """为因子类场景创建报告节点。
+
+    Returns:
+        (report_nodes, report_names)
+    """
+    target_factors = _load_factors(pool, profile_cfg.get("factors", []))
+    if not target_factors:
+        Logger.warning("目标因子为空")
+        return [], []
+
+    Logger.info(f"目标因子: {len(target_factors)} 个")
+
+    report_nodes = []
+    report_names = []
+
+    for factor in target_factors:
+        fname = factor._QSArgs.Name
+        Logger.info(f"  创建报告节点: {fname}")
+
+        try:
+            nodes = scenario_cls.create_nodes(
+                [factor],
+                price=ref_factors.get("price"),
+                mask=ref_factors.get("mask"),
+                cat_data=ref_factors.get("cat_data"),
+                weight=ref_factors.get("weight"),
+                descriptor_ids=section_ids,
+                dtruler=dtruler,
+                config=report_config,
+            )
+        except Exception as e:
+            Logger.warning(f"  跳过 {fname}: create_nodes 失败 — {e}")
+            continue
+
+        args = {"Name": f"报告-{fname}"}
+        if report_config:
+            args["ReportConfig"] = report_config
+
+        report_node = scenario_cls(
+            deps=nodes, args=args, factor_names=[fname],
+        )
+        report_nodes.append(report_node)
+        report_names.append(fname)
+
+    return report_nodes, report_names
+
+
+def _create_strategy_report_nodes(scenario_cls, scenario_name, pool, profile_cfg,
+                                   ref_factors, section_ids, dtruler, report_config):
+    """为策略类场景创建报告节点。
+
+    支持两种策略加载模式：
+    - 模式 A：从 FactorDB 加载预计算信号（配置含 ``db`` + ``table``）
+    - 模式 B：动态导入 StrategyDef 模块（配置含 ``module``）
+
+    Returns:
+        (report_nodes, report_names)
+    """
+    from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
+
+    strategies_cfg = profile_cfg.get("strategies", [])
+    if not strategies_cfg:
+        Logger.warning("strategies 配置为空")
+        return [], []
+
+    # 加载价格因子（策略回测需要）
+    price_factor = ref_factors.get("price")
+    bmk_nv = ref_factors.get("bmk_nv")
+
+    strategy_factors = []  # (name, strategy_factor)
+
+    for cfg in strategies_cfg:
+        name = cfg.get("name", "未命名策略")
+
+        if "module" in cfg:
+            # 模式 B：动态导入策略模块
+            sf = _load_strategy_from_module(cfg, pool, section_ids, dtruler)
+            if sf is not None:
+                strategy_factors.append((name, sf))
+        else:
+            # 模式 A：从 FactorDB 加载预计算信号
+            sf = _load_strategy_from_db(cfg, pool, price_factor)
+            if sf is not None:
+                strategy_factors.append((name, sf))
+
+    if not strategy_factors:
+        Logger.warning("没有可用的策略")
+        return [], []
+
+    Logger.info(f"策略: {len(strategy_factors)} 个")
+
+    is_multi = (scenario_name == "multi_strategy")
+
+    if is_multi:
+        # 多策略对比：所有策略共享一个报告节点
+        names = [n for n, _ in strategy_factors]
+        factors = [f for _, f in strategy_factors]
+
+        try:
+            nodes = scenario_cls.create_nodes(
+                factors, bmk_nv=bmk_nv, config=report_config,
+            )
+        except Exception as e:
+            Logger.warning(f"  create_nodes 失败: {e}")
+            return [], []
+
+        args = {"Name": f"策略对比报告-{' vs '.join(names)}"}
+        if report_config:
+            args["ReportConfig"] = report_config
+
+        report_node = scenario_cls(
+            deps=nodes, args=args, strategy_names=names,
+        )
+        return [report_node], [f"{' vs '.join(names)}"]
+    else:
+        # 单策略：每个策略单独创建报告节点
+        report_nodes = []
+        report_names = []
+
+        for name, sf in strategy_factors:
+            Logger.info(f"  创建报告节点: {name}")
+
+            try:
+                nodes = scenario_cls.create_nodes(
+                    sf, bmk_nv=bmk_nv, config=report_config,
+                )
+            except Exception as e:
+                Logger.warning(f"  跳过 {name}: create_nodes 失败 — {e}")
+                continue
+
+            args = {"Name": f"策略报告-{name}"}
+            if report_config:
+                args["ReportConfig"] = report_config
+
+            report_node = scenario_cls(
+                deps=nodes, args=args, strategy_name=name,
+            )
+            report_nodes.append(report_node)
+            report_names.append(name)
+
+        return report_nodes, report_names
+
+
+def _load_strategy_from_db(cfg, pool, price_factor):
+    """从 FactorDB 加载预计算的策略信号并包装为 Account。
+
+    Args:
+        cfg: 策略配置 dict，含 db/table/signal_factor 及可选的 price_*/signal_type/init_cash
+        pool: DBPool
+        price_factor: 价格因子（可被 cfg 中的 price_* 覆盖）
+
+    Returns:
+        Account 策略因子，失败返回 None
+    """
+    from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
+
+    db_name = cfg.get("db", "")
+    table_name = cfg.get("table", "")
+    signal_factor_name = cfg.get("signal_factor", "")
+    if not all([db_name, table_name, signal_factor_name]):
+        Logger.warning(f"策略配置不完整（需 db, table, signal_factor），跳过: {cfg}")
+        return None
+
+    try:
+        fdb = pool[db_name]
+        ft = fdb.getTable(table_name)
+        signal = ft.getFactor(signal_factor_name)
+    except Exception as e:
+        Logger.warning(f"加载策略信号失败 {db_name}/{table_name}/{signal_factor_name}: {e}")
+        return None
+
+    # 价格因子：优先用配置中的，否则用 ref_factors 的
+    price = price_factor
+    price_db = cfg.get("price_db", "")
+    price_table = cfg.get("price_table", "")
+    price_factor_name = cfg.get("price_factor", "")
+    if all([price_db, price_table, price_factor_name]):
+        try:
+            price_fdb = pool[price_db]
+            price_ft = price_fdb.getTable(price_table)
+            price = price_ft.getFactor(price_factor_name)
+        except Exception as e:
+            Logger.warning(f"加载价格因子失败，使用 ref_factors 的 price: {e}")
+
+    if price is None:
+        Logger.warning(f"策略 '{cfg.get('name', '')}' 缺少价格因子，跳过")
+        return None
+
+    # MakeAccount 参数
+    signal_type = cfg.get("signal_type", "目标权重")
+    init_cash = float(cfg.get("init_cash", 1e6))
+    short_allowed = cfg.get("short_allowed", False)
+    start_dt = cfg.get("start_dt", None)
+
+    make_account = MakeAccount(
+        signal_type=signal_type,
+        init_cash=init_cash,
+        short_allowed=short_allowed,
+        start_dt=start_dt,
+    )
+    account = make_account(last_price=price, signal=signal)
+    return account
+
+
+def _load_strategy_from_module(cfg, pool, section_ids, dtruler):
+    """动态导入 StrategyDef 模块并执行 defStrategy 获取策略实例。
+
+    Args:
+        cfg: 策略配置 dict，含 module 及可选的 model_args/settings_path
+        pool: DBPool
+        section_ids: 截面 ID 列表
+        dtruler: 时点标尺
+
+    Returns:
+        策略因子（MakeAccount 输出），失败返回 None
+    """
+    from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
+
+    module_path = cfg.get("module", "")
+    if not module_path:
+        Logger.warning("策略模块路径为空，跳过")
+        return None
+
+    model_args = cfg.get("model_args", {})
+
+    try:
+        # 动态导入策略模块
+        mod = importlib.import_module(module_path)
+        def_strategy = getattr(mod, "defStrategy", None)
+        if def_strategy is None:
+            Logger.warning(f"模块 '{module_path}' 中未找到 defStrategy 函数")
+            return None
+
+        # 构建 StrategyDefInput
+        sdi = StrategyDefInput(
+            FDB=pool,
+            Factors={},
+            Strategies={},
+            ModelArgs=model_args,
+            DTRuler=dtruler,
+            SectionIDs=section_ids,
+        )
+
+        # 执行 defStrategy
+        result = def_strategy(sdi)
+        if not result:
+            Logger.warning(f"模块 '{module_path}' 的 defStrategy 返回空列表")
+            return None
+
+        # 返回第一个策略实例
+        strategy = result[0]
+        Logger.info(f"  从模块 '{module_path}' 加载策略: {strategy._QSArgs.Name}")
+        return strategy
+
+    except Exception as e:
+        Logger.warning(f"加载策略模块 '{module_path}' 失败: {e}")
+        return None
+
+
 def _execute(settings, report_nodes, dts, dtruler, section_ids):
     """执行引擎"""
     cache_dir = settings.cache_dir
@@ -349,14 +590,26 @@ def _dry_run(settings, profile_name, profile_cfg):
     Logger.info("DRY RUN — 仅分析配置")
     Logger.info("=" * 60)
     Logger.info(f"报告配置: {profile_name}")
-    Logger.info(f"  scenario: {profile_cfg.get('scenario', '未指定')}")
+
+    scenario_name = profile_cfg.get("scenario", "未指定")
+    scenario_type = ScenarioRegistry.get_type(scenario_name) if scenario_name != "未指定" else "factor"
+    Logger.info(f"  scenario: {scenario_name} (类型: {scenario_type})")
     Logger.info(f"  section_id_list: {profile_cfg.get('section_id_list', '未指定')}")
     Logger.info(f"  config: {profile_cfg.get('config', '内置默认')}")
 
-    factors_cfg = profile_cfg.get("factors", [])
-    Logger.info(f"  目标因子 ({len(factors_cfg)}):")
-    for cfg in factors_cfg:
-        Logger.info(f"    {cfg.get('db')}/{cfg.get('table')}/{cfg.get('factor', '*')}")
+    if scenario_type == "strategy":
+        strategies_cfg = profile_cfg.get("strategies", [])
+        Logger.info(f"  策略 ({len(strategies_cfg)}):")
+        for cfg in strategies_cfg:
+            if "module" in cfg:
+                Logger.info(f"    [模块] {cfg['module']} — {cfg.get('name', '未命名')}")
+            else:
+                Logger.info(f"    [信号] {cfg.get('db')}/{cfg.get('table')}/{cfg.get('signal_factor', '?')} — {cfg.get('name', '未命名')}")
+    else:
+        factors_cfg = profile_cfg.get("factors", [])
+        Logger.info(f"  目标因子 ({len(factors_cfg)}):")
+        for cfg in factors_cfg:
+            Logger.info(f"    {cfg.get('db')}/{cfg.get('table')}/{cfg.get('factor', '*')}")
 
     ref_cfg = profile_cfg.get("ref_factors", {})
     Logger.info(f"  参考因子 ({len(ref_cfg)}):")

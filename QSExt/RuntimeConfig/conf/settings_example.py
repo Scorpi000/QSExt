@@ -242,10 +242,14 @@ BT_STORE = {
 # ============================================================
 # REPORT_PROFILES 定义报告生成配置，每个 key 是一个报告配置名称
 #
-# 配置项说明：
-#   - scenario:        报告场景名称（如 "single_factor"）
+# 通用配置项：
+#   - scenario:        报告场景名称（如 "single_factor", "single_strategy"）
 #   - section_id_list: 引用 SECTION_ID_SOURCES 的 key，指定报告的截面范围
 #   - config:          YAML 配置文件路径，留空使用场景内置默认配置
+#   - ref_factors:     参考因子，用于报告生成
+#       {逻辑名: {"db": "因子库名", "table": "因子表名", "factor": "因子名"}}
+#
+# 因子类场景（single_factor / multi_factor）专用：
 #   - factors:         目标因子列表，每项格式：
 #       {
 #           "db": "因子库名",
@@ -254,13 +258,20 @@ BT_STORE = {
 #               "*"         — 全部因子
 #               ["f1", "f2"] — 因子名列表
 #               [{"Name": "f1", "Alias": "别名", "Order": "升序"}, ...] — 带配置的因子列表
-#                   Alias: 可选，因子重命名
-#                   Order: 可选，"升序" 取负值（默认 "降序" 不处理）
 #       }
-#   - ref_factors:     参考因子，用于报告生成（如价格、掩码等）
-#       {逻辑名: {"db": "因子库名", "table": "因子表名", "factor": "因子名"}}
+#
+# 策略类场景（single_strategy / multi_strategy）专用：
+#   - strategies:      策略列表，支持两种模式：
+#       模式 A — 从 FactorDB 加载预计算信号：
+#           {"db": "因子库名", "table": "因子表名", "signal_factor": "信号因子名",
+#            "name": "策略名称", "signal_type": "目标权重", "init_cash": 1000000,
+#            "price_db": "...", "price_table": "...", "price_factor": "close"}
+#       模式 B — 动态导入 StrategyDef 模块：
+#           {"module": "模块路径", "name": "策略名称",
+#            "model_args": {"key": "value"}, "settings_path": ""}
 
 REPORT_PROFILES = {
+    # ---- 因子类报告示例 ----
     "a_stock_full": {
         "scenario": "single_factor",
         "section_id_list": "全部A股",
@@ -279,6 +290,46 @@ REPORT_PROFILES = {
             "mask": {"db": "LDB", "table": "stock_cn_status", "factor": "if_listed"},
         },
     },
+
+    # ---- 策略类报告示例（模式 A：从 FactorDB 加载信号） ----
+    # "strategy_from_db": {
+    #     "scenario": "single_strategy",
+    #     "section_id_list": "全部A股",
+    #     "config": "",
+    #     "strategies": [
+    #         {
+    #             "db": "LDB",
+    #             "table": "stock_cn_strategy_example",
+    #             "signal_factor": "signal",
+    #             "price_db": "LDB",
+    #             "price_table": "stock_cn_day_bar_adj_backward_nafilled",
+    #             "price_factor": "close",
+    #             "name": "均线策略",
+    #             "signal_type": "目标权重",
+    #             "init_cash": 1000000,
+    #         },
+    #     ],
+    #     "ref_factors": {
+    #         "bmk_nv": {"db": "LDB", "table": "benchmark_nv", "factor": "nv"},
+    #     },
+    # },
+
+    # ---- 策略类报告示例（模式 B：动态导入策略模块） ----
+    # "strategy_from_module": {
+    #     "scenario": "single_strategy",
+    #     "section_id_list": "全部A股",
+    #     "config": "",
+    #     "strategies": [
+    #         {
+    #             "module": "stock_cn_strategy_example",
+    #             "name": "均线策略",
+    #             "model_args": {"short_window": 5, "long_window": 20},
+    #         },
+    #     ],
+    #     "ref_factors": {
+    #         "bmk_nv": {"db": "LDB", "table": "benchmark_nv", "factor": "nv"},
+    #     },
+    # },
 }
 
 # 报告输出目录

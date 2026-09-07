@@ -90,7 +90,20 @@
       "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short -k \"single_strategy or Strategy\")",
       "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short -k \"TestSingleStrategy\")",
       "Bash(C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe -c ' *)",
-      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=line -k \"SingleFactor\")"
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=line -k \"SingleFactor\")",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe -c \"from QSExt.ReportGenerator.scenarios import ScenarioRegistry; print\\('registered:', ScenarioRegistry.list_all\\(\\)\\); print\\('single_factor type:', ScenarioRegistry.get_type\\('single_factor'\\)\\); print\\('single_strategy type:', ScenarioRegistry.get_type\\('single_strategy'\\)\\); print\\('multi_factor type:', ScenarioRegistry.get_type\\('multi_factor'\\)\\); print\\('multi_strategy type:', ScenarioRegistry.get_type\\('multi_strategy'\\)\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scenarios import ScenarioRegistry; print\\('registered:', ScenarioRegistry.list_all\\(\\)\\); print\\('single_factor type:', ScenarioRegistry.get_type\\('single_factor'\\)\\); print\\('single_strategy type:', ScenarioRegistry.get_type\\('single_strategy'\\)\\); print\\('multi_factor type:', ScenarioRegistry.get_type\\('multi_factor'\\)\\); print\\('multi_strategy type:', ScenarioRegistry.get_type\\('multi_strategy'\\)\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_report import main, _create_factor_report_nodes, _create_strategy_report_nodes, _load_strategy_from_db, _load_strategy_from_module; print\\('run_report.py imports OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_report_manual import main, _build_factor_test_data, _build_strategy_test_data; print\\('run_report_manual.py imports OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_report import main, _create_factor_report_nodes, _create_strategy_report_nodes, _load_strategy_from_db, _load_strategy_from_module, _execute, _save_reports; print\\('All functions imported OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator.scripts.run_single_strategy_report_manual import SingleStrategyReport, MakeAccount, fo; print\\('OK'\\)\")",
+      "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" QSExt/ReportGenerator/scripts/run_multi_factor_report_manual.py)",
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe QSExt/ReportGenerator/scripts/run_multi_factor_report_manual.py)",
+      "Bash(PYTHONPATH=\"/d/HST/QuantStudio:/d/HST/QSExt\" /d/PythonEnv/QS312/Scripts/python.exe QSExt/ReportGenerator/scripts/run_multi_factor_report_manual.py)",
+      "Bash(grep -o \"Top组统计对比\\\\|多空组合统计对比\" \"D:\\\\Data\\\\QSReport\\\\多因子对比报告.html\" | head -10)",
+      "Bash(grep -o \"Top组统计对比\\\\|多空组合统计对比\\\\|Top组\\\\|多空\" \"D:\\\\Data\\\\QSReport\\\\多因子对比报告.html\" | head -20)",
+      "Bash(PYTHONPATH=\"/d/HST/QuantStudio:/d/HST/QSExt\" /d/PythonEnv/QS312/Scripts/python.exe QSExt/ReportGenerator/scripts/run_multi_strategy_report_manual.py)",
+      "Bash(grep -o \"MA5/MA20\\\\|MA10/MA30\" \"D:\\\\Data\\\\QSReport\\\\多策略对比报告.html\" | sort | uniq -c)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",

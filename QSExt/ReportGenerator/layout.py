@@ -122,11 +122,13 @@ class LayoutRenderer:
                         c_params = c.get("params", {})
                         if isinstance(c_params, dict):
                             c["params"] = {**global_params, **c_params}
-                    if c.get("children"):
+                    # 递归处理嵌套 children（支持 params 内嵌和顶层两种格式）
+                    nested = c.get("children") or c.get("params", {}).get("children")
+                    if nested:
                         c["params"] = dict(c.get("params", {}))
-                        c["params"]["children"] = _resolve_children(
-                            c["children"]
-                        )
+                        c["params"]["children"] = _resolve_children(nested)
+                        if "children" in c:
+                            del c["children"]
                     resolved.append(c)
                 return resolved
 

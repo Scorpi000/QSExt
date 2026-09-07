@@ -61,16 +61,16 @@ report:
           span: left
           data:
             source: 0-IC 对比
-            key: IC
+            key: IC 平均值
           params:
-            type: ic_bar
-            title: "IC 序列对比"
+            type: bar_chart
+            title: "IC 均值对比"
 
         - component: data_table
           span: right
           data:
             source: 0-IC 对比
-            key: IC
+            key: IC 统计数据
           params:
             title: "IC 统计"
             precision: 4
@@ -79,9 +79,10 @@ report:
     - id: ic_decay_comparison
       title: "二、IC 衰减对比"
       params:
-        layout: single
+        layout: two_column
       children:
         - component: chart
+          span: left
           data:
             source: 1-IC 衰减对比
             key: IC 衰减对比
@@ -89,29 +90,55 @@ report:
             type: bar_chart
             title: "不同调仓周期的 IC 均值对比"
 
+        - component: data_table
+          span: right
+          data:
+            source: 1-IC 衰减对比
+            key: IC 衰减统计
+          params:
+            title: "IC 衰减统计"
+            precision: 4
+
     # 第三章：分位数组合对比
     - id: portfolio_comparison
       title: "三、分位数组合对比"
-      params:
-        layout: two_column
       children:
-        - component: chart
-          span: left
-          data:
-            source: 2-分位数组合对比
-            key: 多头超额净值
+        - component: section
           params:
-            type: line_chart
-            title: "多头超额净值对比"
-
-        - component: chart
-          span: right
-          data:
-            source: 2-分位数组合对比
-            key: 多空净值
+            layout: two_column
+            children:
+              - component: chart
+                data:
+                  source: 2-分位数组合对比
+                  key: 多头超额净值
+                params:
+                  type: line_chart
+                  title: "多头超额净值对比"
+              - component: chart
+                data:
+                  source: 2-分位数组合对比
+                  key: 多空净值
+                params:
+                  type: line_chart
+                  title: "多空净值对比"
+        - component: section
           params:
-            type: line_chart
-            title: "多空净值对比"
+            layout: two_column
+            children:
+              - component: data_table
+                data:
+                  source: 2-分位数组合对比
+                  key: Top组统计对比
+                params:
+                  title: "Top组统计对比"
+                  precision: 4
+              - component: data_table
+                data:
+                  source: 2-分位数组合对比
+                  key: 多空组合统计对比
+                params:
+                  title: "多空组合统计对比"
+                  precision: 4
 
     # 第四章：换手率对比
     - id: turnover_comparison

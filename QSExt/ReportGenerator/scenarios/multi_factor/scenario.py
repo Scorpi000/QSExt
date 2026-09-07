@@ -167,31 +167,28 @@ class MultiFactorReport(ReportGenerator):
     @staticmethod
     def _build_ic_comparison(ctx: DataContext, factor_names: list,
                              output_list: list) -> None:
-        """IC 对比：IC 序列（已是多列）+ 各因子统计合并。"""
+        """IC 对比：柱状图对比均值 + 统计表格展示全部指标。"""
         if len(output_list) <= 0:
             return
         ic_output = output_list[0]
         if not isinstance(ic_output, dict):
             return
 
-        # IC 序列（CalcIC 输出已是多列 DataFrame，columns = 因子名）
-        for k, v in ic_output.items():
-            if isinstance(v, pd.DataFrame) and not v.empty:
-                ctx.set("0-IC 对比", k, v)
+        stats = ic_output.get("统计数据")
+        if not isinstance(stats, pd.DataFrame) or stats.empty:
+            return
 
-        # IC 统计数据合并（每个因子一行，合并为多列对比表）
-        stats_frames = []
-        for k, v in ic_output.items():
-            if isinstance(v, pd.DataFrame) and "平均值" in v.index:
-                stats_frames.append(v)
-        if len(stats_frames) > 1:
-            # 如果是单因子统计（1×N DataFrame），合并
-            ctx.set("0-IC 对比", "IC 统计对比", pd.concat(stats_frames))
+        # 柱状图：仅 IC 均值（单列）
+        if "平均值" in stats.columns:
+            ctx.set("0-IC 对比", "IC 平均值", stats[["平均值"]])
+
+        # 统计表格：全部指标
+        ctx.set("0-IC 对比", "IC 统计数据", stats)
 
     @staticmethod
     def _build_ic_decay_comparison(ctx: DataContext, factor_names: list,
                                    output_list: list) -> None:
-        """IC 衰减对比：从各因子衰减统计中提取 IC 均值合并。"""
+        """IC 衰减对比：柱状图对比各周期 IC 均值 + 统计表格展示全部指标。"""
         if len(output_list) <= 1:
             return
         decay_raw = output_list[1]
@@ -201,29 +198,40 @@ class MultiFactorReport(ReportGenerator):
         # ICDecay 输出: {factor_name: {统计数据: DataFrame}} 或展平形式
         ic_means = {}
         for fname_or_key, inner in decay_raw.items():
-            if isinstance(inner, dict):
-                stats = inner.get("统计数据") or inner.get("IC衰减")
-                if isinstance(stats, pd.DataFrame) and not stats.empty:
-                    # 取 IC 均值列
-                    value_col = None
-                    for c in stats.columns:
-                        if "IC平均值" in str(c) or "IC" in str(c):
-                            value_col = c
-                            break
-                    if value_col is None and len(stats.columns) > 0:
-                        value_col = stats.columns[0]
-                    if value_col is not None:
-                        ic_means[fname_or_key] = stats[value_col]
+            if not isinstance(inner, dict):
+                continue
+            stats = inner.get("统计数据")
+            if stats is None:
+                stats = inner.get("IC衰减")
+            if not isinstance(stats, pd.DataFrame) or stats.empty:
+                continue
+            # 取 IC 均值列
+            value_col = None
+            for c in stats.columns:
+                if "IC平均值" in str(c) or "IC" in str(c):
+                    value_col = c
+                    break
+            if value_col is None and len(stats.columns) > 0:
+                value_col = stats.columns[0]
+            if value_col is not None:
+                ic_means[fname_or_key] = stats[value_col]
 
+        # 图表：各因子 IC 均值对比
         if ic_means:
             decay_df = pd.DataFrame(ic_means)
             if not decay_df.empty:
                 ctx.set("1-IC 衰减对比", "IC 衰减对比", decay_df)
 
+        # 表格：各因子 IC 均值（与图表数据一致）
+        if ic_means:
+            stats_df = pd.DataFrame(ic_means)
+            if not stats_df.empty:
+                ctx.set("1-IC 衰减对比", "IC 衰减统计", stats_df)
+
     @staticmethod
     def _build_portfolio_comparison(ctx: DataContext, factor_names: list,
                                     output_list: list) -> None:
-        """分位数组合对比：合并各因子的净值/超额净值为多列。"""
+        """分位数组合对比：净值曲线 + Top组统计 + 多空统计。"""
         start = 2
         if len(output_list) <= start:
             return
@@ -231,35 +239,48 @@ class MultiFactorReport(ReportGenerator):
         pf_outputs = output_list[start:start + len(factor_names)]
         excess_navs = []
         ls_navs = []
-        stats_list = []
+        top_stats = []
+        ls_stats = []
+
+        # Top组和多空组合的统计指标
+        TOP_COLS = ["年化收益率", "波动率", "Sharpe比率", "最大回撤率",
+                     "年化超额收益率", "跟踪误差", "信息比率", "超额最大回撤率"]
+        LS_COLS = ["年化收益率", "波动率", "Sharpe比率", "最大回撤率"]
 
         for fname, pf_out in zip(factor_names, pf_outputs):
             if not isinstance(pf_out, dict):
                 continue
-            # 超额净值
-            for k, v in pf_out.items():
-                if isinstance(v, pd.DataFrame):
-                    if "超额净值" in k:
-                        # 取多头超额列（通常第一列或含 P0 的列）
-                        col = v.iloc[:, 0] if len(v.columns) > 0 else None
-                        if col is not None:
-                            excess_navs.append(col.rename(fname))
-                    elif "净值" in k and "超额" not in k:
-                        # 多空净值：取含 "-" 的列（如 P0-P4）
-                        ls_cols = [c for c in v.columns if "-" in str(c)]
-                        if ls_cols:
-                            ls_navs.append(v[ls_cols[0]].rename(fname))
-                        elif len(v.columns) > 0:
-                            ls_navs.append(v.iloc[:, -1].rename(fname))
-                elif isinstance(v, pd.DataFrame) and "统计数据" in k:
-                    pass
 
-            # 统计数据
             for k, v in pf_out.items():
-                if isinstance(v, pd.DataFrame) and "统计" in k:
-                    if not v.empty:
-                        stats_list.append(v)
+                if not isinstance(v, pd.DataFrame):
+                    continue
 
+                if "超额净值" in k:
+                    col = v.iloc[:, 0] if len(v.columns) > 0 else None
+                    if col is not None:
+                        excess_navs.append(col.rename(fname))
+                elif "净值" in k and "超额" not in k:
+                    ls_cols = [c for c in v.columns if "-" in str(c)]
+                    if ls_cols:
+                        ls_navs.append(v[ls_cols[0]].rename(fname))
+                    elif len(v.columns) > 0:
+                        ls_navs.append(v.iloc[:, -1].rename(fname))
+                elif "统计" in k:
+                    # Top组（P0）统计
+                    if "P0" in v.index:
+                        row = v.loc["P0"]
+                        cols = [c for c in TOP_COLS if c in v.columns]
+                        if cols:
+                            top_stats.append(row[cols].rename(fname))
+                    # 多空组合（含"-"的行，如 P0-P4）统计
+                    ls_idx = [i for i in v.index if "-" in str(i)]
+                    if ls_idx:
+                        row = v.loc[ls_idx[0]]
+                        cols = [c for c in LS_COLS if c in v.columns]
+                        if cols:
+                            ls_stats.append(row[cols].rename(fname))
+
+        # 净值曲线
         if excess_navs:
             df = pd.concat(excess_navs, axis=1).dropna(how="all")
             if not df.empty:
@@ -270,9 +291,17 @@ class MultiFactorReport(ReportGenerator):
             if not df.empty:
                 ctx.set("2-分位数组合对比", "多空净值", df)
 
-        if stats_list:
-            ctx.set("2-分位数组合对比", "统计数据对比",
-                    pd.concat(stats_list))
+        # Top组统计对比表
+        if top_stats:
+            df = pd.DataFrame(top_stats)
+            if not df.empty:
+                ctx.set("2-分位数组合对比", "Top组统计对比", df)
+
+        # 多空组合统计对比表
+        if ls_stats:
+            df = pd.DataFrame(ls_stats)
+            if not df.empty:
+                ctx.set("2-分位数组合对比", "多空组合统计对比", df)
 
     @staticmethod
     def _build_turnover_comparison(ctx: DataContext, factor_names: list,
