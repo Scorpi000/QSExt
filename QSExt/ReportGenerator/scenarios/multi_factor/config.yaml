@@ -1,0 +1,134 @@
+# ============================================================
+# 多因子对比报告配置
+# ============================================================
+scenario:
+  name: "多因子对比报告"
+  version: "1.0"
+
+# ============================================================
+# 回测模块参数（与 single_factor 保持一致）
+# ============================================================
+modules:
+  ic:
+    calc_freq: "1m"
+    lookback: 31
+    period_lookback: 1
+    corr_method: "spearman"
+    rolling_avg_period: 12
+
+  ic_decay:
+    calc_freq: "1m"
+    periods: [1, 2, 3, 6, 12]
+
+  quantile_portfolio:
+    calc_freq: "1m"
+    group_num: 5
+    ascending: false
+    long_short_pairs: [[0, -1]]
+
+  factor_turnover:
+    calc_freq: "1m"
+    lookback: 31
+    period_lookback: 1
+
+# ============================================================
+# 报告布局
+# ============================================================
+report:
+  theme: default
+  page_title: "多因子对比报告"
+
+  # ---- 页眉 ----
+  header:
+    component: section
+    params:
+      layout: single
+    children:
+      - component: factor_summary
+        data:
+          source: meta
+          key: factor_info
+
+  # ---- 报告章节 ----
+  sections:
+    # 第一章：IC 对比
+    - id: ic_comparison
+      title: "一、IC 对比"
+      params:
+        layout: two_column
+      children:
+        - component: chart
+          span: left
+          data:
+            source: 0-IC 对比
+            key: IC
+          params:
+            type: ic_bar
+            title: "IC 序列对比"
+
+        - component: data_table
+          span: right
+          data:
+            source: 0-IC 对比
+            key: IC
+          params:
+            title: "IC 统计"
+            precision: 4
+
+    # 第二章：IC 衰减对比
+    - id: ic_decay_comparison
+      title: "二、IC 衰减对比"
+      params:
+        layout: single
+      children:
+        - component: chart
+          data:
+            source: 1-IC 衰减对比
+            key: IC 衰减对比
+          params:
+            type: bar_chart
+            title: "不同调仓周期的 IC 均值对比"
+
+    # 第三章：分位数组合对比
+    - id: portfolio_comparison
+      title: "三、分位数组合对比"
+      params:
+        layout: two_column
+      children:
+        - component: chart
+          span: left
+          data:
+            source: 2-分位数组合对比
+            key: 多头超额净值
+          params:
+            type: line_chart
+            title: "多头超额净值对比"
+
+        - component: chart
+          span: right
+          data:
+            source: 2-分位数组合对比
+            key: 多空净值
+          params:
+            type: line_chart
+            title: "多空净值对比"
+
+    # 第四章：换手率对比
+    - id: turnover_comparison
+      title: "四、换手率对比"
+      params:
+        layout: single
+      children:
+        - component: chart
+          data:
+            source: 3-换手率对比
+            key: 换手率
+          params:
+            type: turnover_area
+            title: "因子换手率对比"
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  formats: ["html", "markdown"]

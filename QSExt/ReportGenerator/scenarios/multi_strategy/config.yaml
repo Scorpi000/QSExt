@@ -1,0 +1,120 @@
+# ============================================================
+# 多策略对比报告配置
+# ============================================================
+scenario:
+  name: "多策略对比报告"
+  version: "1.0"
+
+# ============================================================
+# 回测模块参数
+# ============================================================
+modules:
+  account_stats:
+    enabled: true
+  # 交易统计频率：D=按日, W=按周, M=按月, Q=按季, Y=按年
+  trade_freq: "M"
+
+# ============================================================
+# 报告布局
+# ============================================================
+report:
+  theme: default
+  page_title: "多策略对比报告"
+
+  # ---- 页眉 ----
+  header:
+    component: section
+    params:
+      layout: single
+    children:
+      - component: factor_summary
+        data:
+          source: meta
+          key: strategy_info
+
+  # ---- 报告章节 ----
+  sections:
+    # 第一章：绩效对比
+    - id: performance_comparison
+      title: "一、绩效对比"
+      params:
+        layout: single
+      children:
+        - component: data_table
+          data:
+            source: 0-绩效对比
+            key: 核心指标对比
+          params:
+            title: "核心绩效指标对比"
+            precision: 4
+            transpose: true
+
+    # 第二章：净值走势对比
+    - id: nav_comparison
+      title: "二、净值走势对比"
+      params:
+        layout: single
+      children:
+        - component: chart
+          data:
+            source: 1-净值对比
+            key: 净值
+          params:
+            type: nav_curve
+            title: "多策略净值曲线对比"
+
+    # 第三章：回撤对比
+    - id: drawdown_comparison
+      title: "三、回撤对比"
+      params:
+        layout: single
+      children:
+        - component: chart
+          data:
+            source: 2-回撤对比
+            key: 回撤序列
+          params:
+            type: line_chart
+            title: "多策略回撤对比"
+
+    # 第四章：分时段收益对比
+    - id: period_returns_comparison
+      title: "四、分时段收益对比"
+      params:
+        layout: single
+      children:
+        - component: data_table
+          data:
+            source: 3-分时段收益对比
+            key: 年度收益对比
+          params:
+            title: "年度收益对比"
+            precision: 4
+
+        - component: chart
+          data:
+            source: 3-分时段收益对比
+            key: 年度收益对比
+          params:
+            type: bar_chart
+            title: "年度收益对比"
+
+    # 第五章：交易统计对比
+    - id: trade_stats_comparison
+      title: "五、交易统计对比"
+      params:
+        layout: single
+      children:
+        - component: data_table
+          data:
+            source: 4-交易统计对比
+            key: 交易概要对比
+          params:
+            title: "交易概要对比"
+            precision: 2
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  formats: ["html", "markdown"]

@@ -332,7 +332,7 @@ class TestComponents(unittest.TestCase):
             index=dates, columns=["factor_A"]
         )
         comp = Chart()
-        html = comp.render(df, {"type": "ic_bar", "title": "IC"}, self.theme, self.html_renderer)
+        html = comp.render(df, {"type": "ic_bar", "title": "IC", "engine": "matplotlib"}, self.theme, self.html_renderer)
         self.assertIn("data:image/png;base64,", html)
 
     def test_chart_component_nav_curve(self):
@@ -343,7 +343,7 @@ class TestComponents(unittest.TestCase):
             index=dates, columns=["Q1", "Q2", "Q3"]
         )
         comp = Chart()
-        html = comp.render(df, {"type": "nav_curve"}, self.theme, self.html_renderer)
+        html = comp.render(df, {"type": "nav_curve", "engine": "matplotlib"}, self.theme, self.html_renderer)
         self.assertIn("data:image/png;base64,", html)
 
     def test_chart_component_unknown_type(self):
@@ -465,7 +465,8 @@ class TestLayoutRenderer(unittest.TestCase):
                 }
             ]
         }
-        html = self.layout.render(report_config, self.ctx, self.theme, "html")
+        html = self.layout.render(report_config, self.ctx, self.theme, "html",
+                                  global_params={"engine": "matplotlib"})
         self.assertIn("<!DOCTYPE html>", html)
         self.assertIn("test_factor", html)
         self.assertIn("IC 分析", html)
@@ -685,7 +686,7 @@ class TestSingleFactorReport(unittest.TestCase):
         """Node 创建和参数设置"""
         mock_bt = _MockBTNode("IC", {"IC": pd.DataFrame({"x": [1]})})
         node = SingleFactorReport(
-            data_nodes=[mock_bt],
+            deps=[mock_bt],
             factor_names=["test"],
             config_file=None,
         )
@@ -700,17 +701,17 @@ class TestSingleFactorReport(unittest.TestCase):
                                  self.output["1-IC 衰减分析"])
 
         node = SingleFactorReport(
-            data_nodes=[mock_ic, mock_decay],
+            deps=[mock_ic, mock_decay],
             factor_names=["test_factor"],
-            args={"OutputFormats": ["html"]},
+            args={"OutputFormat": "html"},
         )
 
         bwd_data = [mock_ic.backward_compute([], [], None),
                      mock_decay.backward_compute([], [], None)]
         result = node.backward_compute([], bwd_data, Context())
 
-        self.assertIn("test_factor", result)
-        html = result["test_factor"]["html"]
+        self.assertIn("Report", result)
+        html = result["Report"]
         self.assertIn("<!DOCTYPE html>", html)
         self.assertIn("test_factor", html)
 
@@ -719,20 +720,20 @@ class TestSingleFactorReport(unittest.TestCase):
         mock_ic = _MockBTNode("Rank IC 分析", self.output["0-Rank IC 分析"])
 
         node = SingleFactorReport(
-            data_nodes=[mock_ic],
+            deps=[mock_ic],
             factor_names=["f1"],
-            args={"OutputFormats": ["markdown"]},
+            args={"OutputFormat": "markdown"},
         )
 
         bwd_data = [mock_ic.backward_compute([], [], None)]
         result = node.backward_compute([], bwd_data, Context())
 
-        md = result["f1"]["markdown"]
+        md = result["Report"]
         self.assertIn("# f1", md)
 
     def test_merge_result(self):
         """merge_result 返回第一个元素"""
-        node = SingleFactorReport(data_nodes=[], factor_names=[])
+        node = SingleFactorReport(deps=[], factor_names=[])
         merged = node.merge_result([{"a": 1}, {"b": 2}], Context())
         self.assertEqual(merged, {"a": 1})
 
@@ -750,18 +751,17 @@ class TestSingleFactorReportIntegration(unittest.TestCase):
                                  self.output["1-IC 衰减分析"])
 
         node = SingleFactorReport(
-            data_nodes=[mock_ic, mock_decay],
+            deps=[mock_ic, mock_decay],
             factor_names=["test_factor"],
-            args={"OutputFormats": ["html"]},
+            args={"OutputFormat": "html"},
         )
 
         bwd_data = [mock_ic.backward_compute([], [], None),
                      mock_decay.backward_compute([], [], None)]
         reports = node.backward_compute([], bwd_data, Context())
 
-        self.assertIn("test_factor", reports)
-        self.assertIn("html", reports["test_factor"])
-        self.assertGreater(len(reports["test_factor"]["html"]), 0)
+        self.assertIn("Report", reports)
+        self.assertGreater(len(reports["Report"]), 0)
 
 
 if __name__ == "__main__":

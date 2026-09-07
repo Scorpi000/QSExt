@@ -55,9 +55,17 @@ def _register_builtin_scenarios():
     from QSExt.ReportGenerator.scenarios.single_strategy.scenario import (
         SingleStrategyReport,
     )
+    from QSExt.ReportGenerator.scenarios.multi_strategy.scenario import (
+        MultiStrategyReport,
+    )
+    from QSExt.ReportGenerator.scenarios.multi_factor.scenario import (
+        MultiFactorReport,
+    )
 
     ScenarioRegistry.register("single_factor", SingleFactorReport)
     ScenarioRegistry.register("single_strategy", SingleStrategyReport)
+    ScenarioRegistry.register("multi_strategy", MultiStrategyReport)
+    ScenarioRegistry.register("multi_factor", MultiFactorReport)
 
 
 _register_builtin_scenarios()

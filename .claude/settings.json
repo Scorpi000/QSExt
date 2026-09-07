@@ -84,7 +84,13 @@
       "Read(//d/Data/QSReport/**)",
       "Bash(PYTHONPATH=\"D:/HST/QuantStudio;D:/HST/QSExt\" \"D:/PythonEnv/QS312/Scripts/python.exe\" -c \"from QSExt.ReportGenerator import ReportGenerator; print\\('OutputFormat:', ReportGenerator.__QS_ArgClass__.OutputFormat.default\\)\")",
       "Bash(PYTHONPATH='D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt' 'D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe' -c ' *)",
-      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" \"D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe\" \"QSExt/ReportGenerator/scripts/run_strategy_report_manual.py\")"
+      "Bash(PYTHONPATH=\"D:\\\\HST\\\\QuantStudio;D:\\\\HST\\\\QSExt\" \"D:\\\\PythonEnv\\\\QS312\\\\Scripts\\\\python.exe\" \"QSExt/ReportGenerator/scripts/run_strategy_report_manual.py\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short -k \"Strategy\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short -k \"single_strategy or Strategy\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=short -k \"TestSingleStrategy\")",
+      "Bash(C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe -c ' *)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m pytest tests/test_ReportGenerator.py -v --tb=line -k \"SingleFactor\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",

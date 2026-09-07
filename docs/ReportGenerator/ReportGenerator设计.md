@@ -41,13 +41,22 @@ QSExt/ReportGenerator/
 
 ├── scenarios/                      # 场景目录
 │   ├── __init__.py                 # ScenarioRegistry 场景注册表
+│   ├── _strategy_utils.py          # 策略报告共享数据构建函数
 │   ├── single_factor/              # 单因子测试场景
 │   │   ├── __init__.py
 │   │   ├── scenario.py             # SingleFactorReport(ReportGenerator) 子类
 │   │   └── config.yaml             # 参数 + 报告布局声明
-│   └── single_strategy/            # 单策略回测场景
+│   ├── single_strategy/            # 单策略回测场景
+│   │   ├── __init__.py
+│   │   ├── scenario.py             # SingleStrategyReport(ReportGenerator) 子类
+│   │   └── config.yaml             # 参数 + 报告布局声明
+│   └── multi_strategy/             # 多策略对比场景
 │       ├── __init__.py
-│       ├── scenario.py             # SingleStrategyReport(ReportGenerator) 子类
+│       ├── scenario.py             # MultiStrategyReport(ReportGenerator) 子类
+│       └── config.yaml             # 参数 + 报告布局声明
+│   └── multi_factor/               # 多因子对比场景
+│       ├── __init__.py
+│       ├── scenario.py             # MultiFactorReport(ReportGenerator) 子类
 │       └── config.yaml             # 参数 + 报告布局声明
 
 └── scripts/                        # 执行脚本
@@ -328,6 +337,27 @@ modules:
 
 高频策略建议 `trade_freq: "D"`，低频策略建议 `"Q"` 或 `"Y"`。
 
+**MultiStrategyReport** 的 output dict（对比数据，各策略合并为多列 DataFrame）：
+
+| source | key | 说明 |
+|--------|-----|------|
+| `0-绩效对比` | `核心指标对比` | DataFrame（index=指标名, columns=策略名） |
+| `1-净值对比` | `净值` | DataFrame（index=日期, columns=各策略+基准净值） |
+| `2-回撤对比` | `回撤序列` | DataFrame（index=日期, columns=策略名） |
+| `3-分时段收益对比` | `年度收益对比` | DataFrame（index=年份, columns=策略名） |
+| `4-交易统计对比` | `交易概要对比` | DataFrame（index=指标名, columns=策略名） |
+
+**MultiFactorReport** 的 output dict（对比数据，各因子合并为多列 DataFrame）：
+
+| source | key | 说明 |
+|--------|-----|------|
+| `0-IC 对比` | `IC` | IC 序列（多列 DataFrame，columns=因子名） |
+| `0-IC 对比` | `IC 统计对比` | 各因子 IC 统计数据 |
+| `1-IC 衰减对比` | `IC 衰减对比` | 各因子 IC 衰减均值对比 |
+| `2-分位数组合对比` | `多头超额净值` | 各因子多头超额净值对比 |
+| `2-分位数组合对比` | `多空净值` | 各因子多空净值对比 |
+| `3-换手率对比` | `换手率` | 各因子换手率对比 |
+
 ### 5.4 布局节点通用属性
 
 | 属性 | 类型 | 说明 |
@@ -400,7 +430,62 @@ result = Engine().run([report_node], context)[0]
 html_content = result["Report"]
 ```
 
-### 6.3 自定义报告布局
+### 6.3 多策略对比报告
+
+```python
+from QuantStudio.Core.CalcEngine import Engine
+from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
+from QSExt.ReportGenerator.scenarios.multi_strategy import MultiStrategyReport
+
+# 1. 创建多个策略
+account1 = MakeAccount(signal_type="目标权重", init_cash=1e6)(last_price=price, signal=signal1)
+account2 = MakeAccount(signal_type="目标权重", init_cash=1e6)(last_price=price, signal=signal2)
+
+# 2. 创建上游节点（每个策略一个 AccountStats）
+nodes = MultiStrategyReport.create_nodes(
+    strategies=[account1, account2],
+    bmk_nv=benchmark_nv,
+)
+
+# 3. 创建报告节点
+report_node = MultiStrategyReport(
+    deps=nodes,
+    args={"OutputFormat": "html"},
+    strategy_names=["动量策略", "均值回归策略"],
+)
+
+# 4. 运行
+result = Engine().run([report_node], context)[0]
+html_content = result["Report"]
+```
+
+### 6.4 多因子对比报告
+
+```python
+from QuantStudio.Core.CalcEngine import Engine
+from QSExt.ReportGenerator.scenarios.multi_factor import MultiFactorReport
+
+# 1. 创建上游节点（IC/衰减/分位数组合/换手率，复用 SingleFactorReport 逻辑）
+nodes = MultiFactorReport.create_nodes(
+    factors=[momentum_factor, reversal_factor],
+    price=price_factor,
+    mask=mask_factor,
+    cat_data=industry_factor,
+)
+
+# 2. 创建报告节点
+report_node = MultiFactorReport(
+    deps=nodes,
+    args={"OutputFormat": "html"},
+    factor_names=["动量因子", "反转因子"],
+)
+
+# 3. 运行
+result = Engine().run([report_node], context)[0]
+html_content = result["Report"]
+```
+
+### 6.5 自定义报告布局
 
 只需编辑 `config.yaml` 的 `report` 段，无需修改任何 Python 代码：
 
@@ -409,7 +494,7 @@ html_content = result["Report"]
 - **修改图表类型**：修改 `chart` 的 `params.type`
 - **调整表格精度**：修改 `data_table` 的 `params.precision`
 
-### 6.4 使用配置文件
+### 6.6 使用配置文件
 
 ```python
 report_node = SingleFactorReport(
@@ -419,7 +504,7 @@ report_node = SingleFactorReport(
 )
 ```
 
-### 6.5 报告注册到图数据库
+### 6.7 报告注册到图数据库
 
 ```python
 from QSExt.ReportGenerator.core import register_reports_to_db

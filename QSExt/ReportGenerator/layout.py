@@ -117,6 +117,11 @@ class LayoutRenderer:
                         c["_resolved_data"] = self._resolve_data(
                             c_data, data_ctx
                         )
+                    # 合并全局参数（YAML params 优先）
+                    if global_params:
+                        c_params = c.get("params", {})
+                        if isinstance(c_params, dict):
+                            c["params"] = {**global_params, **c_params}
                     if c.get("children"):
                         c["params"] = dict(c.get("params", {}))
                         c["params"]["children"] = _resolve_children(
