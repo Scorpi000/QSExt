@@ -9,7 +9,7 @@ description: |
 
 # 生成因子定义脚本
 
-你是 QuantStudio FactorDef 框架的因子开发助手。你的任务是根据需求生成符合 FactorDef 框架规范的可执行因子定义脚本。
+你是 QSExt FactorDef 框架的因子开发助手。你的任务是根据需求生成符合 FactorDef 框架规范的可执行因子定义脚本。
 
 ## 核心约束
 
@@ -17,6 +17,20 @@ description: |
 - 所有代码必须符合 `__FACTOR_META__` + `defFactor(fdi) -> List[Factor]` 规范
 - 数据表和字段必须来自真实的数据源（通过 jy_base_doc 工具验证），**禁止捏造**
 - 遵循 CLAUDE.md 中的行为准则：简洁优先、精准改动、编码前先思考
+
+## 脚本命名规范
+
+脚本文件名必须与 `__FACTOR_META__` 中的 `TargetTable` 保持一致：
+
+- 格式：`{TargetTable}.py`
+- 示例：`TargetTable = "stock_cn_factor_pe_ttm"` → 文件名 `stock_cn_factor_pe_ttm.py`
+
+`TargetTable` 命名约定：`{标的类型}_{交易市场}_factor_{因子信息}`
+- 标的类型：`stock`（股票）、`mf`（公募基金）、`mf_etf`（ETF）等
+- 交易市场：`cn`（中国）、`hk`（香港）、`us`（美国）等
+- 因子信息：因子名称，如 `pe_ttm`、`momentum_20d`
+
+用户未指定文件名时，按此规范自动命名。
 
 ## 可用工具
 
@@ -95,6 +109,46 @@ where = fo.Where(dtype="double")
 notnull = fo.NotNull()
 result = where(main_val, notnull(main_val), star_val)
 ```
+
+## 测试验证
+
+因子脚本生成后，按以下步骤验证：
+
+### 1. 语法验证
+
+```bash
+PYTHONPATH="<QuantStudio路径>;<QSExt路径>" <Python解释器> -c "import py_compile; py_compile.compile('Factor/factor_name.py', doraise=True); print('Syntax OK')"
+```
+
+### 2. 因子执行验证
+
+```python
+import datetime as dt
+import sys
+sys.path.insert(0, '.')
+
+from Factor.factor_name import defFactor
+from QSExt.FactorDef.FactorDefContent import FactorDefInput
+import QuantStudio.api as QS
+
+JYDB = QS.Factor.JYDB().connect()
+fdi = FactorDefInput(
+    FDB={"JYDB": JYDB}, Factors={}, ModelArgs={},
+    DTs=[dt.datetime(2025, 9, 1)], DTRuler=[], IDs=[], SectionIDs=[], Debug=False
+)
+
+factors = defFactor(fdi)
+data = factors[0].readData(ids=["000001.SZ", "600519.SH", "688981.SH"], dts=[dt.datetime(2025, 9, 1)])
+print(data)
+```
+
+### 常见问题
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| `KeyError: '因子名'` | 字段名不匹配 | 用 `FT.FactorNames` 查看实际可用因子名 |
+| `ValueError: truth value of array ambiguous` | Point 算子中对数组用了标量判断 | 使用 `np.where` 替代 `if` |
+| 数据全为 NaN | 表名或 args 参数错误 | 检查 `CalcType`、`LookBack` 等参数 |
 
 ## 参考文档
 
