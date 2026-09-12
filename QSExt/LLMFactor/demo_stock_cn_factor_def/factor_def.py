@@ -4,7 +4,7 @@ from typing import List
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
-from QSExt.FactorDef.FactorDefContent import FactorDefInput
+from QSExt.DefModule.DefContent import DefInput
 
 
 __FACTOR_META__ = {
@@ -15,7 +15,7 @@ __FACTOR_META__ = {
     "DefScriptPath": __file__,# 固定不变
 }
 
-def defFactor(fdi: FactorDefInput) -> List[Factor]:
+def defFactor(fdi: DefInput) -> List[Factor]:
     JYDB = fdi.FDB["JYDB"]
 
     # ---- 归母净利润(TTM) ----
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     print(f"截面股票数量: {len(SectionIDs)}")
     print(f"测试股票数量: {len(IDs)}")
 
-    fdi = FactorDefInput(
+    fdi = DefInput(
         Debug=True,
         FDB={"JYDB": SDB},
         DTs=DTs,

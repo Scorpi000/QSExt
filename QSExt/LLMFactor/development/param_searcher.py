@@ -153,7 +153,7 @@ class ParamSearcher:
         """构建用于参数搜索的 FDI。"""
         try:
             import datetime as dt
-            from QSExt.FactorDef.FactorDefContent import FactorDefInput
+            from QSExt.DefModule.DefContent import DefInput
             from QuantStudio.Factor.JYDB import JYDB
 
             SDB = JYDB().connect()
@@ -171,7 +171,7 @@ class ParamSearcher:
 
             SectionIDs = IDs
 
-            return FactorDefInput(
+            return DefInput(
                 Debug=False,
                 FDB={"JYDB": SDB},
                 DTs=DTRuler,
@@ -270,10 +270,10 @@ class ParamSearcher:
 
     def _inject_params(self, params: dict):
         """将搜索参数注入 FDI 的 args。"""
-        from QSExt.FactorDef.FactorDefContent import FactorDefInput
+        from QSExt.DefModule.DefContent import DefInput
 
         fdi = self._fdi
-        return FactorDefInput(
+        return DefInput(
             Debug=False,
             FDB=fdi.FDB,
             DTs=fdi.DTs,

@@ -443,7 +443,7 @@ def test_code_generator_parse_sections():
     llm_output = """\
 ===FACTOR_CODE===
 import QuantStudio.Factor.FactorOperator as fo
-from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+from QSExt.DefModule.DefContent import DefInput, Def
 
 __FACTOR_META__ = {
     "TargetTable": "stock_cn_factor_llm",
@@ -453,7 +453,7 @@ __FACTOR_META__ = {
     "DefScriptPath": __file__,
 }
 
-def defFactor(fdi: FactorDefInput, dep_fd):
+def defFactor(fdi: DefInput, dep_fd):
     SDB = fdi.FDB["JYDB"]
     return []
 ===

@@ -128,7 +128,7 @@ class ExecutionValidator:
     def _try_execute(self, module):
         """尝试执行 defFactor()。"""
         try:
-            from QSExt.FactorDef.FactorDefContent import FactorDefInput, FactorDef
+            from QSExt.DefModule.DefContent import DefInput, Def
 
             # 构建最小化 FDI（需要 JYDB 连接）
             fdi = self._build_minimal_fdi()
@@ -151,7 +151,7 @@ class ExecutionValidator:
         """构建最小化的 FDI 用于测试。"""
         try:
             import datetime as dt
-            from QSExt.FactorDef.FactorDefContent import FactorDefInput
+            from QSExt.DefModule.DefContent import DefInput
             from QuantStudio.Factor.JYDB import JYDB
 
             SDB = JYDB().connect()
@@ -165,7 +165,7 @@ class ExecutionValidator:
             IDs = ["000001.SZ", "600519.SH", "688579.SH"]
             SectionIDs = IDs
 
-            return FactorDefInput(
+            return DefInput(
                 Debug=True,
                 FDB={"JYDB": SDB},
                 DTs=DTs,

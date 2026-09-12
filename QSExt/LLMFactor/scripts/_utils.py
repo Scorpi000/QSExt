@@ -28,7 +28,7 @@ __QS_Logger__ = logging.getLogger("QSR.pipeline.utils")
 
 # Skill 源目录（相对于项目根目录）
 SKILL_SOURCES = {
-    "generate-factor-def-code": "QSExt/FactorDef/skill/generate-factor-def-code",
+    "generate-factor-def-code": "QSExt/DefModule/skills/generate-factor-def-code",
     "hypothesis": "QSExt/LLMFactor/hypothesis/skill/hypothesis",
     "develop-factor": "QSExt/LLMFactor/development/skill/develop-factor",
 }

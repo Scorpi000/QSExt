@@ -12,7 +12,7 @@ import unittest
 # 将 QSExt 加入 path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from QSExt.FactorDef.FactorDefContent import make_def_key, _dep_key_to_def_key
+from QSExt.DefModule.DefContent import make_def_key, _dep_key_to_def_key
 
 
 class TestMakeDefKey(unittest.TestCase):
@@ -20,28 +20,28 @@ class TestMakeDefKey(unittest.TestCase):
 
     def test_same_file_same_args_same_key(self):
         """相同文件 + 相同参数 → 相同 key"""
-        import QSExt.FactorDef.FactorDefContent as mod
+        import QSExt.DefModule.DefContent as mod
         key1 = make_def_key(mod, {"a": 1})
         key2 = make_def_key(mod, {"a": 1})
         self.assertEqual(key1, key2)
 
     def test_empty_model_args(self):
         """空 model_args → 纯文件路径，无 @ 后缀"""
-        import QSExt.FactorDef.FactorDefContent as mod
+        import QSExt.DefModule.DefContent as mod
         key = make_def_key(mod, {})
         self.assertNotIn("@", key)
-        self.assertTrue(key.endswith("FactorDefContent.py"))
+        self.assertTrue(key.endswith("DefContent.py"))
 
     def test_different_model_args_different_key(self):
         """不同 model_args → 不同 key"""
-        import QSExt.FactorDef.FactorDefContent as mod
+        import QSExt.DefModule.DefContent as mod
         key1 = make_def_key(mod, {"lookback": 20})
         key2 = make_def_key(mod, {"lookback": 60})
         self.assertNotEqual(key1, key2)
 
     def test_args_sorted_consistency(self):
         """ModelArgs 不同顺序但相同内容 → 相同 key"""
-        import QSExt.FactorDef.FactorDefContent as mod
+        import QSExt.DefModule.DefContent as mod
         key1 = make_def_key(mod, {"b": 2, "a": 1})
         key2 = make_def_key(mod, {"a": 1, "b": 2})
         self.assertEqual(key1, key2)
@@ -49,7 +49,7 @@ class TestMakeDefKey(unittest.TestCase):
     def test_same_file_different_loading_same_key(self):
         """同一文件不同加载方式（import vs spec_from_file_location）→ 相同 key"""
         import importlib.util
-        import QSExt.FactorDef.FactorDefContent as mod1
+        import QSExt.DefModule.DefContent as mod1
 
         spec = importlib.util.spec_from_file_location(
             "_test_fd_content_alt",
@@ -67,7 +67,7 @@ class TestDepKeyToDefKey(unittest.TestCase):
     """_dep_key_to_def_key 单元测试"""
 
     def setUp(self):
-        import QSExt.FactorDef.FactorDefContent as mod
+        import QSExt.DefModule.DefContent as mod
         self.test_mod = mod
         self.def_key = make_def_key(mod, {})
 

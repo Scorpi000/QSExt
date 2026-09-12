@@ -3,11 +3,11 @@
 
 测试覆盖:
   1. StrategyMeta 校验 —— 默认值填充、必填字段校验
-  2. StrategyDefInput 构造
+  2. DefInput 构造
   3. StrategyDef 包装类 —— getSignal 查找
   4. build_dep_sd 基础依赖解析场景
   5. build_dep_sd 循环依赖检测
-  6. StrategyDefSettings from_dict 工厂方法
+  6. DefSettings from_dict 工厂方法
 """
 import sys
 import os
@@ -21,12 +21,12 @@ logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(mes
 
 from QuantStudio.Core import __QS_Args__
 from QuantStudio.Core import __QS_Logger__ as Logger
-from QSExt.StrategyDef.StrategyDefContent import (
-    StrategyDefInput,
+from QSExt.DefModule.DefContent import (
+    DefInput,
     StrategyMeta,
     StrategyDef,
     build_dep_sd,
-    StrategyDefSettings,
+    DefSettings,
     StrategyDBDef,
     compute_max_lookback_sd,
 )
@@ -96,17 +96,17 @@ def test_1_strategy_meta():
 
 
 # ============================================================
-# Test 2: StrategyDefInput 构造
+# Test 2: DefInput 构造
 # ============================================================
 
 def test_2_strategy_def_input():
-    """测试 StrategyDefInput 构造"""
+    """测试 DefInput 构造"""
     print("\n" + "=" * 60)
-    print("Test 2: StrategyDefInput 构造")
+    print("Test 2: DefInput 构造")
     print("=" * 60)
 
     # 用空 FDB 构造（Pydantic 验证 FDB 值为 FactorDB 类型，空 dict 安全通过）
-    sdi = StrategyDefInput(
+    sdi = DefInput(
         Debug=True,
         FDB={},
         ModelArgs={"lookback": 20},
@@ -247,8 +247,8 @@ def test_4_build_dep_sd_basic():
     sys.modules["test_strategies.strategy_b"] = module_b
     sys.modules["strategy_signals_b"] = module_b  # 短名 fallback
 
-    # 构造 StrategyDefInput（空 FDB 避免 Pydantic 验证问题）
-    sdi = StrategyDefInput(
+    # 构造 DefInput（空 FDB 避免 Pydantic 验证问题）
+    sdi = DefInput(
         Debug=True,
         FDB={},
         DTs=[dt.datetime(2024, 1, 1)],
@@ -262,7 +262,7 @@ def test_4_build_dep_sd_basic():
         # 所以这里我们验证循环依赖检测部分（Test 5）和更独立的逻辑。
 
         # 验证 resolve_dep_module 函数存在且可调用
-        from QSExt.StrategyDef.StrategyDefContent import resolve_dep_module
+        from QSExt.DefModule.DefContent import resolve_dep_module
         print("  ✓ 4a: resolve_dep_module 函数可导入")
 
         # 验证 build_dep_sd 函数签名
@@ -331,7 +331,7 @@ def test_5_build_dep_sd_circular():
     sys.modules["strategy_signals_a"] = module_a
     sys.modules["strategy_signals_b"] = module_b
 
-    sdi = StrategyDefInput(
+    sdi = DefInput(
         Debug=True,
         FDB={},
         DTs=[dt.datetime(2024, 1, 1)],
@@ -369,17 +369,17 @@ def test_5_build_dep_sd_circular():
 
 
 # ============================================================
-# Test 6: StrategyDefSettings
+# Test 6: DefSettings
 # ============================================================
 
 def test_6_settings():
-    """测试 StrategyDefSettings"""
+    """测试 DefSettings"""
     print("\n" + "=" * 60)
-    print("Test 6: StrategyDefSettings")
+    print("Test 6: DefSettings")
     print("=" * 60)
 
     # 6a: from_dict 基本构造
-    settings = StrategyDefSettings.from_dict({
+    settings = DefSettings.from_dict({
         "debug": True,
         "end_dt": "2026-06-30",
         "lookback": 30,
@@ -405,7 +405,7 @@ def test_6_settings():
     print("  ✓ 6b: to_db_pool 正确创建连接池")
 
     # 6c: iter_profiles
-    settings2 = StrategyDefSettings.from_dict({
+    settings2 = DefSettings.from_dict({
         "id_profiles": [
             {
                 "id_type": "A股",
@@ -443,7 +443,7 @@ def test_7_max_lookback():
     print("=" * 60)
 
     from unittest.mock import MagicMock, patch
-    from QSExt.FactorDef.FactorDefContent import make_def_key
+    from QSExt.DefModule.DefContent import make_def_key
 
     # 构造策略链: A(lookback=30) → B(lookback=120) → C(lookback=60)
     # A 的 MaxLookBack 应该是 120（来自 B）
@@ -487,7 +487,7 @@ def test_7_max_lookback():
     }
 
     # 替换全局 compute_max_lookback_sd 为使用 mock lookup 的版本
-    import QSExt.StrategyDef.StrategyDefContent as sd_module
+    import QSExt.DefModule.DefContent as sd_module
     orig_compute = sd_module.compute_max_lookback_sd
 
     def mock_compute(dep_sd_inner, dep_fd_inner=None):
@@ -533,21 +533,21 @@ def test_7_max_lookback():
 
 
 # ============================================================
-# Test 8: StrategyDBPool
+# Test 8: DBPool
 # ============================================================
 
 def test_8_db_pool():
-    """测试 StrategyDBPool"""
+    """测试 DBPool"""
     print("\n" + "=" * 60)
-    print("Test 8: StrategyDBPool")
+    print("Test 8: DBPool")
     print("=" * 60)
 
-    from QSExt.StrategyDef.StrategyDefContent import StrategyDBPool, StrategyDBDef
+    from QSExt.DefModule.DefContent import DBPool, StrategyDBDef
 
     db_defs = [
         StrategyDBDef(name="TestDB", class_path="JYDB", role="source", args={}),
     ]
-    pool = StrategyDBPool(db_defs)
+    pool = DBPool(db_defs)
     assert pool.source_names == ["TestDB"]
     print("  ✓ 8a: source_names 正确")
 

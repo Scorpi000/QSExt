@@ -201,10 +201,10 @@ class FactorObject:
 
         动态导入因子模块并调用其 defFactor 函数。支持两种返回类型：
         - List[Factor]
-        - FactorDef（标准模式，返回 FactorDef.FactorList）
+        - Def（标准模式，返回 Def.FactorList）
 
         Args:
-            fdi: FactorDefInput 运行时上下文
+            fdi: DefInput 运行时上下文
 
         Returns:
             QuantStudio Factor 对象列表

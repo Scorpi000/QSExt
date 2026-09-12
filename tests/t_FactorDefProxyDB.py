@@ -11,8 +11,9 @@ from QuantStudio.Core.CalcEngine import Engine, ParallelEngine
 from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
 from QuantStudio.Factor.FactorCache import FeatherFactorCache
 from QuantStudio.Factor.FactorStorer import FactorStorer
-from QSExt.FactorDef.FactorDefContent import FactorDefInput
-from QSExt.FactorDef.JY.stock_cn_info import defFactor
+from QSExt.DefModule.DefContent import DefInput
+# TODO: stock_cn_info 因子定义模块需迁移到 DefModule 或用户项目中
+# from QSExt.FactorDef.JY.stock_cn_info import defFactor
 
 SDB = JYDB().connect()
 TDB = HDF5DB().connect()
@@ -30,14 +31,14 @@ SectionIDs = IDs = ["000001.SZ", "000003.SZ", "301111.SZ", "600519.SH", "688981.
 # print(Meta)
 
 # 不使用代理
-FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)
+FDI = DefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler)
 FactorDef = defFactor(fdi=FDI)
 TargetF = FactorDef.getFactor("name")
 print(TargetF.QSID)
 print(TargetF.Descriptors)
 
 # 使用代理
-FDI = FactorDefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)
+FDI = DefInput(FDB={"JYDB": SDB}, DTs=DTs, IDs=IDs, SectionIDs=SectionIDs, DTRuler=DTRuler, ProxyDB=TDB)
 FactorDef = defFactor(fdi=FDI)
 TargetF = FactorDef.getFactor("name")
 print(TargetF.QSID)

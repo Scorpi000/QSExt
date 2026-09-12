@@ -259,6 +259,44 @@ QSExt/StrategyDef/
 - `from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput` — 输入类型
 - `from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy` — 策略基类
 
+### DefModule（统一定义框架）
+
+`QSExt/DefModule/` 是 FactorDef 和 StrategyDef 的统一融合模块，消除两套框架之间的代码重复。支持在同一个脚本中同时定义因子和策略，在同一个引擎环境中执行。
+
+```
+QSExt/DefModule/
+├── __init__.py
+├── DefContent.py          # 核心：DefInput, DefMeta, Def, DefProfile, DefSettings, DefInputBuilder, build_dep
+├── utils.py               # expand_glob + load_notebook_as_module
+├── conf/
+│   └── settings_example.py  # 统一配置示例
+└── scripts/
+    ├── run_def.py               # 统一执行脚本
+    └── register_to_graphdb.py   # 统一图数据库注册
+```
+
+**统一类型**：
+
+| 类型 | 说明 |
+|------|------|
+| `DefInput` | 统一输入对象，因子和策略共用（含 `Factors` + `Strategies` 字段） |
+| `DefMeta` | 统一元信息，合并 FactorMeta + StrategyMeta 超集字段 |
+| `Def` | 统一容器，同时持有 `FactorList` 和 `StrategyList`，自动归类 |
+| `DefProfile` | 统一 Profile，同时支持 `factor_modules` 和 `strategy_modules` |
+| `DefSettings` | 统一配置，继承 RuntimeSettings + `bt_store` |
+| `DefInputBuilder` | 统一构建器，合并两个 Builder |
+
+**入口函数优先级**：`defNode` > `defFactor` > `defStrategy`（三者等价）
+
+**自动归类**：模块返回的 `List[Factor]` 中，算子为 `MakeAccount` 实例的归入 `StrategyList`，其余归入 `FactorList`。
+
+**Profile 配置格式**：
+- `FACTOR_PROFILES` — 仅收集因子（`collect_mode="factor"`）
+- `STRATEGY_PROFILES` — 仅收集策略（`collect_mode="strategy"`）
+- `DEF_PROFILES` — 两者都收集（`collect_mode="both"`，优先级最高）
+
+**向后兼容**：`DefContent.py` 末尾提供别名（`FactorDefInput = DefInput` 等），现有 `defFactor`/`defStrategy` 模块无需修改。
+
 ### 因子挖掘配置体系
 
 因子挖掘系统的配置采用**分层结构**，全局配置与各阶段配置分离：

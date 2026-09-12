@@ -103,11 +103,30 @@
       "Bash(grep -o \"Top组统计对比\\\\|多空组合统计对比\" \"D:\\\\Data\\\\QSReport\\\\多因子对比报告.html\" | head -10)",
       "Bash(grep -o \"Top组统计对比\\\\|多空组合统计对比\\\\|Top组\\\\|多空\" \"D:\\\\Data\\\\QSReport\\\\多因子对比报告.html\" | head -20)",
       "Bash(PYTHONPATH=\"/d/HST/QuantStudio:/d/HST/QSExt\" /d/PythonEnv/QS312/Scripts/python.exe QSExt/ReportGenerator/scripts/run_multi_strategy_report_manual.py)",
-      "Bash(grep -o \"MA5/MA20\\\\|MA10/MA30\" \"D:\\\\Data\\\\QSReport\\\\多策略对比报告.html\" | sort | uniq -c)"
+      "Bash(grep -o \"MA5/MA20\\\\|MA10/MA30\" \"D:\\\\Data\\\\QSReport\\\\多策略对比报告.html\" | sort | uniq -c)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('QSExt/DefModule/scripts/run_def.py', encoding='utf-8'\\).read\\(\\)\\); print\\('run_def.py: OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('QSExt/DefModule/scripts/register_to_graphdb.py', encoding='utf-8'\\).read\\(\\)\\); print\\('register_to_graphdb.py: OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"from QSExt.DefModule.DefContent import DefInput, DefMeta, Def, DefProfile, DefSettings, DefInputBuilder, build_dep, build_dep_fd, build_dep_sd; print\\('All imports OK'\\); print\\(f'DefInput fields: {list\\(DefInput.model_fields.keys\\(\\)\\)}'\\); print\\(f'DefMeta fields: {list\\(DefMeta.model_fields.keys\\(\\)\\)}'\\); print\\(f'Def fields: {list\\(Def.model_fields.keys\\(\\)\\)}'\\); print\\(f'DefSettings fields: {[f for f in DefSettings.model_fields.keys\\(\\) if f not in list\\(__import__\\(\\\\\"QSExt.RuntimeConfig.config\\\\\", fromlist=[\\\\\"RuntimeSettings\\\\\"]\\).RuntimeSettings.model_fields.keys\\(\\)\\)]}'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m QSExt.DefModule.scripts.run_def --settings test_settings --dry-run)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m QSExt.DefModule.scripts.run_def --settings test_settings)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m QSExt.DefModule.scripts.run_def --settings settings_example --workers 0 --lookback 60)",
+      "Bash(mkdir -p \"D:/Data/HDF5BTResult\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m QSExt.DefModule.scripts.run_def --settings settings_example --dry-run --lookback 60 --workers 0)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -m QSExt.DefModule.scripts.run_def --settings settings_example --lookback 60 --workers 0)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('QSExt/DefModule/scripts/run_def.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('QSExt/DefModule/scripts/register_to_graphdb.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(sed -i 's/from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput/from QSExt.DefModule.DefContent import DefInput/g' strategy_def_api.md)",
+      "Bash(sed -i 's/defStrategy\\(sdi: StrategyDefInput\\)/defNode\\(sdi: DefInput\\)/g' strategy_def_api.md)",
+      "Bash(sed -i 's/StrategyDefInput/DefInput/g' strategy_def_api.md)",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\)\\) for f in ['QSExt/DefModule/DefContent.py', 'QSExt/DefModule/scripts/run_def.py', 'QSExt/DefModule/scripts/register_to_graphdb.py', 'QSExt/DefModule/FactorScriptWriter.py', 'QSExt/DefModule/utils.py']]; print\\('All OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"from QSExt.DefModule.DefContent import DefInput, DefMeta, Def, DefSettings, DefInputBuilder, build_dep; print\\('OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('QSExt/QSRegistry/QSGraphDB.py', encoding='utf-8'\\).read\\(\\)\\); print\\('QSGraphDB.py OK'\\)\")",
+      "Bash(\"C:/Users/hst/Project/PythonEnv/QS/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('mcp/qs_registry.py', encoding='utf-8'\\).read\\(\\)\\); print\\('qs_registry.py OK'\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\hst\\Project\\QSExt\\QSWeb\\logs",
-      "D:\\HST\\QSResearch\\QSResearch\\FactorDef\\conf"
+      "D:\\HST\\QSResearch\\QSResearch\\FactorDef\\conf",
+      "D:\\Data"
     ]
   },
   "profiles": {

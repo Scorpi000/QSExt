@@ -20,7 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from QSExt.FactorDef.FactorScriptWriter import generate_script
+from QSExt.DefModule.FactorScriptWriter import generate_script
 
 nDT, nID = 20, 10
 SectionIDs = [str(i).zfill(6) + ".SZ" for i in range(1, nID + 1)]

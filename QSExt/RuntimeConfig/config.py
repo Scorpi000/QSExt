@@ -217,7 +217,7 @@ class DBPool:
 class RuntimeSettings(__QS_Args__):
     """统一运行时配置基类。
 
-    FactorDefSettings 和 StrategyDefSettings 直接继承此类。
+    DefSettings 直接继承此类。
     QSWeb 通过 from_module() 加载后按需读取字段。
     """
 
@@ -451,7 +451,7 @@ class RuntimeSettings(__QS_Args__):
                 ))
         data["factor_databases"] = db_defs
 
-        # 过滤掉当前类不接受的字段（如 bt_store 只在 StrategyDefSettings 中定义）
+        # 过滤掉当前类不接受的字段（如 bt_store 只在 DefSettings 中定义）
         known_fields = set(cls.model_fields.keys())
         data = {k: v for k, v in data.items() if k in known_fields}
 

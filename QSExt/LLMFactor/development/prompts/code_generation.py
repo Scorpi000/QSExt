@@ -19,7 +19,7 @@ from typing import Optional
 # 系统 Prompt
 # ============================================================
 
-SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任务是根据假设文档生成符合 FactorDef 框架规范的因子定义代码。
+SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任务是根据假设文档生成符合 DefModule 框架规范的因子定义代码。
 
 你必须严格遵循以下规则：
 1. 生成的代码必须能直接运行，无语法错误
@@ -34,7 +34,7 @@ SYSTEM_PROMPT = """你是一个 QuantStudio 量化因子开发专家。你的任
 # QuantStudio API 参考
 # ============================================================
 
-QUANTSTUDIO_API_REFERENCE = """## FactorDef 框架 API 参考
+QUANTSTUDIO_API_REFERENCE = """## DefModule 框架 API 参考
 
 ### 必需的 import（严格使用以下路径，不要猜测其他路径）
 ```python
@@ -45,10 +45,10 @@ from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.BasicOperator import rename
 import QuantStudio.Factor.FactorOperator as fo
 from QuantStudio.Factor.FactorOperation import FactorOperatorized
-from QSExt.FactorDef.FactorDefContent import FactorDefInput
+from QSExt.DefModule.DefContent import DefInput
 ```
 
-### 因子定义模式（FactorDef 规范）
+### 因子定义模式（DefModule 规范）
 ```python
 __FACTOR_META__ = {
     "TargetTable": "stock_cn_factor_xxx",    # 输出表名，固定前缀
@@ -63,9 +63,9 @@ __FACTOR_META__ = {
     "DefScriptPath": __file__,                # 固定
 }
 
-def defFactor(fdi: FactorDefInput) -> List[Factor]:
+def defFactor(fdi: DefInput) -> List[Factor]:
     \"\"\"
-    标准签名：接收 FactorDefInput，返回 List[Factor]。
+    标准签名：接收 DefInput，返回 List[Factor]。
     框架在调用前已完成：
     1. 递归解析 FactorDeps 依赖链
     2. 将依赖因子注入到 fdi.Factors
@@ -251,7 +251,7 @@ OUTPUT_INSTRUCTIONS = """
 注意事项：
 - factor_def.py 必须包含完整的 import 语句
 - 必须包含 __FACTOR_META__ 字典（TargetTable, IDType, Author, Description, DefScriptPath 为必填字段，FactorDeps, DBDeps, ModelArgs, Tags 为可选字段）
-- defFactor 函数签名为 defFactor(fdi: FactorDefInput) -> List[Factor]（单参数）
+- defFactor 函数签名为 defFactor(fdi: DefInput) -> List[Factor]（单参数）
 - 依赖因子通过 fdi.Factors["因子名"] 获取（框架已根据 FactorDeps 预注入）
 - 超参数用 args.get("param_name", default) 格式，同时在 SEARCH_SPACE 中定义搜索范围
 - metadata.json 必须包含 factor_name, category, market, frequency, description, formula, data_sources, tags 字段

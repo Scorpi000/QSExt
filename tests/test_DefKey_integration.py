@@ -13,8 +13,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from QSExt.FactorDef.FactorDefContent import (
-    build_dep_fd, make_def_key, FactorDefInput,
+from QSExt.DefModule.DefContent import (
+    build_dep_fd, make_def_key, DefInput,
 )
 
 
@@ -69,7 +69,7 @@ def defFactor(fdi):
 
     def test_dep_fd_has_two_entries(self):
         """两个模块写同一 TargetTable → dep_fd 有两个条目"""
-        fdi = FactorDefInput()
+        fdi = DefInput()
         modules = [
             (self.mod_a, {}, {}),
             (self.mod_b, {}, {}),
@@ -86,7 +86,7 @@ def defFactor(fdi):
 
     def test_dep_fd_keys_are_def_keys(self):
         """dep_fd 的 key 是 DefKey（基于 file path），不是 TargetTable"""
-        fdi = FactorDefInput()
+        fdi = DefInput()
         modules = [
             (self.mod_a, {}, {}),
             (self.mod_b, {}, {}),
@@ -102,7 +102,7 @@ def defFactor(fdi):
 
     def test_factor_storer_merge(self):
         """FactorStorer 按 TargetTable 合并因子"""
-        fdi = FactorDefInput()
+        fdi = DefInput()
         modules = [
             (self.mod_a, {}, {}),
             (self.mod_b, {}, {}),
@@ -136,8 +136,8 @@ def defFactor(fdi):
     def test_factor_name_conflict_detected(self):
         """同 TargetTable 内因子名重复能被检测"""
         # 两个模块定义相同因子名 "factor_x"
-        fdi = FactorDefInput()
-        import QSExt.FactorDef.FactorDefContent as fdc_mod
+        fdi = DefInput()
+        import QSExt.DefModule.DefContent as fdc_mod
 
         # 创建两个条目对应于同一个文件（这模拟了同文件 + 不同 model_args 的情况，
         # 此时因子名重复应被 run_factor_def 的合并代码捕获）

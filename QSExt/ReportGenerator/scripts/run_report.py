@@ -40,7 +40,7 @@ from QuantStudio.Core.ParallelEngine import ParallelEngine
 from QuantStudio.Factor.Factor import FactorContext, FactorLocalContext, FactorInitData
 from QuantStudio.Factor.FactorCache import FeatherFactorCache
 from QuantStudio.Factor.BasicOperator import rename
-from QSExt.FactorDef.FactorDefContent import FactorDefSettings, FactorDefInputBuilder
+from QSExt.DefModule.DefContent import DefSettings, DefInputBuilder
 from QSExt.ReportGenerator.scenarios import ScenarioRegistry
 from QSExt.Tools.TraceBack import filterWarnings
 filterWarnings()
@@ -61,7 +61,7 @@ def main(settings_path: str = "settings", profile_name: str = "",
         **cmd_overrides: 命令行覆盖参数
     """
     # 1. 加载配置
-    settings = FactorDefSettings.from_module(settings_path, **cmd_overrides)
+    settings = DefSettings.from_module(settings_path, **cmd_overrides)
     setDefaultLogLevel(getattr(logging, settings.log_level))
     Logger.info(f"配置已加载: {settings_path}")
     Logger.info(f"报告生成流水线启动 — 进程: {os.getpid()}, 时间: {__NOW__}")
@@ -103,7 +103,7 @@ def main(settings_path: str = "settings", profile_name: str = "",
     Logger.info(f"输出目录: {out_dir}")
 
     # 5. 初始化数据库
-    with FactorDefInputBuilder(settings) as builder:
+    with DefInputBuilder(settings) as builder:
         pool = builder._pool
 
         # 6. 加载参考因子
@@ -299,7 +299,7 @@ def _create_strategy_report_nodes(scenario_cls, scenario_name, pool, profile_cfg
 
     支持两种策略加载模式：
     - 模式 A：从 FactorDB 加载预计算信号（配置含 ``db`` + ``table``）
-    - 模式 B：动态导入 StrategyDef 模块（配置含 ``module``）
+    - 模式 B：动态导入策略模块（配置含 ``module``）
 
     Returns:
         (report_nodes, report_names)
@@ -451,7 +451,7 @@ def _load_strategy_from_db(cfg, pool, price_factor):
 
 
 def _load_strategy_from_module(cfg, pool, section_ids, dtruler):
-    """动态导入 StrategyDef 模块并执行 defStrategy 获取策略实例。
+    """动态导入策略模块并执行 defStrategy 获取策略实例。
 
     Args:
         cfg: 策略配置 dict，含 module 及可选的 model_args/settings_path
@@ -462,7 +462,7 @@ def _load_strategy_from_module(cfg, pool, section_ids, dtruler):
     Returns:
         策略因子（MakeAccount 输出），失败返回 None
     """
-    from QSExt.StrategyDef.StrategyDefContent import StrategyDefInput
+    from QSExt.DefModule.DefContent import DefInput
 
     module_path = cfg.get("module", "")
     if not module_path:
@@ -479,8 +479,8 @@ def _load_strategy_from_module(cfg, pool, section_ids, dtruler):
             Logger.warning(f"模块 '{module_path}' 中未找到 defStrategy 函数")
             return None
 
-        # 构建 StrategyDefInput
-        sdi = StrategyDefInput(
+        # 构建 DefInput
+        sdi = DefInput(
             FDB=pool,
             Factors={},
             Strategies={},

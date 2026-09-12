@@ -116,7 +116,7 @@ def test_store_factor_def(gdb):
     print("测试 3: storeFactorDef() - 一体化存储因子定义")
     print("=" * 60)
 
-    from QSExt.FactorDef.FactorDefContent import FactorDef, FactorMeta
+    from QSExt.DefModule.DefContent import FactorDef, FactorMeta
 
     # 创建测试 FactorDef
     script1_path = get_test_script_path("stock_cn_factor_example1.py")

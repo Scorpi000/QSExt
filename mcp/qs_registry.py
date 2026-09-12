@@ -1050,7 +1050,7 @@ def search_scripts(query: str = "", module_type: str = "", limit: int = 20) -> l
 
     Args:
         query: 查询文本，如 "动量"、"示例因子"；传空字符串查全部
-        module_type: 模块类型过滤（FactorDef / StrategyDef）；传空字符串不过滤
+        module_type: 模块类型过滤（factor / strategy）；传空字符串不过滤
         limit: 返回结果数量上限，默认 20
 
     Returns:

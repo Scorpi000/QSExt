@@ -69,7 +69,7 @@ def build_evaluation_context(development_result: dict, workspace_dir: Path, pipe
     Returns:
         (factor, price, IDs, DTRuler, balance_dts, factor_name) 元组，失败返回 None
     """
-    from QSExt.FactorDef.FactorDefContent import FactorDefInput
+    from QSExt.DefModule.DefContent import DefInput
     from QuantStudio.Factor.JYDB import JYDB
     from QSExt.LLMFactor.pipeline_config import PipelineConfig
 
@@ -113,7 +113,7 @@ def build_evaluation_context(development_result: dict, workspace_dir: Path, pipe
         IDs = IDs[:data_ctx.max_stocks]
     __QS_Logger__.info("  股票数量: %d", len(IDs))
 
-    fdi = FactorDefInput(
+    fdi = DefInput(
         Debug=False,
         FDB={"JYDB": SDB},
         DTs=DTRuler,

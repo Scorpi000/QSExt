@@ -3004,11 +3004,11 @@ class QSGraphDB(QSNeo4jObject):
 
     # region 策略存储与检索（Strategy Store & Retrieve）
 
-    def _serializeStrategy(self, strategy_def, strategy_instance) -> dict:
+    def _serializeStrategy(self, def_obj, strategy_instance) -> dict:
         """序列化单个策略实例为 Neo4j 节点属性字典
 
         Args:
-            strategy_def: StrategyDef 实例（提供 Meta 元信息）
+            def_obj: Def 实例（提供 Meta 元信息）
             strategy_instance: 单个策略实例（Factor 对象）
 
         Returns:
@@ -3017,7 +3017,7 @@ class QSGraphDB(QSNeo4jObject):
         import json as _json
         from QSExt.QSRegistry._serialization import _sanitizeForJSON
 
-        meta = strategy_def.Meta
+        meta = def_obj.Meta
         strategy = strategy_instance
         strategy_cls = type(strategy)
         now = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -3062,7 +3062,7 @@ class QSGraphDB(QSNeo4jObject):
         - (策略)-[:打标签]->(:标签) — 分类标签
 
         Args:
-            strategies: StrategyDef 列表（每个含 StrategyList 可多个策略实例）
+            strategies: Def 列表（每个含 StrategyList 可多个策略实例）
             tags: 策略 QSID → 标签列表的映射
             user_id: 资源归属用户 ID，非空时写入 userId 属性标记为私有资源
 
@@ -3187,7 +3187,7 @@ class QSGraphDB(QSNeo4jObject):
                 """, {"rels": tag_rels})
 
         total_instances = sum(len(sd.StrategyList) for sd in strategies)
-        self._QS_Logger.info(f"已批量存储 {total_instances} 个策略实例 (来自 {len(strategies)} 个 StrategyDef)")
+        self._QS_Logger.info(f"已批量存储 {total_instances} 个策略实例 (来自 {len(strategies)} 个 Def)")
         return total_instances
 
     # --- 脚本节点存储 ---
@@ -3224,8 +3224,8 @@ class QSGraphDB(QSNeo4jObject):
             meta = self._extractMetaFromScript(content)
 
         # 5. 确定入口函数和模块类型
-        entry_function = "defFactor" if "defFactor" in content else "defStrategy"
-        module_type = "FactorDef" if entry_function == "defFactor" else "StrategyDef"
+        entry_function = "defNode" if "defNode" in content else ("defFactor" if "defFactor" in content else "defStrategy")
+        module_type = "factor" if "defFactor" in content or "defNode" in content else "strategy"
 
         # 6. 构建节点属性
         now = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -3525,18 +3525,18 @@ class QSGraphDB(QSNeo4jObject):
 
         return associated
 
-    def storeFactorDef(self, factor_def, script_path: Optional[str] = None,
-                       user_id: Optional[str] = None, clean_old: bool = True) -> dict:
-        """存储 FactorDef 及其定义脚本
+    def storeDef(self, def_obj, script_path: Optional[str] = None,
+                 user_id: Optional[str] = None, clean_old: bool = True) -> dict:
+        """存储 Def 及其定义脚本
 
-        一体化存储：脚本节点 + 因子节点 + "定义于"关系。
-        默认会清理脚本关联的旧因子关系，再重新关联。
+        一体化存储：脚本节点 + 因子/策略节点 + "定义于"关系。
+        默认会清理脚本关联的旧节点关系，再重新关联。
 
         Args:
-            factor_def: FactorDef 实例（含 FactorList 和 Meta）
+            def_obj: Def 实例（含 FactorList、StrategyList 和 Meta）
             script_path: 脚本路径（为 None 时从 meta.DefScriptPath 获取）
             user_id: 用户 ID
-            clean_old: 是否清理旧的因子关系（默认 True）
+            clean_old: 是否清理旧的关系（默认 True）
 
         Returns:
             {
@@ -3547,34 +3547,35 @@ class QSGraphDB(QSNeo4jObject):
         """
         # 1. 获取脚本路径
         if script_path is None:
-            script_path = factor_def.Meta.DefScriptPath
+            script_path = def_obj.Meta.DefScriptPath
         if not script_path:
             raise ValueError("无法确定脚本路径：请提供 script_path 或在 meta 中设置 DefScriptPath")
 
         # 2. 构建脚本元信息
         script_meta = {
-            "TargetTable": factor_def.Meta.TargetTable,
-            "IDType": factor_def.Meta.IDType,
-            "Author": factor_def.Meta.Author,
-            "Description": factor_def.Meta.Description,
-            "Tags": list(factor_def.Meta.Tags),
-            "FactorDeps": factor_def.Meta.FactorDeps,
-            "DBDeps": factor_def.Meta.DBDeps,
-            "ModelArgs": factor_def.Meta.ModelArgs,
+            "TargetTable": def_obj.Meta.TargetTable,
+            "IDType": def_obj.Meta.IDType,
+            "Author": def_obj.Meta.Author,
+            "Description": def_obj.Meta.Description,
+            "Tags": list(def_obj.Meta.Tags),
+            "FactorDeps": def_obj.Meta.FactorDeps,
+            "StrategyDeps": def_obj.Meta.StrategyDeps if hasattr(def_obj.Meta, 'StrategyDeps') else {},
+            "DBDeps": def_obj.Meta.DBDeps,
+            "ModelArgs": def_obj.Meta.ModelArgs,
         }
 
         # 3. 存储脚本节点
         script_qsid = self.storeScript(script_path, meta=script_meta, user_id=user_id)
 
         # 4. 存储因子
-        self.storeFactors(factor_def.FactorList, user_id=user_id)
+        self.storeFactors(def_obj.FactorList, user_id=user_id)
 
         # 5. 清理旧的因子关系
         if clean_old:
             self.cleanScriptFactors(script_qsid)
 
         # 6. 收集并关联因子（排除已定义于其他脚本的因子）
-        own_factors = self.collectScriptFactors(factor_def.FactorList, script_qsid)
+        own_factors = self.collectScriptFactors(def_obj.FactorList, script_qsid)
         factor_count = self.associateFactorsToScript(own_factors, script_qsid)
 
         # 7. 获取依赖脚本 QSID
@@ -3588,112 +3589,25 @@ class QSGraphDB(QSNeo4jObject):
         )
         dep_script_qsids = [r["dep.QSID"] for r in dep_results]
 
+        # 8. 存储策略（如果有）
+        strategy_count = 0
+        if def_obj.StrategyList:
+            strategy_count = self.storeStrategies([def_obj], user_id=user_id)
+
         self._QS_Logger.info(
-            f"已存储 FactorDef: {factor_count} 个因子, "
+            f"已存储 Def: {factor_count} 个因子, {strategy_count} 个策略, "
             f"脚本 QSID: {script_qsid}, 依赖脚本: {len(dep_script_qsids)} 个"
         )
 
         return {
             "factor_count": factor_count,
-            "script_qsid": script_qsid,
-            "dep_script_qsids": dep_script_qsids,
-        }
-
-    def storeStrategyDef(self, strategy_def, script_path: Optional[str] = None,
-                         user_id: Optional[str] = None, clean_old: bool = True) -> dict:
-        """存储 StrategyDef 及其定义脚本
-
-        一体化存储：脚本节点 + 策略节点 + "定义于"关系。
-        默认会清理脚本关联的旧策略关系，再重新关联。
-
-        Args:
-            strategy_def: StrategyDef 实例（含 StrategyList 和 Meta）
-            script_path: 脚本路径（为 None 时从 meta.DefScriptPath 获取）
-            user_id: 用户 ID
-            clean_old: 是否清理旧的策略关系（默认 True）
-
-        Returns:
-            {
-                "strategy_count": int,       # 存储的策略数量
-                "script_qsid": "...",        # 脚本节点 QSID
-                "dep_script_qsids": [...]     # 依赖脚本 QSID 列表
-            }
-        """
-        # 1. 获取脚本路径
-        if script_path is None:
-            script_path = strategy_def.Meta.DefScriptPath
-        if not script_path:
-            raise ValueError("无法确定脚本路径：请提供 script_path 或在 meta 中设置 DefScriptPath")
-
-        # 2. 构建脚本元信息
-        script_meta = {
-            "TargetTable": strategy_def.Meta.TargetTable,
-            "IDType": strategy_def.Meta.IDType,
-            "Author": strategy_def.Meta.Author,
-            "Description": strategy_def.Meta.Description,
-            "Tags": list(strategy_def.Meta.Tags),
-            "StrategyDeps": strategy_def.Meta.StrategyDeps,
-            "FactorDeps": strategy_def.Meta.FactorDeps,
-            "DBDeps": strategy_def.Meta.DBDeps,
-            "ModelArgs": strategy_def.Meta.ModelArgs,
-        }
-
-        # 3. 存储脚本节点
-        script_qsid = self.storeScript(script_path, meta=script_meta, user_id=user_id)
-
-        # 4. 存储策略
-        strategy_count = self.storeStrategies([strategy_def], user_id=user_id)
-
-        # 5. 清理旧的策略关系（如果需要）
-        if clean_old:
-            self._runCypher(
-                """
-                MATCH (s:`策略`)-[r:`定义于`]->(sc:`脚本` {QSID: $qsid})
-                DELETE r
-                """,
-                {"qsid": script_qsid}
-            )
-
-        # 6. 建立 策略-[:定义于]->脚本 关系
-        for strategy_instance in strategy_def.StrategyList:
-            self._runCypher(
-                """
-                MATCH (s:`策略` {QSID: $strategy_qsid})
-                MATCH (sc:`脚本` {QSID: $script_qsid})
-                MERGE (s)-[:`定义于`]->(sc)
-                """,
-                {"strategy_qsid": strategy_instance.QSID, "script_qsid": script_qsid}
-            )
-            # 更新策略的 DefScriptQSID 属性
-            self._runCypher(
-                """
-                MATCH (s:`策略` {QSID: $strategy_qsid})
-                SET s.DefScriptQSID = $script_qsid
-                """,
-                {"strategy_qsid": strategy_instance.QSID, "script_qsid": script_qsid}
-            )
-
-        # 7. 获取依赖脚本 QSID
-        dep_script_qsids = []
-        dep_results = self._runCypher(
-            """
-            MATCH (s:`脚本` {QSID: $qsid})-[:`依赖脚本`]->(dep:`脚本`)
-            RETURN dep.QSID
-            """,
-            {"qsid": script_qsid}
-        )
-        dep_script_qsids = [r["dep.QSID"] for r in dep_results]
-
-        self._QS_Logger.info(
-            f"已存储 StrategyDef: {strategy_count} 个策略, "
-            f"脚本 QSID: {script_qsid}, 依赖脚本: {len(dep_script_qsids)} 个"
-        )
-
-        return {
             "strategy_count": strategy_count,
             "script_qsid": script_qsid,
             "dep_script_qsids": dep_script_qsids,
         }
+
+    # 旧名称兼容（调用方可逐步迁移）
+    storeFactorDef = storeDef
 
     def searchStrategies(self, name: Optional[str] = None,
                          tag: Optional[str] = None,
@@ -3833,7 +3747,7 @@ class QSGraphDB(QSNeo4jObject):
 
         Args:
             name: 脚本文件名（模糊匹配）
-            module_type: 模块类型（FactorDef / StrategyDef）
+            module_type: 模块类型（factor / strategy）
             query_text: 语义搜索文本（使用嵌入向量）
             limit: 返回数量上限
             user_id: 资源隔离的用户 ID
@@ -3970,41 +3884,37 @@ class QSGraphDB(QSNeo4jObject):
             "dependencies": dependencies,
         }
 
-    def getFactorDefScript(self, factor_qsid: str) -> Optional[Dict]:
-        """获取因子的定义脚本（含内容）
+    def getDefScript(self, qsid: str) -> Optional[Dict]:
+        """获取因子或策略的定义脚本（含内容）
 
         Args:
-            factor_qsid: 因子节点 QSID
+            qsid: 因子或策略节点 QSID
 
         Returns:
             脚本节点属性字典，未找到返回 None
         """
+        # 先尝试因子
         results = self._runCypher(
             """
             MATCH (f:`因子` {QSID: $qsid})-[:`定义于`]->(s:`脚本`)
             RETURN s
             """,
-            {"qsid": factor_qsid}
+            {"qsid": qsid}
         )
-        return results[0]["s"] if results else None
-
-    def getStrategyDefScript(self, strategy_qsid: str) -> Optional[Dict]:
-        """获取策略的定义脚本（含内容）
-
-        Args:
-            strategy_qsid: 策略节点 QSID
-
-        Returns:
-            脚本节点属性字典，未找到返回 None
-        """
+        if results:
+            return results[0]["s"]
+        # 再尝试策略
         results = self._runCypher(
             """
             MATCH (s:`策略` {QSID: $qsid})-[:`定义于`]->(sc:`脚本`)
             RETURN sc
             """,
-            {"qsid": strategy_qsid}
+            {"qsid": qsid}
         )
         return results[0]["sc"] if results else None
+
+    getFactorDefScript = getDefScript
+    getStrategyDefScript = getDefScript
 
     def getScriptImpact(self, script_qsid: str) -> Dict:
         """分析脚本变更的影响范围

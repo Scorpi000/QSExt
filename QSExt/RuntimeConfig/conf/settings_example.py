@@ -7,6 +7,11 @@
     3. settings_local.py（不入库，本地覆盖）
     4. QS_* 环境变量
     5. 命令行 --xxx 参数
+
+Profile 三种格式：
+    FACTOR_PROFILES   — 仅因子，collect_mode="factor"
+    STRATEGY_PROFILES — 仅策略，collect_mode="strategy"
+    DEF_PROFILES      — 混合，collect_mode="both"（优先级最高，启用时忽略上面两种格式）
 """
 import os
 
@@ -140,6 +145,10 @@ SECTION_ID_SOURCES = {
         "type": "list",
         "ids": ["000001.SZ", "000002.SZ", "000003.SZ", "600519.SH"],
     },
+    "测试3只": {
+        "type": "list",
+        "ids": ["000001.SZ", "000002.SZ", "600519.SH"],
+    },
 }
 
 
@@ -177,8 +186,8 @@ FACTOR_PROFILES = [
         "id_selection": "自选股",
         "section_id_list": "自选股",
         "factor_modules": [
-            "QSExt.FactorDef.stock_cn_factor_example1",
-            "QSExt.FactorDef.stock_cn_factor_example2",
+            "QSExt.DefModule.examples.stock_cn_factor_example1",
+            "QSExt.DefModule.examples.stock_cn_factor_example2",
         ],
         "proxy_tables": None,
         # 以下两项可选，配置则覆盖全局 TARGET_DB / FACTOR_STORER_CONFIG
@@ -203,11 +212,33 @@ STRATEGY_PROFILES = [
     {
         "section_id_list": "自选股",
         "strategy_modules": [
-            "QSExt.StrategyDef.stock_cn_strategy_example",
+            "QSExt.DefModule.examples.stock_cn_strategy_example",
         ],
         # 可选，覆盖全局 TARGET_DB / FACTOR_STORER_CONFIG
         # "target_db": "TDB",
         # "factor_storer_config": {"IfExists": "update", "UpdateMeta": True},
+    },
+]
+
+
+# ============================================================
+# 混合 Profile —— 同时定义因子和策略（优先级最高）
+# ============================================================
+# DEF_PROFILES 同时包含 factor_modules 和 strategy_modules，
+# 启用时忽略 FACTOR_PROFILES 和 STRATEGY_PROFILES。
+# 一个脚本可以同时产出因子和策略，框架根据算子类型自动归类。
+
+DEF_PROFILES = [
+    {
+        "id_selection": "自选股",
+        "section_id_list": "自选股",
+        "factor_modules": [
+            "QSExt.DefModule.examples.stock_cn_factor_example1",
+        ],
+        "strategy_modules": [
+            "QSExt.DefModule.examples.stock_cn_strategy_example",
+        ],
+        "target_db": "TDB",
     },
 ]
 
@@ -227,7 +258,7 @@ FACTOR_STORER_CONFIG = {
     "UpdateMeta": True,     # True: 同时更新因子元信息
 }
 
-# 回测结果存储配置（StrategyDef 专用，None 则不存储）
+# 回测结果存储配置（策略专用，None 则不存储）
 # 配置回测结果库，用于存储策略回测的净值、交易记录等
 BT_STORE = {
     "name": "BTResultDB",
@@ -266,7 +297,7 @@ BT_STORE = {
 #           {"db": "因子库名", "table": "因子表名", "signal_factor": "信号因子名",
 #            "name": "策略名称", "signal_type": "目标权重", "init_cash": 1000000,
 #            "price_db": "...", "price_table": "...", "price_factor": "close"}
-#       模式 B — 动态导入 StrategyDef 模块：
+#       模式 B — 动态导入策略模块：
 #           {"module": "模块路径", "name": "策略名称",
 #            "model_args": {"key": "value"}, "settings_path": ""}
 
