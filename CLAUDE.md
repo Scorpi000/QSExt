@@ -88,16 +88,6 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 
 数据流：`FactorDB.connect() -> getTable() -> readData() -> DataFrame (Panel-like, index=[datetime, code])`
 
-### 数据同步（DataSync）
-
-`QSExt/DataSync/` 提供异构数据库之间的数据传输工具：
-- `DataSender`：从源数据库读取并发送数据
-- `DataReceiver`：接收数据并写入目标数据库
-- `DataImporter`：批量导入数据到目标数据库
-- `PostgresExporter` / `PostgresImporter`：PostgreSQL 专用导入导出
-- `SQLServerExporter`：SQL Server 导出
-- `CmdExecutor`：命令行执行器
-
 ### 工具集（Tools）
 
 `QSExt/Tools/` 提供各类辅助工具函数：
