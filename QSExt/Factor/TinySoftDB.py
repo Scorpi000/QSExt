@@ -3,7 +3,7 @@
 import os
 import json
 import datetime as dt
-from typing import Union, Optional, Dict, List
+from typing import Union, Optional, Dict, List, Literal
 
 import numpy as np
 import pandas as pd
@@ -261,9 +261,9 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
 
     def _genNullIDSQLStr_WithPublDT(self, factor_names, ids, end_date, args={}):
         IDStr = "','".join(self.__QS_adjustID__(ids))
-        EndDTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
-        AnnDTField = self._FactorInfo.loc[self.PublDTField, "DBFieldName"]
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        EndDTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
+        AnnDTField = self._FactorInfo.loc[self._QSArgs.PublDTField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         SubSQLStr = "SELECT "+IDField+", "
         SubSQLStr += "MAXOF("+EndDTField+") AS 'MaxEndDate' "
         SubSQLStr += self._genFromSQLStr()+" "
@@ -287,11 +287,11 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
         IDMapping = _adjustID(ids)
         IDStr = "','".join(self.__QS_adjustID__(IDMapping.index))
         StartDate, EndDate = dts[0].date(), dts[-1].date()
-        LookBack = self.LookBack
+        LookBack = self._QSArgs.LookBack
         if not np.isinf(LookBack): StartDate -= dt.timedelta(LookBack)
-        EndDTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
-        AnnDTField = self._FactorInfo.loc[self.PublDTField, "DBFieldName"]
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        EndDTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
+        AnnDTField = self._FactorInfo.loc[self._QSArgs.PublDTField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         SubSQLStr = "SELECT "+IDField+", "
         SubSQLStr += "MAX("+AnnDTField+", "+EndDTField+") AS 'AnnDate', "
         SubSQLStr += "MAXOF("+EndDTField+") AS 'MaxEndDate' "
@@ -333,8 +333,8 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
 
     def _genNullIDSQLStr_IgnorePublDT(self, factor_names, ids, end_date, args={}):
         IDStr ="','".join(self.__QS_adjustID__(ids))
-        DTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        DTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         SubSQLStr = "SELECT "+IDField+", "
         SubSQLStr += "MAXOF("+DTField+") AS 'MaxEndDate' "
         SubSQLStr += self._genFromSQLStr()+" "
@@ -355,10 +355,10 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
         if (dts==[]) or (ids==[]): return pd.DataFrame(columns=["QS_DT", "QS_ID"]+factor_names)
         IDMapping = _adjustID(ids)
         StartDate, EndDate = dts[0].date(), dts[-1].date()
-        LookBack = self.LookBack
+        LookBack = self._QSArgs.LookBack
         if not np.isinf(LookBack): StartDate -= dt.timedelta(LookBack)
-        DTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        DTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         # 形成SQL语句, 日期, ID, 因子数据
         SQLStr = "SELECT "+DTField+" AS 'QS_DT', "
         SQLStr += IDField+" AS 'QS_ID', "
@@ -390,7 +390,7 @@ class _FeatureTable(_TS_SQL_Table, SQL_FeatureTable):
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         if ids==[]: return pd.DataFrame(columns=["QS_ID"]+factor_names)
         IDMapping = _adjustID(ids)
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         # 形成SQL语句, ID, 因子数据
         SQLStr = "SELECT "+IDField+" AS 'QS_ID', "
         for iField in factor_names: SQLStr += self._FactorInfo.loc[iField, "DBFieldName"]+", "
@@ -408,7 +408,7 @@ class _FeatureTable(_TS_SQL_Table, SQL_FeatureTable):
 class _MappingTable(_TS_SQL_Table, SQL_MappingTable):
     """映射因子表"""
     def getDateTime(self, ifactor_name=None, iid=None, start_dt=None, end_dt=None):
-        DTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
+        DTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
         SQLStr = "SELECT MINOF("+DTField+") AS 'StartDT'"# 起始日期
         if iid is not None:
             SQLStr += self._genFromSQLStr()+" "
@@ -423,19 +423,20 @@ class _MappingTable(_TS_SQL_Table, SQL_MappingTable):
 
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         IDMapping = _adjustID(ids)
-        IDField = self._FactorInfo.loc[self.IDField, "DBFieldName"]
+        IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         StartDate, EndDate = dts[0].date(), dts[-1].date()
-        DTField = self._FactorInfo.loc[self.DTField, "DBFieldName"]
+        DTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
+        EndDTField = self._FactorInfo.loc[self._QSArgs.EndDTField, "DBFieldName"]
         # 形成SQL语句, ID, 开始日期, 结束日期, 因子数据
         SQLStr = "SELECT "+IDField+" AS 'QS_ID', "
         SQLStr += DTField+" AS 'QS_起始日', "
-        SQLStr += self._EndDateField+" AS 'QS_结束日', "
+        SQLStr += EndDTField+" AS 'QS_结束日', "
         for iField in factor_names: SQLStr += self._FactorInfo.loc[iField, "DBFieldName"]+", "
         SQLStr = SQLStr[:-2]+" "+self._genFromSQLStr()+" "
         SQLStr += "OF ARRAY('"+"','".join(IDMapping.index)+"') "
-        SQLStr += "WHERE (("+self._EndDateField+">="+StartDate.strftime(self._DTFormat)+") "
-        SQLStr += "OR ("+self._EndDateField+" IS NULL) "
-        SQLStr += "OR ("+self._EndDateField+"<"+DTField+")) "
+        SQLStr += "WHERE (("+EndDTField+">="+StartDate.strftime(self._DTFormat)+") "
+        SQLStr += "OR ("+EndDTField+" IS NULL) "
+        SQLStr += "OR ("+EndDTField+"<"+DTField+")) "
         SQLStr += "AND "+DTField+"<="+EndDate.strftime(self._DTFormat)+" "
         SQLStr += self._genConditionSQLStr()+" "
         SQLStr += "ORDER BY ['QS_ID'], ['QS_起始日'] END"
@@ -559,17 +560,24 @@ class TinySoftDB(FactorDB):
         self._QS_Logger.error(Msg)
         raise __QS_Error__(Msg)
 
-    def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
+    def getTradeDay(self, start_date:Optional[dt.datetime]=None, end_date:Optional[dt.datetime]=None, exchange:Literal["SSE", "SZSE"]="SSE", **kwargs) -> List[dt.datetime]:
+        """给定交易所、起始日和结束日, 获取交易日序列
+
+        Args:
+            start_date: 起始日, None 表示从 1900-01-01 开始
+            end_date: 结束日, None 表示当前日期
+            exchange: 交易所, 默认 SSE(上交所)
+
+        Returns:
+            交易日序列
+        """
         if exchange not in ("SSE", "SZSE"): raise __QS_Error__("不支持交易所: '%s' 的交易日序列!" % exchange)
-        if start_date is None: start_date = dt.date(1900, 1, 1)
-        if end_date is None: end_date = dt.date.today()
+        if start_date is None: start_date = dt.datetime(1900, 1, 1)
+        if end_date is None: end_date = dt.datetime.combine(dt.date.today(), dt.time(0))
         CodeStr = "SetSysParam(pn_cycle(), cy_day());return MarketTradeDayQk(inttodate({StartDate}), inttodate({EndDate}));"
         CodeStr = CodeStr.format(StartDate=start_date.strftime("%Y%m%d"), EndDate=end_date.strftime("%Y%m%d"))
         Data = self._exec(CodeStr)
-        if kwargs.get("output_type", "datetime")=="date":
-            return [pyTSL.DoubleToDatetime(x).date() for x in Data]
-        else:
-            return [pyTSL.DoubleToDatetime(x) for x in Data]
+        return [pyTSL.DoubleToDatetime(x) for x in Data]
 
     def _getAllAStock(self, date=None, is_current=True):
         if date is None: Date = dt.date.today()
@@ -582,8 +590,21 @@ class TinySoftDB(FactorDB):
         Data = self._exec(CodeStr)
         return sorted(iID[2:]+"."+iID[:2] for iID in Data)
 
-    def getStockID(self, index_id:str="全体A股", date=None, is_current=True):
-        if index_id=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
+    def getStockID(self, type:Literal["全体A股"]="全体A股", date:Optional[dt.datetime]=None, is_current:bool=True) -> List[str]:
+        """给定股票类型和日期, 获取股票证券 ID 序列
+
+        Args:
+            type: 股票类型, 默认 全体A股
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示上市日期在指定日之前的股票, True 表示上市日期在指定日之前且尚未退市的股票
+        
+        Returns:
+            股票证券 ID 序列
+        """
+        if type=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
+        raise __QS_Error__(f"目前不支持提取 type={type} 的股票列表")
+
+    def getIndexComponentID(self, index_id:str, date:Optional[dt.datetime]=None, is_current:bool=True) -> List[str]:
         if date is None: Date = dt.date.today()
         IndexID = "".join(reversed(index_id.split(".")))
         if is_current:
