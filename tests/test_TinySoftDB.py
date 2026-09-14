@@ -246,6 +246,28 @@ class TestTinySoftDBConnection(unittest.TestCase):
         self.assertIsInstance(IDs, list)
         self.assertGreater(len(IDs), 100)  # 应该有很多股票
 
+    # ==================== 公募基金列表测试 ====================
+
+    def test_getMutualFundID(self):
+        """测试获取公募基金列表"""
+        IDs = self.FDB.getMutualFundID()
+        self.assertIsInstance(IDs, list)
+        self.assertGreater(len(IDs), 1000)  # 应该有很多基金
+        # 验证 ID 格式: 6位数字 + ".OF"
+        for iID in IDs[:10]:
+            self.assertTrue(iID.endswith(".OF"), f"ID格式错误: {iID}")
+            self.assertEqual(len(iID), 9, f"ID长度错误: {iID}")
+        # 验证排序
+        self.assertEqual(IDs, sorted(IDs))
+
+    def test_getMutualFundID_date(self):
+        """测试获取历史日期的公募基金列表"""
+        IDs_hist = self.FDB.getMutualFundID(date=dt.datetime(2020, 1, 2))
+        IDs_now = self.FDB.getMutualFundID()
+        self.assertIsInstance(IDs_hist, list)
+        self.assertGreater(len(IDs_hist), 0)
+        self.assertLess(len(IDs_hist), len(IDs_now))  # 历史基金数量应少于当前
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -604,6 +604,98 @@ class TinySoftDB(FactorDB):
         if type=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
         raise __QS_Error__(f"目前不支持提取 type={type} 的股票列表")
 
+    def getMutualFundID(self, date:Optional[dt.datetime]=None, board:str="开放式基金;封闭式基金", **kwargs) -> List[str]:
+        """获取公募基金 ID 序列
+
+        通过 TinySoft 的 BK_ListedOfFunds 函数获取指定日已上市的公募基金列表,
+        判断基金是否上市的依据为指定日是否已开始公布净值。
+
+        Args:
+            date: 指定日, 默认值 None 表示当前日期
+            board: 基金板块名称, 默认 "开放式基金;封闭式基金" 覆盖全体公募基金
+
+        Returns:
+            公募基金 ID 序列, 格式如 ["000001.OF", "000011.OF", ...]
+        """
+        if date is None: date = dt.date.today()
+        CodeStr = f'SetSysParam(Pn_Bk(),"{board}");'
+        CodeStr += f'return BK_ListedOfFunds({date.strftime("%Y%m%d")}T,-1);'
+        Data = self._exec(CodeStr)
+        if not Data: return []
+        return sorted(iID[2:]+"."+iID[:2] for iID in Data)
+
+    def getMutualFundInfo(self, date:Optional[dt.datetime]=None, **kwargs) -> pd.DataFrame:
+        """获取公募基金的基本信息
+
+        通过 TinySoft 的批量函数获取基金列表和基金经理信息,
+        再通过 INFOTABLE 302 批量查询基金名称、风格、上市日、设立日、基金管理人等属性。
+
+        字段映射 (INFOTABLE 302):
+            基金名称(302000), 投资类型(302013), 设立日(302003),
+            上市日(302004), 基金管理人(302009), 标的指数代码
+
+        Args:
+            date: 指定日, 默认值 None 表示当前日期
+
+        Returns:
+            DataFrame(columns=["ID", "Name", "Type", "EstablishmentDate",
+                "ListedDate", "Org", "Manager", "MainCode", "TrackIndexID"])
+        """
+        if date is None: date = dt.datetime.combine(dt.date.today(), dt.time())
+        DateInt = int(date.strftime("%Y%m%d"))
+        DateT = f"{DateInt}T"
+        # 1) 获取公募基金列表 (ID 格式: "000001.OF")
+        fund_ids = self.getMutualFundID(date=date)
+        if not fund_ids:
+            return pd.DataFrame(columns=["ID", "Name", "Type", "EstablishmentDate", "ListedDate", "Org", "Manager", "MainCode", "TrackIndexID"])
+        # 转为 TinySoft 内部格式 ("OF000001") 用于 INFOTABLE 查询
+        funds = ["".join(reversed(iID.split("."))) for iID in fund_ids]
+        funds_str = "','".join(funds)
+        # 2) 批量获取基金经理信息
+        try:
+            mgr_data = self._exec(f"return FundManagerDataByEndt(array('{funds_str}'), {DateT});")
+        except Exception:
+            mgr_data = None
+        mgr_map = {}
+        if mgr_data:
+            for row in mgr_data:
+                if isinstance(row, dict):
+                    fid = row.get("StockID", "")
+                    name = row.get("姓名", "")
+                else:
+                    fid, name = (row[0], row[1]) if len(row) >= 2 else ("", "")
+                if fid and name and fid not in mgr_map:
+                    mgr_map[fid] = name
+        # 3) 通过 INFOTABLE 302 批量查询基金基本信息
+        try:
+            tsl = (
+                "return exportjsonstring("
+                "select ['StockID'],['基金名称'],['投资类型'],['设立日'],['上市日'],['基金管理人'],['标的指数代码'] "
+                f"from infotable 302 of array('{funds_str}') end);"
+            )
+            info_data = json.loads(self._exec(tsl))
+        except Exception:
+            info_data = []
+        info_map = {row["StockID"]: row for row in info_data}
+        results = []
+        for fund_id, fund in zip(fund_ids, funds):
+            row = info_map.get(fund, {})
+            issue_dt = row.get("设立日")
+            listed_dt = row.get("上市日")
+            results.append({
+                "ID": fund_id,
+                "Name": row.get("基金名称") or None,
+                "Type": row.get("投资类型") or None,
+                "EstablishmentDate": dt.datetime.strptime(str(int(issue_dt)), "%Y%m%d") if issue_dt else None,
+                "ListedDate": dt.datetime.strptime(str(int(listed_dt)), "%Y%m%d") if listed_dt else None,
+                "Org": row.get("基金管理人") or None,
+                "Manager": mgr_map.get(fund),
+                "MainCode": fund_id,
+                "TrackIndexID": row.get("标的指数代码") or None,
+            })
+        MFInfo = pd.DataFrame(results, columns=["ID", "Name", "Type", "EstablishmentDate", "ListedDate", "Org", "Manager", "MainCode", "TrackIndexID"])
+        return MFInfo
+
     def getIndexComponentID(self, index_id:str, date:Optional[dt.datetime]=None, is_current:bool=True) -> List[str]:
         if date is None: Date = dt.date.today()
         IndexID = "".join(reversed(index_id.split(".")))

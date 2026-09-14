@@ -11,6 +11,7 @@
 
 * Python：使用 conda 的 QS312 环境，位置是：D:\miniforge\envs\QS312
 * QuantStudio: 项目地址：D:\Project\QuantStudio
+* WebFetch 工具报错时改用 curl 来获取网页
 
 # 数据库
 
