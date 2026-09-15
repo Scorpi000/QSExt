@@ -3,7 +3,7 @@
 import os
 import json
 import datetime as dt
-from typing import Union, Optional, Dict, List, Literal
+from typing import Union, Optional, Dict, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,12 +15,40 @@ from QuantStudio.Core import __QS_Error__
 from QuantStudio.Core.QSObject import Panel
 from QuantStudio.Factor.FactorDB import FactorDB
 from QuantStudio.Factor.FactorTable import FactorTable
-from QuantStudio.Factor.FactorUtils import updateInfo, importInfo, SQL_Table, SQL_WideTable, SQL_FeatureTable, SQL_MappingTable
+from QuantStudio.Factor.FactorUtils import SQL_Table, SQL_WideTable, SQL_FeatureTable, SQL_MappingTable
 from QuantStudio.Tools.DateTimeFun import getDateTimeSeries
 
 
-def _adjustID(ids):
-    return pd.Series(ids, index=["".join(reversed(iID.split("."))) for iID in ids])
+# 将信息源文件中的表和字段信息导入信息文件
+def importInfo(info_file, info_resource, out_info=False):
+    TableInfo = pd.read_excel(info_resource, "TableInfo", engine="openpyxl").set_index(["TableName"])
+    FactorInfo = pd.read_excel(info_resource, 'FactorInfo', engine="openpyxl").set_index(['TableName', 'FieldName'])
+    ExchangeInfo = pd.read_excel(info_resource, 'ExchangeInfo', engine="openpyxl")
+    if not out_info:
+        try:
+            from QuantStudio.Tools.DataTypeFun import writeNestedDict2HDF5
+            writeNestedDict2HDF5(TableInfo, info_file, "/TableInfo")
+            writeNestedDict2HDF5(FactorInfo, info_file, "/FactorInfo")
+            writeNestedDict2HDF5(ExchangeInfo, info_file, "/ExchangeInfo")
+        except:
+            pass
+    return TableInfo, FactorInfo, ExchangeInfo
+
+# 更新信息文件
+def updateInfo(info_file, info_resource, logger, out_info=False):
+    if out_info: return importInfo(info_file, info_resource, logger, out_info=out_info)
+    if not os.path.isfile(info_file):
+        logger.warning("数据库信息文件: '%s' 缺失, 尝试从 '%s' 中导入信息." % (info_file, info_resource))
+    elif (os.path.getmtime(info_resource)>os.path.getmtime(info_file)):
+        logger.warning("数据库信息文件: '%s' 有更新, 尝试从中导入新信息." % info_resource)
+    else:
+        try:
+            from QuantStudio.Tools.DataTypeFun import readNestedDictFromHDF5
+            return (readNestedDictFromHDF5(info_file, ref="/TableInfo"), readNestedDictFromHDF5(info_file, ref="/FactorInfo"), readNestedDictFromHDF5(info_file, ref="/ExchangeInfo"))
+        except:
+            logger.warning("数据库信息文件: '%s' 损坏, 尝试从 '%s' 中导入信息." % (info_file, info_resource))
+    if not os.path.isfile(info_resource): raise __QS_Error__("缺失数据库信息源文件: %s" % info_resource)
+    return importInfo(info_file, info_resource)
 
 
 class _TSTable(FactorTable):
@@ -221,11 +249,20 @@ class _TS_SQL_Table(SQL_Table):
         self._MainTableName = self._DBTableName
         self._DTFormat = "%Y%m%d"
 
-    def __QS_adjustID__(self, ids):
-        return ["".join(reversed(iID.split("."))) for iID in ids]
+    def _getIDMapping(self, ids):
+        return pd.Series(ids, index=self.__QS_adjustID__(ids))
 
-    def __QS_restoreID__(self, ids):
-        return ids
+    def __QS_adjustID__(self, ids):
+        if self._TableInfo["SecurityType"] == "A股":
+            return self._FactorDB.AStockID2TSCode(ids)
+        elif self._TableInfo["SecurityType"] == "基金":
+            return self._FactorDB.MutualFundID2TSCode(ids)
+        elif self._TableInfo["SecurityType"] == "期货":
+            return self._FactorDB.FutureID2TSCode(ids)
+        elif self._TableInfo["SecurityType"] == "债券":
+            return self._FactorDB.BondID2TSCode(ids)
+        else:
+            return ids
 
     def _genFromSQLStr(self, setable_join_str=[]):
         SQLStr = "FROM INFOTABLE "+str(int(self._TableInfo["DBTableName"]))+" "
@@ -284,8 +321,8 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
 
     def _prepareRawData_WithPublDT(self, factor_names, ids, dts, args={}):
         if (dts==[]) or (ids==[]): return pd.DataFrame(columns=["QS_DT", "QS_ID"]+factor_names)
-        IDMapping = _adjustID(ids)
-        IDStr = "','".join(self.__QS_adjustID__(IDMapping.index))
+        IDMapping = self._getIDMapping(ids)
+        IDStr = "','".join(IDMapping.index)
         StartDate, EndDate = dts[0].date(), dts[-1].date()
         LookBack = self._QSArgs.LookBack
         if not np.isinf(LookBack): StartDate -= dt.timedelta(LookBack)
@@ -353,7 +390,7 @@ class _WideTable(_TS_SQL_Table, SQL_WideTable):
 
     def _prepareRawData_IgnorePublDT(self, factor_names, ids, dts, args={}):
         if (dts==[]) or (ids==[]): return pd.DataFrame(columns=["QS_DT", "QS_ID"]+factor_names)
-        IDMapping = _adjustID(ids)
+        IDMapping = self._getIDMapping(ids)
         StartDate, EndDate = dts[0].date(), dts[-1].date()
         LookBack = self._QSArgs.LookBack
         if not np.isinf(LookBack): StartDate -= dt.timedelta(LookBack)
@@ -389,7 +426,7 @@ class _FeatureTable(_TS_SQL_Table, SQL_FeatureTable):
     """特征因子表"""
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
         if ids==[]: return pd.DataFrame(columns=["QS_ID"]+factor_names)
-        IDMapping = _adjustID(ids)
+        IDMapping = self._getIDMapping(ids)
         IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         # 形成SQL语句, ID, 因子数据
         SQLStr = "SELECT "+IDField+" AS 'QS_ID', "
@@ -422,7 +459,7 @@ class _MappingTable(_TS_SQL_Table, SQL_MappingTable):
         return getDateTimeSeries(start_dt=StartDT, end_dt=end_dt, timedelta=dt.timedelta(1))
 
     def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
-        IDMapping = _adjustID(ids)
+        IDMapping = self._getIDMapping(ids)
         IDField = self._FactorInfo.loc[self._QSArgs.IDField if self._QSArgs.IDField else self._IDField, "DBFieldName"]
         StartDate, EndDate = dts[0].date(), dts[-1].date()
         DTField = self._FactorInfo.loc[self._QSArgs.DTField, "DBFieldName"]
@@ -450,7 +487,7 @@ class _MappingTable(_TS_SQL_Table, SQL_MappingTable):
 
 
 class TinySoftDB(FactorDB):
-    """TinySoft"""
+    """TinySoftDB"""
     class __QS_ArgClass__(FactorDB.__QS_ArgClass__):
         Name: str = Field(default="TinySoftDB", title="名称", frozen=True)
         IPAddr: str = Field(default="tsl.tinysoft.com.cn", title="IP地址", frozen=True)
@@ -465,14 +502,15 @@ class TinySoftDB(FactorDB):
         self._Client = None
         self._TableInfo = None
         self._FactorInfo = None
+        self._ExchangeInfo = None
         self._InfoFilePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"TinySoftDBInfo.hdf5"
         if not os.path.isfile(self._QSArgs.DBInfoFile):
             if self._QSArgs.DBInfoFile: self._QS_Logger.warning("找不到指定的库信息文件 : '%s'" % self._QSArgs.DBInfoFile)
             self._InfoResourcePath = __QS_MainPath__+os.sep+"Resource"+os.sep+"TinySoftDBInfo.xlsx"
-            self._TableInfo, self._FactorInfo = updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)
+            self._TableInfo, self._FactorInfo, self._ExchangeInfo = updateInfo(self._InfoFilePath, self._InfoResourcePath, self._QS_Logger)
         else:
             self._InfoResourcePath = self._QSArgs.DBInfoFile
-            self._TableInfo, self._FactorInfo = importInfo(self._InfoFilePath, self._InfoResourcePath)
+            self._TableInfo, self._FactorInfo, self._ExchangeInfo = importInfo(self._InfoFilePath, self._InfoResourcePath)
         return
 
     def __getstate__(self):
@@ -523,6 +561,10 @@ class TinySoftDB(FactorDB):
         if r.error()!=0:
             raise __QS_Error__("TinySoft 调用错误: "+r.message())
         return r.value()
+
+    @property
+    def ExchangeInfo(self):
+        return self._ExchangeInfo.copy()
 
     @property
     def TableNames(self):
@@ -588,7 +630,15 @@ class TinySoftDB(FactorDB):
         else:
             raise __QS_Error__("目前不支持提取指定日期的历史 A 股 ID")
         Data = self._exec(CodeStr)
-        return sorted(iID[2:]+"."+iID[:2] for iID in Data)
+        return sorted(self.AStockTSCode2ID(Data))
+
+    def AStockTSCode2ID(self, ts_codes:List[str]) -> List[str]:
+        """A股天软代码转 QuantStudio 代码"""
+        return [iTSCode[2:] + "." + iTSCode[:2] for iTSCode in ts_codes]
+
+    def AStockID2TSCode(self, ids:List[str]) -> List[str]:
+        """A股 QuantStudio 代码转天软代码"""
+        return [iID[-2:] + iID[:-3] for iID in ids]
 
     def getStockID(self, type:Literal["全体A股"]="全体A股", date:Optional[dt.datetime]=None, is_current:bool=True) -> List[str]:
         """给定股票类型和日期, 获取股票证券 ID 序列
@@ -603,6 +653,14 @@ class TinySoftDB(FactorDB):
         """
         if type=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
         raise __QS_Error__(f"目前不支持提取 type={type} 的股票列表")
+
+    def MutualFundTSCode2ID(self, ts_codes:List[str]) -> List[str]:
+        """公募基金天软代码转 QuantStudio 代码"""
+        return [iTSCode[2:] + "." + iTSCode[:2] for iTSCode in ts_codes]
+
+    def MutualFundID2TSCode(self, ids:List[str]) -> List[str]:
+        """公募基金 QuantStudio 代码转天软代码"""
+        return [iID[-2:] + iID[:-3] for iID in ids]
 
     def getMutualFundID(self, date:Optional[dt.datetime]=None, board:str="开放式基金;封闭式基金", **kwargs) -> List[str]:
         """获取公募基金 ID 序列
@@ -622,7 +680,7 @@ class TinySoftDB(FactorDB):
         CodeStr += f'return BK_ListedOfFunds({date.strftime("%Y%m%d")}T,-1);'
         Data = self._exec(CodeStr)
         if not Data: return []
-        return sorted(iID[2:]+"."+iID[:2] for iID in Data)
+        return sorted(self.MutualFundTSCode2ID(Data))
 
     def getMutualFundInfo(self, date:Optional[dt.datetime]=None, **kwargs) -> pd.DataFrame:
         """获取公募基金的基本信息
@@ -649,7 +707,7 @@ class TinySoftDB(FactorDB):
         if not fund_ids:
             return pd.DataFrame(columns=["ID", "Name", "Type", "EstablishmentDate", "ListedDate", "Org", "Manager", "MainCode", "TrackIndexID"])
         # 转为 TinySoft 内部格式 ("OF000001") 用于 INFOTABLE 查询
-        funds = ["".join(reversed(iID.split("."))) for iID in fund_ids]
+        funds = self.MutualFundID2TSCode(fund_ids)
         funds_str = "','".join(funds)
         # 2) 批量获取基金经理信息
         try:
@@ -706,6 +764,20 @@ class TinySoftDB(FactorDB):
         Data = self._exec(CodeStr)
         return sorted(iID[2:]+"."+iID[:2] for iID in Data)
 
+    def FutureTSCode2ID(self, ts_codes:List[str]) -> List[str]:
+        """期货天软代码转 QuantStudio 代码"""
+        if not ts_codes: return ts_codes
+        CodeStr = f"""RETURN SELECT ['合约代码'], ['上市地'] FROM INFOTABLE 703 OF ARRAY('{"','".join(ts_codes)}') END;"""
+        Data = self._exec(CodeStr)
+        if not Data: return ts_codes
+        Exchange2Suffix = self._ExchangeInfo.set_index(["ExchangeName"])["Suffix"]
+        TSCode2Exchange = pd.DataFrame(Data).set_index(["合约代码"])["上市地"].to_dict()
+        return [iTSCode + Exchange2Suffix.get(TSCode2Exchange.get(iTSCode, ""), "") for iTSCode in ts_codes]
+
+    def FutureID2TSCode(self, ids:List[str]) -> List[str]:
+        """期货 QuantStudio 代码转天软代码"""
+        return [".".join(iID.split(".")[:-1]) for iID in ids]
+    
     def getFutureID(self, future_code:Optional[str]="IF", date=None, is_current=True):
         if date is None: Date = dt.date.today()
         if future_code is not None: future_code = "".join(reversed(future_code.split(".")))
@@ -720,7 +792,7 @@ class TinySoftDB(FactorDB):
             else:
                 raise __QS_Error__("目前不支持提取指定日期的历史期货 ID")
         Data = self._exec(CodeStr)
-        return Data
+        return self.FutureTSCode2ID(Data)
     
     def _OptionID2InnerCode(self, option_ids:List[str]) -> Dict[str, str]:
         CodeStr = "Return select ['StockID'], ['合约交易代码'] from infotable 720 where ['合约交易代码'] in ARRAY('"+"','".join(option_ids)+"') end;"
@@ -755,3 +827,38 @@ class TinySoftDB(FactorDB):
                 raise __QS_Error__("目前不支持提取指定日期的历史期权 ID")
         Data = self._exec(CodeStr)
         return Data
+
+    def BondTSCode2ID(self, ts_codes:List[str]) -> List[str]:
+        """债券天软代码转 QuantStudio 代码"""
+        return [iTSCode[2:] + "." + (iTSCode[:2] if iTSCode[:2]!="BK" else "IB") for iTSCode in ts_codes]
+
+    def BondID2TSCode(self, ids:List[str]) -> List[str]:
+        """债券 QuantStudio 代码转天软代码"""
+        return [(iID[-2:] if iID[-2:]!="IB" else "BK") + iID[:-3] for iID in ids]
+
+    def getBondID(self, exchange:Union[Literal["SSE", "SZSE", "IB"], Tuple[Literal["SSE", "SZSE", "IB"]]]=("SSE", "SZSE", "IB"), date:Optional[dt.datetime]=None, is_current:bool=True, **kwargs) -> List[str]:
+        """给定交易所和日期, 获取债券证券 ID 序列
+
+        Args:
+            exchange: 交易所(str)或者交易所列表(tuple)
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示存续起始日在指定日之前的债券, True 表示存续起始日在指定日之前且尚未到期的债券
+            
+        Returns:
+            债券证券 ID 序列
+        """
+        if isinstance(exchange, str): exchange = (exchange,)
+        ExchangeMapping = {
+            "SSE": "上交所债券",
+            "SZSE": "深交所债券",
+            "IB": "银行间债券"
+        }
+        if not set(exchange).issubset(ExchangeMapping.keys()):
+            raise __QS_Error__(f"不支持的交易所: {set(exchange).difference(ExchangeMapping.keys())}")
+        ExchangeStr = ";".join([ExchangeMapping[iExchange] for iExchange in exchange])
+        if is_current and date is None:
+            CodeStr = f"""RETURN GETBK('{ExchangeStr}');"""
+        else:
+            raise __QS_Error__("目前不支持历史债券 ID 或者指定日在市的债券 ID")
+        Data = self._exec(CodeStr)
+        return self.BondTSCode2ID(Data)

@@ -232,19 +232,59 @@ class TestTinySoftDBConnection(unittest.TestCase):
 
     # ==================== 指数成份股测试 ====================
 
-    def test_getStockID(self):
-        """测试获取指数成份股（可能因账号权限返回空）"""
-        IDs = self.FDB.getStockID("000001.SH")  # 上证指数
+    def test_getIndexComponentID(self):
+        """测试获取指数成份股"""
+        IDs = self.FDB.getIndexComponentID("000001.SH")  # 上证指数
         self.assertIsInstance(IDs, list)
-        # 验证 ID 格式（如果有数据）
-        for iID in IDs[:5]:
-            self.assertIn(".", iID)
+        self.assertGreater(len(IDs), 100)  # 上证指数应有很多成份股
+        # 验证 ID 格式: 6位数字 + "." + 交易所后缀
+        for iID in IDs[:10]:
+            self.assertRegex(iID, r"^\d{6}\.(SH|SZ)$")
+        # 验证排序
+        self.assertEqual(IDs, sorted(IDs))
 
     def test_getAllAStock(self):
-        """测试获取全体 A 股"""
-        IDs = self.FDB.getStockID("全体A股")
+        """测试获取全体 A 股（默认参数）"""
+        IDs = self.FDB.getStockID()  # 默认 type="全体A股"
+        print(IDs[:5])
         self.assertIsInstance(IDs, list)
         self.assertGreater(len(IDs), 100)  # 应该有很多股票
+        # 验证 ID 格式: 6位数字 + "." + 交易所后缀
+        for iID in IDs[:10]:
+            self.assertRegex(iID, r"^\d{6}\.(SH|SZ)$")
+        # 验证排序
+        self.assertEqual(IDs, sorted(IDs))
+
+    # ==================== 期货 ID 测试 ====================
+
+    def test_getFutureID_default(self):
+        """测试获取默认品种（IF 沪深300股指期货）的期货 ID"""
+        IDs = self.FDB.getFutureID()  # 默认 future_code="IF"
+        print(IDs[:5])
+        self.assertIsInstance(IDs, list)
+        self.assertGreater(len(IDs), 0)
+
+    def test_getFutureID_all(self):
+        """测试获取全体期货 ID"""
+        IDs = self.FDB.getFutureID(future_code=None)
+        print(IDs[:5])
+        self.assertIsInstance(IDs, list)
+        self.assertGreater(len(IDs), 0)
+
+    # ==================== 期权 ID 测试 ====================
+    
+    def test_getOptionID_default(self):
+        """测试获取默认标的（510050.SH 上证50ETF）的期权 ID"""
+        IDs = self.FDB.getOptionID()  # 默认 option_code="510050.SH"
+        print(IDs[:5])
+        self.assertIsInstance(IDs, list)
+        self.assertGreater(len(IDs), 0)
+
+    def test_getOptionID_all(self):
+        """测试获取全体期权 ID"""
+        IDs = self.FDB.getOptionID(option_code=None)
+        self.assertIsInstance(IDs, list)
+        self.assertGreater(len(IDs), 0)
 
     # ==================== 公募基金列表测试 ====================
 
@@ -270,4 +310,8 @@ class TestTinySoftDBConnection(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # unittest.main()
+    Suite = unittest.TestSuite()
+    Suite.addTest(TestTinySoftDBConnection("test_getAllAStock"))
+    Runner = unittest.TextTestRunner()
+    Runner.run(Suite)
