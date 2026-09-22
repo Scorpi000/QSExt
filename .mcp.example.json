@@ -27,6 +27,27 @@
         "--env",
         "PYTHONPATH=D:/Project/QuantStudio;D:/HST/QSExt;D:/Project/QSAgent"
       ]
+    },
+    "jy_doc": {
+      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
+      "args": ["D:\\Project\\QSAgent\\mcp\\jy_doc.py", "--cache-dir", "D:\\Data\\JYDoc"],
+      "env": {
+        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+      }
+    },
+    "tinysoft_doc": {
+      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
+      "args": ["D:\\Project\\QSAgent\\mcp\\tinysoft_doc.py", "--cache-dir", "D:\\Data\\TinySoftDoc"],
+      "env": {
+        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+      }
+    },
+    "akshare_doc": {
+      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
+      "args": ["D:\\Project\\QSAgent\\mcp\\akshare_doc.py", "--cache-dir", "D:\\Data\\AKShareDoc"],
+      "env": {
+        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+      }
     }
   }
 }
