@@ -108,6 +108,67 @@ def main(settings_path: str = "settings", **cmd_overrides):
     Logger.info("统一图数据库注册完成")
 
 
+def register_single_module(
+    fgdb,
+    settings: DefSettings,
+    module,
+    model_args: dict = None,
+    meta_override: dict = None,
+    collect_mode: str = "factor",
+    extra_tags: list = None,
+    user_id: str = None,
+    no_clean: bool = False,
+):
+    """将单个模块注册到图数据库。
+
+    供 QSWeb 等外部调用者使用，封装 build_dep + store 流程。
+    调用者负责初始化 fgdb（init_graphdb）和 settings（DefSettings.from_module）。
+
+    Args:
+        fgdb: 已连接的 QSGraphDB 实例
+        settings: DefSettings 配置
+        module: 已导入的 Python 模块对象
+        model_args: 模型参数（可选）
+        meta_override: 元信息覆盖（可选）
+        collect_mode: "factor" | "strategy" | "both"
+        extra_tags: 附加标签列表
+        user_id: 用户 ID（标记为私有资源）
+        no_clean: 是否跳过旧数据清理
+    """
+    model_args = model_args or {}
+    meta_override = meta_override or {}
+    extra_tags = extra_tags or []
+
+    with DefInputBuilder(settings) as builder:
+        # 获取或构造默认 profile
+        profiles = settings.iter_profiles()
+        if profiles:
+            profile = profiles[0]
+        else:
+            from QSExt.DefModule.DefContent import DefProfile
+            profile = DefProfile(collect_mode=collect_mode)
+
+        fdi = builder.build_for_profile(profile)
+        pool = builder._pool
+
+        modules = [(module, model_args, meta_override)]
+
+        # 注册数据源因子库
+        for src_name in pool.source_names:
+            fgdb.registerFactorDB(pool[src_name])
+
+        # 解析并注册
+        if collect_mode in ("factor", "both"):
+            dep_fd, factor_results = build_dep_fd(modules, fdi)
+            _register_factor_defs(fgdb, factor_results, extra_tags, user_id, no_clean, settings, pool)
+
+        if collect_mode in ("strategy", "both"):
+            dep_sd, strategy_results = build_dep_sd(modules, fdi)
+            _register_strategy_defs(fgdb, strategy_results, extra_tags, user_id, no_clean, settings, pool)
+
+    Logger.info(f"单模块注册完成: {module.__name__} (mode={collect_mode})")
+
+
 def _register_factor_defs(fgdb, results, extra_tags, user_id, no_clean, settings, pool):
     """注册因子/策略定义到图数据库"""
     all_defs = [d for d, _ in results if d is not None]
