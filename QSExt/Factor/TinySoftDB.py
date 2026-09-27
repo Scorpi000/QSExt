@@ -492,8 +492,8 @@ class TinySoftDB(FactorDB):
         Name: str = Field(default="TinySoftDB", title="名称", frozen=True)
         IPAddr: str = Field(default="tsl.tinysoft.com.cn", title="IP地址", frozen=True)
         Port: int = Field(default=443, ge=0, le=65535, title="端口", frozen=True)
-        User: str = Field(default="", title="用户名", frozen=True)
-        Pwd: str = Field(default="", title="密码", frozen=True, repr=False)
+        User: str = Field(default="", title="用户名", frozen=True, json_schema_extra={"secret": True})
+        Pwd: str = Field(default="", title="密码", frozen=True, repr=False, json_schema_extra={"secret": True})
         DBInfoFile: str = Field(default="", title="库信息文件", frozen=True)
         FTArgs: dict = Field(default={}, title="因子表参数", frozen=True)
 

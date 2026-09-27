@@ -1,52 +1,41 @@
 {
   "mcpServers": {
-    "qs-registry": {
-      "command": "D:/PythonEnv/QS312/Scripts/python.exe",
-      "args": ["D:/HST/QSExt/mcp/qs_registry.py"],
-      "env": {
-        "PYTHONPATH": "D:/Project/QuantStudio;D:/HST/QSExt",
-        "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
-        "OLLAMA_API_KEY": "ollama",
-        "EMBEDDING_MODEL": "bge-m3",
-        "QS_TOOLS": "all"
-      }
-    },
-    "qswiki": {
-      "command": "D:/PythonEnv/QS312/Scripts/python.exe",
-      "args": ["-m", "kb_query_mcp.server"],
-      "cwd": "D:/HST/QSWiki",
-      "env": {
-        "PYTHONPATH": "D:/HST/QSWiki/mcp/src",
-        "KB_ROOT": "D:/HST/QSWiki/knowledge-base"
-      }
-    },
-    "jy_base_doc": {
-      "command": "D:/PythonEnv/QS312/Scripts/python.exe",
+    "qs_registry": {
+      "command": "{{PYTHON}}",
       "args": [
-        "D:/Project/QSAgent/mcp/jy_base_doc_pg.py",
-        "--env",
-        "PYTHONPATH=D:/Project/QuantStudio;D:/HST/QSExt;D:/Project/QSAgent"
-      ]
-    },
-    "jy_doc": {
-      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
-      "args": ["D:\\Project\\QSAgent\\mcp\\jy_doc.py", "--cache-dir", "D:\\Data\\JYDoc"],
+        "{{QS_REGISTRY_PY}}"
+      ],
+      "cwd": "{{PROJECT}}",
       "env": {
-        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+        "PYTHONPATH": "{{PYTHONPATH}}",
+        "OLLAMA_BASE_URL": "{{OLLAMA_BASE_URL}}",
+        "OLLAMA_API_KEY": "{{OLLAMA_API_KEY}}",
+        "EMBEDDING_MODEL": "{{EMBEDDING_MODEL}}",
+        "QS_TOOLS": "{{QS_TOOLS}}"
       }
     },
     "tinysoft_doc": {
-      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
-      "args": ["D:\\Project\\QSAgent\\mcp\\tinysoft_doc.py", "--cache-dir", "D:\\Data\\TinySoftDoc"],
+      "command": "{{PYTHON}}",
+      "args": [
+        "{{TINYSOFT_DOC_PY}}",
+        "--cache-dir",
+        "{{TINYSOFT_CACHE_DIR}}"
+      ],
+      "cwd": "{{PROJECT}}",
       "env": {
-        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+        "PYTHONPATH": "{{PYTHONPATH}}"
       }
     },
     "akshare_doc": {
-      "command": "D:\\PythonEnv\\QS312\\Scripts\\python.exe",
-      "args": ["D:\\Project\\QSAgent\\mcp\\akshare_doc.py", "--cache-dir", "D:\\Data\\AKShareDoc"],
+      "command": "{{PYTHON}}",
+      "args": [
+        "{{AKSHARE_DOC_PY}}",
+        "--cache-dir",
+        "{{AKSHARE_CACHE_DIR}}"
+      ],
+      "cwd": "{{PROJECT}}",
       "env": {
-        "PYTHONPATH": "D:\\HST\\QuantStudio;D:\\HST\\QSExt;D:\\Project\\QSAgent"
+        "PYTHONPATH": "{{PYTHONPATH}}"
       }
     }
   }

@@ -1,0 +1,4 @@
+fastmcp
+pydantic
+requests
+beautifulsoup4
