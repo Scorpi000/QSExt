@@ -12,7 +12,7 @@
        .mcp.json                     渲染 .mcp.example.json 后追加 qs_registry /
                                      tinysoft_doc / akshare_doc 三个服务
        .claude/skills/*              各 SKILL 的完整拷贝（非链接，可脱离本仓库使用）
-       docs/QSExt/                   QSExt 文档（带命名空间，不与 QS 的 docs/ 冲突）
+       docs/QSExt/                   选定的 QSExt 文档（因子框架、DefModule；带命名空间，不与 QS 的 docs/ 冲突）
        CLAUDE.local.md               追加「QSExt 扩展」章节与 QSExt 因子库章节
        requirements.txt              追加本仓库依赖
 
@@ -111,9 +111,10 @@ EXT_FACTOR_DB_MCP = {
 # 这样 --force 替换因子库章节时不会波及 QSExt 章节里的手改内容
 EXT_FACTOR_DB_SENTINEL = "<!-- QSEXT:EXT-FACTOR-DB -->"
 
-# 拷贝 docs/ 时排除的目录（与 QS 脚本一致）：data/ 是 notebook 运行产物，
-# 检查点与字节码缓存属于编辑/运行残留，均非文档内容。
-DOCS_EXCLUDE_DIRS = {"data", ".ipynb_checkpoints", "__pycache__"}
+# 拷贝 docs/ 时纳入的顶层子目录（白名单）。QSExt 的文档并非都适合随环境分发：
+# 因子框架、DefModule 是使用方写因子/策略时的直接参考，其余多为模块内部实现说明
+# （LLMFactor 流水线、QSRegistry 设计、DocPortal 迁移记录等），留在本仓库即可。
+DOCS_INCLUDE_DIRS = ("因子框架", "DefModule")
 
 # CLAUDE.local.md 中 QSExt 章节的哨兵，用于 --force 时定位并替换旧章节
 EXT_SECTION_SENTINEL = "<!-- QSEXT:EXT-SECTION -->"
@@ -413,9 +414,10 @@ def copy_ext_skills(target_dir: Path, force: bool, dry_run: bool) -> None:
 
 
 def copy_ext_docs(target_dir: Path, force: bool, dry_run: bool) -> None:
-    """把本仓库 docs/ 拷到目标目录的 docs/QSExt/。
+    """把本仓库 docs/ 下选定的子目录拷到目标目录的 docs/QSExt/。
 
-    必须带 QSExt 命名空间：目标目录的 docs/ 已被 QS 脚本占据，直接平铺会冲突。
+    只拷贝 DOCS_INCLUDE_DIRS 白名单内的顶层子目录；必须带 QSExt 命名空间，
+    否则与 QS 脚本写出的 docs/ 冲突。
 
     Args:
         target_dir: 配置目标目录
@@ -426,23 +428,35 @@ def copy_ext_docs(target_dir: Path, force: bool, dry_run: bool) -> None:
         _log(f"未找到文档目录 {DOCS_SRC}，跳过", level="SKIP")
         return
 
+    sources = [DOCS_SRC / name for name in DOCS_INCLUDE_DIRS]
+    missing = [p.name for p in sources if not p.is_dir()]
+    for name in missing:
+        _log(f"未找到文档子目录 {DOCS_SRC / name}，跳过", level="SKIP")
+    sources = [p for p in sources if p.is_dir()]
+    if not sources:
+        _log("没有可拷贝的文档子目录", level="SKIP")
+        return
+
     dst = target_dir / "docs" / "QSExt"
     if dst.exists() and not force:
         _log(f"{dst} 已存在，跳过（--force 可覆盖）", level="SKIP")
         return
 
-    def ignore(directory, names):
-        return [n for n in names if n in DOCS_EXCLUDE_DIRS]
-
-    count = sum(1 for p in DOCS_SRC.rglob("*") if p.is_file() and not (DOCS_EXCLUDE_DIRS & set(p.parts)))
+    # 检查点与字节码缓存属于编辑/运行残留，非文档内容
+    ignore_dirs = {".ipynb_checkpoints", "__pycache__"}
+    count = sum(
+        1 for p in sources for f in p.rglob("*")
+        if f.is_file() and not (ignore_dirs & set(f.parts))
+    )
     if dry_run:
-        _log(f"将拷贝 {count} 个文档文件到 {dst}", level="DRY")
+        _log(f"将拷贝 {count} 个文档文件（{', '.join(p.name for p in sources)}）到 {dst}", level="DRY")
         return
 
     if dst.exists():
         shutil.rmtree(dst)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(DOCS_SRC, dst, ignore=ignore)
+    dst.mkdir(parents=True, exist_ok=True)
+    for src in sources:
+        shutil.copytree(src, dst / src.name, ignore=lambda d, names: [n for n in names if n in ignore_dirs])
     _log(f"已拷贝 {count} 个文档文件到 {dst}")
 
 
