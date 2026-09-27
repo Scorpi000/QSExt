@@ -622,11 +622,11 @@ class TinySoftDB(FactorDB):
         return [pyTSL.DoubleToDatetime(x) for x in Data]
 
     def _getAllAStock(self, date=None, is_current=True):
-        if date is None: Date = dt.date.today()
+        # date 先归一化, 保证下面各分支都能安全使用（此前仅在 date is None 时绑定 Date,
+        # 显式传 date 且 is_current 取默认值 True 时会触发 UnboundLocalError）
+        if date is None: date = dt.datetime.combine(dt.date.today(), dt.time(0))
         if is_current:
-            CodeStr = f"""return getAbkbydate('A股',{Date.strftime("%Y%m%d")}T);"""
-        elif date is None:
-            CodeStr = "return getBK('A股;暂停上市;终止上市');"
+            CodeStr = f"""return getAbkbydate('A股',{date.strftime("%Y%m%d")}T);"""
         else:
             raise __QS_Error__("目前不支持提取指定日期的历史 A 股 ID")
         Data = self._exec(CodeStr)
@@ -647,7 +647,8 @@ class TinySoftDB(FactorDB):
             type: 股票类型, 默认 全体A股
             date: 指定日, 默认值 None 表示当前日期
             is_current: False 表示上市日期在指定日之前的股票, True 表示上市日期在指定日之前且尚未退市的股票
-        
+                        （当前仅支持 True, 取 False 会抛错）
+
         Returns:
             股票证券 ID 序列
         """

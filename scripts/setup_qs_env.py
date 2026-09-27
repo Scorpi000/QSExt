@@ -47,8 +47,9 @@ QuantStudio 仓库位置按 `--qs-repo` > `QS_REPO` 环境变量 > `QuantStudio.
     # 仅预览将要执行的操作，不做任何改动
     python scripts/setup_qs_env.py --dry-run
 
-    # 其余参数（--cache-dir / --factor-db / --pip-index-url 等）原样转发给 QS 脚本：
+    # 其余参数（--cache-dir / --factor-db / --risk-db / --pip-index-url 等）原样转发给 QS 脚本：
     python scripts/setup_qs_env.py --factor-db HDF5DB=D:/MyData/HDF5DBConfig.json
+    python scripts/setup_qs_env.py --risk-db HDF5FRDB=D:/MyRisk/HDF5FRDBConfig.json
 
 前置要求:
     - 建议使用 QS 环境的解释器执行本脚本（依赖安装的目标即该解释器）。
@@ -589,10 +590,6 @@ tbl = db.getTable("实时行情数据-东财")
 tbl.FactorNames                        # 该表的因子名
 tbl.readData(["最新价", "涨跌幅"], ids, dts)   # -> Panel（因子 x 时序 x 证券）
 ```
-
-> 已知问题：`getTable()` 对 `TableClass` 为 `NarrowTable` 的表会报
-> `NameError: name '_NarrowTable' is not defined`；`FeatureTable`/`DTTable`/
-> `DTRangeTable`/`AutoDTTable` 类表正常。
 '''
     if db_type == "TinySoftDB":
         return f'''\
@@ -610,9 +607,6 @@ tbl = db.getTable("A股基本信息")
 tbl.FactorNames                        # 该表的因子名
 tbl.readData(factor_names, ids, dts)   # -> Panel（因子 x 时序 x 证券）
 ```
-
-> 已知问题：`getStockID()` 当前会报 `UnboundLocalError: cannot access local
-> variable 'Date'`。
 '''
     return f'''\
 ```python
@@ -920,6 +914,9 @@ def build_qs_argv(args: argparse.Namespace, qs_specs: list[tuple[str, Path]]) ->
             argv.append(flag)
     for db_type, config_path in qs_specs:
         argv += ["--factor-db", f"{db_type}={config_path}"]
+    # 风险库全部由 QuantStudio 处理（QSExt 暂无风险库实现），原样转发
+    for spec in args.risk_db or []:
+        argv += ["--risk-db", spec]
     return argv
 
 
@@ -947,6 +944,8 @@ def main() -> int:
     parser.add_argument("--skip-skeleton", action="store_true", help="不生成 Python 工程骨架（转发给 QS 脚本）")
     parser.add_argument("--factor-db", action="append", default=None, metavar="TYPE=PATH",
                         help="因子库配置，可重复（转发给 QS 脚本）")
+    parser.add_argument("--risk-db", action="append", default=None, metavar="TYPE=PATH",
+                        help="风险库配置，可重复（转发给 QS 脚本）")
     args = parser.parse_args()
 
     python = sys.executable

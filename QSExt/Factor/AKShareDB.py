@@ -12,7 +12,7 @@ from pydantic import Field, FilePath
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.FactorDB import FactorDB
 from QuantStudio.Factor.FactorTable import FactorTable
-from QuantStudio.Factor.FactorUtils import _QS_calcData_WideTable
+from QuantStudio.Factor.FactorUtils import _QS_calcData_WideTable, _QS_calcData_NarrowTable
 from QuantStudio.Tools.IDFun import suffixAShareID, suffixHKShareID
 from QuantStudio.Tools.DateTimeFun import getDateTimeSeries
 from QSExt import __QS_MainPath__, __QS_ConfigPath__
@@ -383,6 +383,80 @@ class _FeatureTable(_AKSTable):
         return _QS_calcData_WideTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
 
 
+class _NarrowTable(_AKSTable):
+    """AKShareDB 库中基于长表（item/value 两列）API 的因子表
+
+    这类接口按 ID 逐只调用，返回"指标名 -> 指标值"的两列长表（如东财个股信息），
+    需转成 QS_ID/QS_DT/FactorName/FactorValue 的窄表形态后再交给
+    _QS_calcData_NarrowTable 透视。
+
+    因子名是数据里的 item 取值而非元数据行，因此由 FactorNames 参数显式声明
+    （信息源中被标记为 FactorName 的字段只负责指出哪一列装因子名）。
+    """
+
+    class __QS_ArgClass__(_AKSTable.__QS_ArgClass__):
+        TableType: Literal["NarrowTable"] = Field(default="NarrowTable", title="因子表类型", frozen=True)
+        FactorNames: List[str] = Field(default=[], title="因子名列表", frozen=True)
+
+    def __QS_prepareRawData__(self, factor_names, ids, dts, args={}):
+        APIName = self._TableInfo.loc["DBTableName"]
+        ArgInfo = self._ArgInfo
+        # ID 既可能来自接口参数（ArgInfo，如个股信息的 symbol），
+        # 也可能来自字段（FactorInfo），两者取其一
+        IDFields = self._FactorInfo.index[self._FactorInfo["FieldType"]=="ID"]
+        IDField = IDFields[0] if len(IDFields)>0 else None
+        ARGIDFields = ArgInfo.index[ArgInfo["FieldType"]=="ID"] if "ID" in ArgInfo["FieldType"].values else []
+        ARGIDField = ARGIDFields[0] if len(ARGIDFields)>0 else None
+        FactorNameField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="FactorName"][0]
+        FactorValueField = self._FactorInfo.index[self._FactorInfo["FieldType"]=="FactorValue"][0]
+        IDMapping = self.__QS_getIDMapping__(ids)
+        RawData = []
+        for iID in ids:
+            APIArgs = self._getAPIArgs()
+            if ARGIDField is not None:
+                APIArgs[ARGIDField] = IDMapping.get(iID, iID)
+            elif IDField is not None:
+                APIArgs[IDField] = IDMapping.get(iID, iID)
+            try:
+                iRawData = getattr(ak, APIName)(**APIArgs)
+            except Exception:
+                continue
+            if iRawData is None or iRawData.empty:
+                continue
+            iRawData["QS_ID"] = iID
+            RawData.append(iRawData)
+        FixedDT = dts[0] if dts else dt.datetime(1990, 1, 1)
+        if RawData:
+            RawData = pd.concat(RawData, axis=0, ignore_index=True)
+            RawData["QS_DT"] = FixedDT
+            RawData = RawData.rename(columns={FactorNameField: "FactorName", FactorValueField: "FactorValue"})
+            return RawData[["QS_ID", "QS_DT", "FactorName", "FactorValue"]]
+        else:
+            return pd.DataFrame(columns=["QS_ID", "QS_DT", "FactorName", "FactorValue"])
+
+    @property
+    def FactorNames(self) -> List[str]:
+        return list(self._QSArgs.FactorNames)
+
+    def getFactorMetaData(self, factor_names:Optional[List[str]]=None, key:Optional[str]=None) -> Union[Any, pd.Series]:
+        if factor_names is None: factor_names = self.FactorNames
+        if key == "DataType":
+            # 窄表的值列统一按 object 存储（见 FactorInfo 中 FactorValue 字段的声明）
+            return pd.Series("string", index=factor_names)
+        elif key == "Description":
+            return pd.Series([None]*len(factor_names), index=factor_names)
+        elif key is None:
+            return pd.DataFrame({"DataType": "string", "Description": None}, index=factor_names)
+        else:
+            return None
+
+    def __QS_calcData__(self, raw_data, factor_names, ids, dts):
+        DataType = self.getFactorMetaData(factor_names=factor_names, key="DataType")
+        Args = self._QSArgs.to_dict(repr=False)
+        ErrorFmt = {"DuplicatedIndex":  "%s 的表 %s 无法保证唯一性 : {Error}, 可以尝试将 '多重映射' 参数取值调整为 True" % (self._FactorDB.Name, self.Name)}
+        return _QS_calcData_NarrowTable(raw_data, factor_names, ids, dts, DataType, args=Args, logger=self._QS_Logger, error_fmt=ErrorFmt)
+
+
 StockExchangeType = Literal["SSE", "SZSE", "BSE", "HKEX", "AMEX", "NASDAQ", "NYSE"]
 
 class AKShareDB(FactorDB):
@@ -424,6 +498,13 @@ class AKShareDB(FactorDB):
         if table_name in self._TableInfo.index:
             TableClass = args.get("TableType", self._TableInfo.loc[table_name, "TableClass"])
             if pd.notnull(TableClass) and (TableClass != ""):
+                TableCls = globals().get("_"+TableClass, None)
+                # 信息源里的 TableClass 可能指向尚未实现的表类：给出可读报错，
+                # 而不是让 eval 抛出 NameError
+                if not (isinstance(TableCls, type) and issubclass(TableCls, _AKSTable)):
+                    Msg = ("因子库 '%s' 的表 '%s' 指定的表类型 '%s' 尚未实现" % (self.Name, table_name, TableClass))
+                    self._QS_Logger.error(Msg)
+                    raise __QS_Error__(Msg)
                 DefaultArgs = self._TableInfo.loc[table_name, "DefaultArgs"]
                 if pd.isnull(DefaultArgs):
                     DefaultArgs = {}
@@ -433,7 +514,7 @@ class AKShareDB(FactorDB):
                 Args.update(DefaultArgs)
                 Args.update(args)
                 Args["Name"] = table_name
-                return eval("_"+TableClass+"(fdb=self, args=Args, logger=self._QS_Logger)")
+                return TableCls(fdb=self, args=Args, logger=self._QS_Logger)
         Msg = ("因子库 '%s' 目前尚不支持因子表: '%s'" % (self.Name, table_name))
         self._QS_Logger.error(Msg)
         raise __QS_Error__(Msg)
