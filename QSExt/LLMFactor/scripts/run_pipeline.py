@@ -547,6 +547,13 @@ def main():
     pipeline_config = PipelineConfig.from_yaml(config_path)
     __QS_Logger__.info("已加载配置: %s", config_path)
 
+    # 配置中的 env 注入本进程：既供 mining_log 等模块读取，也随 os.environ 传给
+    # 后续启动的 Claude 子进程与 MCP 服务（load_dotenv 默认不覆盖已有变量，
+    # 因此此处注入的值优先生效）
+    if pipeline_config.env:
+        os.environ.update(pipeline_config.env)
+        __QS_Logger__.info("已注入环境变量: %s", ", ".join(pipeline_config.env))
+
     # 统一使用 resolve_workspace_dir().parent 作为基础目录
     base_dir = pipeline_config.resolve_workspace_dir().parent
     base_dir.mkdir(parents=True, exist_ok=True)

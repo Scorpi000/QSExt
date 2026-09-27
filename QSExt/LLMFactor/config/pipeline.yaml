@@ -14,6 +14,27 @@ project_root: "D:/HST/QSExt/local/workspace"
 # 绝对路径: 如 "C:\Users\xxx\.local\bin\claude.exe"
 claude_cli: auto
 
+# 挖掘环境的 Python 解释器（需已装 fastmcp / psycopg2）
+# 留空或删除则回退到当前解释器
+python: ""
+
+# 运行时环境变量：注入流水线进程、Claude 子进程与 MCP 服务
+#
+# 本文件是模板，默认留空 —— 实际值由调用方提供，避免凭据入库：
+#   * 经 QSWeb 运行时：值取自 ~/QuantStudioConfig/QSWebConfig.yaml 的
+#     mining.frameworks.llm_factor.env，会覆盖此处（QSWeb 以自身配置为基底
+#     生成运行时的 pipeline_config.yaml）
+#   * 直接跑 QSExt 时：在此填入下面的变量，或用 shell / CI 注入进程环境变量
+#
+# 注意：POSTGRESQL_KDB_DSN_DEV 必须写展开后的完整连接串，不要用 ${VAR} 插值 ——
+#       python-dotenv 的 interpolate=True 在变量缺失时会把 ${...} 原样留下，
+#       产出一个含字面量的坏 DSN，且失败信息难以定位。
+env: {}
+# env:
+#   POSTGRESQL_KDB_DSN_DEV: "postgresql://<user>:<pwd>@<host>:<port>/KDB_dev"
+#   OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+#   OLLAMA_LLM_MODEL: "qwen3"
+
 # 产出物输出基础目录
 # 支持绝对路径或相对于项目根目录的路径
 # 实际输出目录会自动追加 FM_<时间戳> 子目录

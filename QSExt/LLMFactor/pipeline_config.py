@@ -25,6 +25,7 @@ PipelineConfig 只负责全局性设置和各阶段配置文件的加载路径�
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -70,6 +71,8 @@ class PipelineConfig:
     Attributes:
         project_root: 项目根目录，"auto" 表示自动查找（查找含 .mcp.json 的目录）
         claude_cli: Claude CLI 路径，"auto" 表示自动查找
+        python: 挖掘环境的 Python 解释器路径；空表示使用当前解释器
+        env: 注入子进程与 MCP 服务的环境变量（如数据库连接串、Ollama 地址）
         workspace_dir: 产出物输出基础目录，支持绝对路径或相对于项目根目录的路径
         max_turns_hypothesis: 假设生成 Agent 最大轮次
         max_turns_development: 因子开发 Agent 最大轮次
@@ -78,6 +81,8 @@ class PipelineConfig:
     """
     project_root: str = "auto"
     claude_cli: str = "auto"
+    python: str = ""
+    env: dict[str, str] = field(default_factory=dict)
     workspace_dir: str = "workspace"
     max_turns_hypothesis: int = 50
     max_turns_development: int = 80
@@ -109,6 +114,8 @@ class PipelineConfig:
         return cls(
             project_root=raw.get("project_root", "auto"),
             claude_cli=raw.get("claude_cli", "auto"),
+            python=raw.get("python", "") or "",
+            env=dict(raw.get("env") or {}),
             workspace_dir=raw.get("workspace_dir", "workspace"),
             max_turns_hypothesis=raw.get("max_turns_hypothesis", 50),
             max_turns_development=raw.get("max_turns_development", 80),
@@ -129,6 +136,8 @@ class PipelineConfig:
         return cls(
             project_root=d.get("project_root", "auto"),
             claude_cli=d.get("claude_cli", "auto"),
+            python=d.get("python", "") or "",
+            env=dict(d.get("env") or {}),
             workspace_dir=d.get("workspace_dir", "workspace"),
             max_turns_hypothesis=d.get("max_turns_hypothesis", 50),
             max_turns_development=d.get("max_turns_development", 80),
@@ -207,6 +216,16 @@ class PipelineConfig:
         if self.project_root != "auto":
             return Path(self.project_root)
         return _find_project_root()
+
+    def resolve_python(self) -> str:
+        """解析挖掘环境的 Python 解释器路径。
+
+        未配置时回退到当前解释器（即启动本进程的那个 Python）。
+
+        Returns:
+            解释器可执行文件路径
+        """
+        return self.python or sys.executable
 
     def resolve_claude_cli(self) -> str:
         """解析 Claude CLI 路径。
