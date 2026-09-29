@@ -4,27 +4,35 @@
 核心思想：将 QuantStudio 的因子算子作为树的内部节点，基础因子作为叶节点，
 通过 GP 演化（选择、交叉、变异）自动搜索具有预测能力的因子组合。
 
+架构设计:
+    - GPLearner: 基于 __QS_Object__ 的遗传编程因子挖掘器
+    - 参数通过 __QS_ArgClass__ 声明，支持 JSON/YAML 配置文件
+
 典型用法:
     learner = GPLearner(
         operator_list=[fo.add, fo.sub, fo.mul, fo.div, fo.qs_abs, fo.neg],
         terminal_factors=[Open, Close, Volume],
         fitness_fun=my_fitness_func,
     )
-    result = learner.evolve(n_generations=10, population_size=100)
+    result = learner.evolve()
+
+    # 从配置文件加载
+    learner = GPLearner(
+        operator_list=[...],
+        terminal_factors=[...],
+        fitness_fun=my_func,
+        config_file="QSExt/GPFactor/conf/gp_config.yaml",
+    )
 """
 from __future__ import annotations
-
-import logging
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
+from pydantic import Field
 
-from QuantStudio.Factor.Factor import DataFactor
+from QuantStudio.Core import __QS_Object__
+from QuantStudio.Factor.Factor import DataFactor, Factor
 from QuantStudio.Factor.FactorOperation import DerivativeFactor, FactorOperator
-
-logger = logging.getLogger(__name__)
 
 MAX_INT = np.iinfo(np.int32).max
 
@@ -140,60 +148,89 @@ def exportGraphviz(pn_expr: list, fade_nodes: list | None = None) -> str | None:
 
 
 # ============================================================================
-#  GP 配置
-# ============================================================================
-
-@dataclass
-class GPConfig:
-    """遗传编程配置参数。"""
-    # 种群与进化
-    population_size: int = 1000
-    tournament_size: int = 20
-    # 初始化
-    init_depth: Tuple[int, int] = (2, 6)
-    init_method: str = "half and half"
-    # 算子入参（对 Arity=None 的算子生效）
-    min_arity: int = 1
-    max_arity: int = 3
-    # 常数
-    const_range: Optional[Tuple[float, float]] = (-1.0, 1.0)
-    # 遗传操作概率
-    p_crossover: float = 0.9
-    p_subtree_mutation: float = 0.01
-    p_hoist_mutation: float = 0.01
-    p_point_mutation: float = 0.01
-    p_point_replace: float = 0.05
-    # 复杂度惩罚系数（0 表示不惩罚）
-    parsimony_coefficient: float = 0.0
-
-
-# ============================================================================
 #  GPLearner 核心类
 # ============================================================================
 
-class GPLearner:
+class GPLearner(__QS_Object__):
     """基于遗传编程的因子挖掘器。
 
     Args:
         operator_list: 可用算子列表，如 ``[fo.add, fo.sub, fo.neg]``
         terminal_factors: 终端因子列表，如 ``[Open, Close, Volume]``
         fitness_fun: 适应度函数，接受 ``[Factor, ...]``，返回 ``ndarray``
-        config: GP 配置参数，未指定的字段使用默认值
+        args: 参数字典，覆盖默认配置
+        config_file: 配置文件路径（支持 JSON 和 YAML 格式）
+
+    参数说明:
+        PopulationSize: 种群大小，默认 1000
+        TournamentSize: 锦标赛选择的参赛个体数，默认 20
+        InitDepthMin/Max: 初始化深度范围，默认 [2, 6]
+        InitMethod: 初始化方法，"half and half" / "full" / "grow"
+        MinArity/MaxArity: 可变入参算子的入参范围，默认 [1, 3]
+        ConstRangeEnabled: 是否生成常数节点，默认 True
+        ConstRangeMin/Max: 常数范围，默认 [-1.0, 1.0]
+        PCrossover: 交叉概率，默认 0.9
+        PSubtreeMutation: 子树变异概率，默认 0.01
+        PHoistMutation: 提升变异概率，默认 0.01
+        PPointMutation: 点变异概率，默认 0.01
+        PPointReplace: 点变异替换比例，默认 0.05
+        ParsimonyCoefficient: 复杂度惩罚系数，0 表示不惩罚
+        NGenerations: 进化代数，默认 10
+        NJobs: 并行任务数（当前未启用），默认 1
+        Verbose: 日志详细程度，0=静默 1=每代输出
     """
+
+    class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
+        Name: str = Field(default="GPLearner", frozen=True, title="名称")
+        # 种群与进化
+        PopulationSize: int = Field(default=1000, title="种群大小")
+        TournamentSize: int = Field(default=20, title="锦标赛大小")
+        # 初始化
+        InitDepthMin: int = Field(default=2, title="最小初始化深度")
+        InitDepthMax: int = Field(default=6, title="最大初始化深度")
+        InitMethod: str = Field(default="half and half", title="初始化方法")
+        # 算子入参
+        MinArity: int = Field(default=1, title="最小入参")
+        MaxArity: int = Field(default=3, title="最大入参")
+        # 常数
+        ConstRangeEnabled: bool = Field(default=True, title="是否生成常数")
+        ConstRangeMin: float = Field(default=-1.0, title="常数下界")
+        ConstRangeMax: float = Field(default=1.0, title="常数上界")
+        # 遗传操作概率
+        PCrossover: float = Field(default=0.9, title="交叉概率")
+        PSubtreeMutation: float = Field(default=0.01, title="子树变异概率")
+        PHoistMutation: float = Field(default=0.01, title="提升变异概率")
+        PPointMutation: float = Field(default=0.01, title="点变异概率")
+        PPointReplace: float = Field(default=0.05, title="点替换概率")
+        # 复杂度惩罚
+        ParsimonyCoefficient: float = Field(default=0.0, title="复杂度惩罚系数")
+        # 进化参数
+        NGenerations: int = Field(default=10, title="进化代数")
+        NJobs: int = Field(default=1, title="并行任务数")
+        Verbose: int = Field(default=0, title="日志详细程度")
 
     def __init__(
         self,
         operator_list: List[FactorOperator],
-        terminal_factors: List[DataFactor],
+        terminal_factors: List[Factor],
         fitness_fun: Callable[[List], np.ndarray],
-        config: GPConfig | None = None,
+        args: dict = {},
+        config_file: Optional[str] = None,
+        **kwargs
     ):
+        super().__init__(args=args, config_file=config_file, **kwargs)
         self.operator_list = list(operator_list)
         self.terminal_factors = list(terminal_factors)
         self.fitness_fun = fitness_fun
-        self.config = config or GPConfig()
         self.operator_arity: Dict[int, List[FactorOperator]] = self._build_operator_arity()
         self.hall_of_fame: list = []  # [(fitness, pn_expr)]
+
+    @property
+    def ConstRange(self) -> Optional[Tuple[float, float]]:
+        """常数范围，返回 tuple 或 None。"""
+        if self.Args.ConstRangeEnabled:
+            return (self.Args.ConstRangeMin, self.Args.ConstRangeMax)
+        return None
 
     def _build_operator_arity(self) -> Dict[int, List[FactorOperator]]:
         """从算子列表自动构建 ``{arity: [operator]}`` 映射。"""
@@ -213,7 +250,7 @@ class GPLearner:
         """为算子选择一个入参数量。固定入参直接返回，可变入参在范围内随机。"""
         if op._QSArgs.Arity is not None:
             return op._QSArgs.Arity
-        return np.random.randint(self.config.min_arity, self.config.max_arity + 1)
+        return np.random.randint(self.Args.MinArity, self.Args.MaxArity + 1)
 
     def buildRandomPNExpr(self) -> list:
         """随机生成一个因子表达式 (PN 序列)。
@@ -221,18 +258,19 @@ class GPLearner:
         Returns:
             PN 序列，第一个元素为根节点 (DerivativeFactor)
         """
-        cfg = self.config
-        if cfg.init_method == 'half and half':
+        args = self.Args
+        if args.InitMethod == 'half and half':
             method = 'full' if np.random.randint(2) else 'grow'
         else:
-            method = cfg.init_method
-        MaxDepth = np.random.randint(*cfg.init_depth)
+            method = args.InitMethod
+        MaxDepth = np.random.randint(args.InitDepthMin, args.InitDepthMax)
 
         # 以算子开头，避免退化为单节点
         iOperator = self.operator_list[np.random.randint(len(self.operator_list))]
         PNExpr, Arities = [iOperator], [self._random_arity(iOperator)]
         TerminalStack = [Arities[-1]]
 
+        const_range = self.ConstRange
         while TerminalStack:
             depth = len(TerminalStack)
             choice = len(self.terminal_factors) + len(self.operator_list)
@@ -243,9 +281,9 @@ class GPLearner:
                 Arities.append(self._random_arity(iOperator))
                 TerminalStack.append(Arities[-1])
             else:
-                iTerminal = np.random.randint(len(self.terminal_factors) + int(cfg.const_range is not None))
+                iTerminal = np.random.randint(len(self.terminal_factors) + int(const_range is not None))
                 if iTerminal == len(self.terminal_factors):
-                    iTerminal = np.random.uniform(*cfg.const_range)
+                    iTerminal = np.random.uniform(*const_range)
                     iTerminal = DataFactor(data=iTerminal, args={"Name": str(iTerminal)})
                 else:
                     iTerminal = self.terminal_factors[iTerminal]
@@ -384,10 +422,11 @@ class GPLearner:
         Returns:
             ``(new_expr, mutated_indices)``
         """
-        cfg = self.config
+        args = self.Args
         pn_expr = pn_expr.copy()
-        MutateIdx = np.where(np.random.uniform(size=len(pn_expr)) < cfg.p_point_replace)[0].tolist()
+        MutateIdx = np.where(np.random.uniform(size=len(pn_expr)) < args.PPointReplace)[0].tolist()
         UpdateIdx = []
+        const_range = self.ConstRange
         for iIdx in MutateIdx:
             if isinstance(pn_expr[iIdx], DerivativeFactor):
                 iArity = len(pn_expr[iIdx].Descriptors)
@@ -399,12 +438,12 @@ class GPLearner:
                     pn_expr[iIdx] = iReplacement(*pn_expr[iIdx].Descriptors)
                     UpdateIdx.append(iIdx)
             else:
-                if cfg.const_range is not None:
+                if const_range is not None:
                     terminal = np.random.randint(len(self.terminal_factors) + 1)
                 else:
                     terminal = np.random.randint(len(self.terminal_factors))
                 if terminal == len(self.terminal_factors):
-                    terminal = np.random.uniform(*cfg.const_range)
+                    terminal = np.random.uniform(*const_range)
                     terminal = DataFactor(data=terminal, args={"Name": str(terminal)})
                 else:
                     terminal = self.terminal_factors[terminal]
@@ -436,7 +475,7 @@ class GPLearner:
 
     def _select_parents(self, fitness: np.ndarray, population: list) -> Tuple[list, int]:
         """选择一个亲代，返回 (个体, 索引)。"""
-        return self.tournament(fitness, population, self.config.tournament_size)
+        return self.tournament(fitness, population, self.Args.TournamentSize)
 
     def breed(self, fitness: np.ndarray, population: list) -> Tuple[list, dict]:
         """产生下一代种群。
@@ -444,20 +483,19 @@ class GPLearner:
         Returns:
             ``(offspring_list, ancestry_dict)``
         """
-        cfg = self.config
+        args = self.Args
         MethodProbs = np.cumsum([
-            cfg.p_crossover, cfg.p_subtree_mutation,
-            cfg.p_hoist_mutation, cfg.p_point_mutation,
+            args.PCrossover, args.PSubtreeMutation,
+            args.PHoistMutation, args.PPointMutation,
         ])
         Ancestry, Offspring = {}, []
-        for i in range(cfg.population_size):
+        for i in range(args.PopulationSize):
             iParent, iParentIndex = self._select_parents(fitness, population)
             iMethod = np.random.uniform()
             if iMethod < MethodProbs[0]:
                 iDonor, iDonorIndex = self._select_parents(fitness, population)
                 iOffspring, iRemoved, iRemains = self.crossover(iParent, iDonor)
-                iGenome = {'method': 'Crossover', 'parent_idx': iParentIndex,
-                           'parent_nodes': iRemoved, 'donor_idx': iDonorIndex, 'donor_nodes': iRemains}
+                iGenome = {'method': 'Crossover', 'parent_idx': iParentIndex, 'parent_nodes': iRemoved, 'donor_idx': iDonorIndex, 'donor_nodes': iRemains}
             elif iMethod < MethodProbs[1]:
                 iOffspring, iRemoved, _ = self.mutateSubtree(iParent)
                 iGenome = {'method': 'Subtree Mutation', 'parent_idx': iParentIndex, 'parent_nodes': iRemoved}
@@ -480,21 +518,21 @@ class GPLearner:
 
     def evolve(
         self,
-        n_generations: int,
+        n_generations: int | None = None,
         parents: list | None = None,
         parent_fitness: np.ndarray | None = None,
-        n_jobs: int = 1,
-        verbose: int = 0,
+        n_jobs: int | None = None,
+        verbose: int | None = None,
         progress_callback: Callable | None = None,
     ) -> Tuple[list, list, dict]:
         """执行完整的进化循环。
 
         Args:
-            n_generations: 进化代数
+            n_generations: 进化代数，None 则使用配置值
             parents: 初始种群 (PN 序列列表)。None 则随机生成
             parent_fitness: 初始种群适应度。None 则自动计算
-            n_jobs: 并行任务数 (当前未启用)
-            verbose: 日志详细程度
+            n_jobs: 并行任务数 (当前未启用)，None 则使用配置值
+            verbose: 日志详细程度，None 则使用配置值
             progress_callback: 逐代进度回调，签名为 ``callback(gen_idx, fitness, hall_of_fame)``
 
         Returns:
@@ -503,11 +541,13 @@ class GPLearner:
             - fitness_history: 各代适应度列表
             - ancestry: 祖先信息字典
         """
-        cfg = self.config
+        args = self.Args
+        n_generations = n_generations if n_generations is not None else args.NGenerations
+        verbose = verbose if verbose is not None else args.Verbose
 
         # 初始化种群
         if parents is None:
-            parents = [self.buildRandomPNExpr() for _ in range(cfg.population_size)]
+            parents = [self.buildRandomPNExpr() for _ in range(args.PopulationSize)]
         if parent_fitness is None:
             parent_fitness = self.fitness_fun([p[0] for p in parents])
 
@@ -523,8 +563,8 @@ class GPLearner:
             iFitness = self.fitness_fun([iExpr[0] for iExpr in iPopulation])
 
             # 复杂度惩罚
-            if cfg.parsimony_coefficient > 0:
-                penalties = np.array([len(p) * cfg.parsimony_coefficient for p in iPopulation])
+            if args.ParsimonyCoefficient > 0:
+                penalties = np.array([len(p) * args.ParsimonyCoefficient for p in iPopulation])
                 iFitness = iFitness - penalties
 
             Populations.append(iPopulation)
@@ -538,7 +578,7 @@ class GPLearner:
             if verbose > 0:
                 best_fit = Fitness[-1].max()
                 avg_fit = Fitness[-1].mean()
-                logger.info(f"Gen {i+1}/{n_generations}: best={best_fit:.6f}, avg={avg_fit:.6f}")
+                self.Logger.info(f"Gen {i+1}/{n_generations}: best={best_fit:.6f}, avg={avg_fit:.6f}")
 
         return Populations, Fitness, Ancestry
 
@@ -556,7 +596,7 @@ class GPLearner:
         Returns:
             ``(parents, parent_fitness)``
         """
-        size = population_size or self.config.population_size
+        size = population_size or self.Args.PopulationSize
         parents = [self.buildRandomPNExpr() for _ in range(size)]
         parent_fitness = self.fitness_fun([p[0] for p in parents])
         return parents, parent_fitness

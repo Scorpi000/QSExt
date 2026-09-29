@@ -102,13 +102,6 @@ QuantStudio 底层是基于有向无环图（DAG）的计算引擎：
 - `TraceBack`：回溯追踪
 - `GPLearn`：遗传编程学习
 
-### 估值表（ValuationTable）
-
-`QSExt/ValuationTable/` 提供估值表解析功能：
-- `Parser`：估值表解析器核心
-- `ExcelParser`：Excel 格式估值表解析
-- `utils`：估值计算工具函数
-
 ### ReportGenerator
 
 `QSExt/ReportGenerator/` 提供基于 YAML 配置 + 组件库的报告生成框架：

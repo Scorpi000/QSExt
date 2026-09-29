@@ -6,6 +6,8 @@ GPLearn 是一个基于遗传编程 (Genetic Programming, GP) 的量化因子挖
 
 核心思想：将 QuantStudio 的因子算子（如 `add`、`sub`、`mul`）作为树的内部节点，基础因子（如 `Open`、`Close`）作为叶节点，通过 GP 演化出新的因子表达式。
 
+GPLearner 基于 `__QS_Object__` 实现，支持 JSON 和 YAML 格式的配置文件。
+
 ## 核心概念
 
 ### 因子树与波兰表示法
@@ -59,42 +61,48 @@ Open Close
 
 ## 类参考
 
-### `GPConfig`
-
-遗传编程配置参数（`dataclass`），所有字段都有默认值：
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `population_size` | `int` | 1000 | 种群大小 |
-| `tournament_size` | `int` | 20 | 锦标赛选择的参赛者数量 |
-| `init_depth` | `tuple` | (2, 6) | 初始树深度范围 |
-| `init_method` | `str` | "half and half" | 初始化方法: "grow"/"full"/"half and half" |
-| `min_arity` | `int` | 1 | 可变入参算子的最小入参数量 |
-| `max_arity` | `int` | 3 | 可变入参算子的最大入参数量 |
-| `const_range` | `tuple\|None` | (-1.0, 1.0) | 常数范围，None 表示不使用常数 |
-| `p_crossover` | `float` | 0.9 | 交叉概率 |
-| `p_subtree_mutation` | `float` | 0.01 | 子树变异概率 |
-| `p_hoist_mutation` | `float` | 0.01 | 提升变异概率 |
-| `p_point_mutation` | `float` | 0.01 | 点变异概率 |
-| `p_point_replace` | `float` | 0.05 | 点变异中每个节点被替换的概率 |
-| `parsimony_coefficient` | `float` | 0.0 | 复杂度惩罚系数（适应度 -= 系数 × 表达式长度） |
-
 ### `GPLearner`
 
-核心进化引擎类。
+基于 `__QS_Object__` 的遗传编程因子挖掘器。
 
 ```python
 GPLearner(
     operator_list: List[FactorOperator],    # 可用算子列表
     terminal_factors: List[DataFactor],      # 终端因子列表
     fitness_fun: Callable[[List], ndarray],  # 适应度函数
-    config: GPConfig | None = None,          # 配置参数
+    args: dict = {},                         # 参数字典
+    config_file: str | None = None,          # 配置文件路径（JSON/YAML）
 )
 ```
+
+**参数说明**（通过 `args` 或 `config_file` 设置）：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `PopulationSize` | `int` | 1000 | 种群大小 |
+| `TournamentSize` | `int` | 20 | 锦标赛选择的参赛者数量 |
+| `InitDepthMin` | `int` | 2 | 最小初始树深度 |
+| `InitDepthMax` | `int` | 6 | 最大树初始深度 |
+| `InitMethod` | `str` | "half and half" | 初始化方法: "grow"/"full"/"half and half" |
+| `MinArity` | `int` | 1 | 可变入参算子的最小入参数量 |
+| `MaxArity` | `int` | 3 | 可变入参算子的最大入参数量 |
+| `ConstRangeEnabled` | `bool` | True | 是否使用常数 |
+| `ConstRangeMin` | `float` | -1.0 | 常数下界 |
+| `ConstRangeMax` | `float` | 1.0 | 常数上界 |
+| `PCrossover` | `float` | 0.9 | 交叉概率 |
+| `PSubtreeMutation` | `float` | 0.01 | 子树变异概率 |
+| `PHoistMutation` | `float` | 0.01 | 提升变异概率 |
+| `PPointMutation` | `float` | 0.01 | 点变异概率 |
+| `PPointReplace` | `float` | 0.05 | 点变异中每个节点被替换的概率 |
+| `ParsimonyCoefficient` | `float` | 0.0 | 复杂度惩罚系数（适应度 -= 系数 × 表达式长度） |
+| `NGenerations` | `int` | 10 | 默认进化代数 |
+| `NJobs` | `int` | 1 | 并行任务数（当前未启用） |
+| `Verbose` | `int` | 0 | 日志详细程度: 0=静默, 1=每代输出 |
 
 **属性**：
 - `operator_arity` — 自动构建的 `{arity: [operator]}` 映射
 - `hall_of_fame` — 历史最优因子列表 `[(fitness, pn_expr), ...]`
+- `ConstRange` — 常数范围（`tuple` 或 `None`）
 
 **主要方法**：
 
@@ -119,7 +127,7 @@ import pandas as pd
 
 from QuantStudio.Factor.Factor import DataFactor
 import QuantStudio.Factor.BasicOperator as fo
-from QSExt.GPFactor.GPLearn import GPLearner, GPConfig, toExprStr
+from QSExt.GPFactor.GPLearn import GPLearner, toExprStr
 
 # 1. 准备基础因子
 np.random.seed(42)
@@ -146,22 +154,23 @@ def calc_fitness(factors):
         for f in factors
     ])
 
-# 3. 创建 GPLearner
-config = GPConfig(
-    population_size=100,
-    tournament_size=5,
-    init_depth=(2, 5),
-    const_range=(-2.0, 2.0),
-)
+# 3. 创建 GPLearner（通过 args 字典配置）
 learner = GPLearner(
     operator_list=[fo.add, fo.sub, fo.mul, fo.div, fo.qs_abs, fo.neg],
     terminal_factors=[Open, Close, Volume],
     fitness_fun=calc_fitness,
-    config=config,
+    args={
+        "PopulationSize": 100,
+        "TournamentSize": 5,
+        "InitDepthMin": 2,
+        "InitDepthMax": 5,
+        "ConstRangeMin": -2.0,
+        "ConstRangeMax": 2.0,
+    },
 )
 
 # 4. 一键进化
-populations, fitness, ancestry = learner.evolve(n_generations=10)
+populations, fitness, ancestry = learner.evolve()
 
 # 5. 查看结果
 best_factor = learner.hall_of_fame[0][1][0]
@@ -169,11 +178,26 @@ print(f"最佳因子: {toExprStr(best_factor)}")
 print(f"适应度: {learner.hall_of_fame[0][0]:.4f}")
 ```
 
+### 从配置文件加载
+
+```python
+# 支持 JSON 和 YAML 格式
+learner = GPLearner(
+    operator_list=[...],
+    terminal_factors=[...],
+    fitness_fun=calc_fitness,
+    config_file="QSExt/GPFactor/conf/gp_config.yaml",
+)
+populations, fitness, ancestry = learner.evolve()
+```
+
 ### 带复杂度惩罚
 
 ```python
-config = GPConfig(parsimony_coefficient=0.01)  # 每个节点惩罚 0.01
-learner = GPLearner(operator_list, terminal_factors, calc_fitness, config)
+learner = GPLearner(
+    operator_list, terminal_factors, calc_fitness,
+    args={"ParsimonyCoefficient": 0.01},  # 每个节点惩罚 0.01
+)
 populations, fitness, ancestry = learner.evolve(n_generations=20)
 ```
 
@@ -197,12 +221,11 @@ class Mean(PointOperator):
         factor_args = {"CacheEnabled": False} | factor_args
         return super().__call__(*x, factor_args=factor_args, **kwargs)
 
-config = GPConfig(min_arity=2, max_arity=4)
 learner = GPLearner(
     operator_list=[fo.add, fo.sub, fo.mul, fo.div, fo.qs_abs, fo.neg, Mean()],
     terminal_factors=[Open, Close, Volume],
     fitness_fun=calc_fitness,
-    config=config,
+    args={"MinArity": 2, "MaxArity": 4},
 )
 ```
 
@@ -224,16 +247,16 @@ graph.render(filename="factor_tree", format="png", view=True)
 
 | 参数 | 推荐范围 | 说明 |
 |------|----------|------|
-| `population_size` | 100~5000 | 种群越大搜索越广，但计算成本越高 |
-| `n_generations` | 10~100 | 代数越多收敛越好，但注意过拟合 |
-| `tournament_size` | 5~20 | 越大选择压力越强，收敛更快但多样性降低 |
-| `init_depth` | (2, 6) | 初始深度不宜过深，避免初始种群过于复杂 |
-| `p_crossover` | 0.7~0.9 | 交叉概率通常最高 |
-| `p_subtree_mutation` | 0.01~0.1 | 子树变异引入新结构 |
-| `p_hoist_mutation` | 0.01~0.1 | 提升变异控制表达式膨胀 |
-| `p_point_mutation` | 0.01~0.1 | 点变异做微调 |
-| `const_range` | (-1, 1) 或 None | 按需启用常数系数 |
-| `parsimony_coefficient` | 0.0~0.1 | 复杂度惩罚，抑制表达式膨胀 |
+| `PopulationSize` | 100~5000 | 种群越大搜索越广，但计算成本越高 |
+| `NGenerations` | 10~100 | 代数越多收敛越好，但注意过拟合 |
+| `TournamentSize` | 5~20 | 越大选择压力越强，收敛更快但多样性降低 |
+| `InitDepthMin/Max` | (2, 6) | 初始深度不宜过深，避免初始种群过于复杂 |
+| `PCrossover` | 0.7~0.9 | 交叉概率通常最高 |
+| `PSubtreeMutation` | 0.01~0.1 | 子树变异引入新结构 |
+| `PHoistMutation` | 0.01~0.1 | 提升变异控制表达式膨胀 |
+| `PPointMutation` | 0.01~0.1 | 点变异做微调 |
+| `ConstRangeEnabled` | True/False | 按需启用常数系数 |
+| `ParsimonyCoefficient` | 0.0~0.1 | 复杂度惩罚，抑制表达式膨胀 |
 
 ## 依赖
 
@@ -248,6 +271,11 @@ graph.render(filename="factor_tree", format="png", view=True)
 QSExt/GPFactor/
 ├── __init__.py
 ├── GPLearn.py          # GP 核心算法（GPLearner 类 + 工具函数）
+├── fitness.py          # 适应度评估框架
+├── conf/
+│   └── gp_config.yaml  # 示例配置文件
+├── scripts/
+│   └── example_gp_factor.py  # 示例脚本
 └── requirements.txt
 ```
 
