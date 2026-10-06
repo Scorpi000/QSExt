@@ -15,8 +15,12 @@ from QSExt.QSRegistry.QSGraphDB import QSGraphDB
 
 
 def _make_gdb(**embedding_args) -> QSGraphDB:
-    """构造未连接的 QSGraphDB 实例，仅用于测试 _generateEmbedding"""
-    return QSGraphDB(args=embedding_args)
+    """构造未连接的 QSGraphDB 实例，仅用于测试 _generateEmbedding
+
+    config_file="" 用于禁用默认配置文件加载，避免用户本机
+    ~/QuantStudioConfig/QSGraphDBConfig.json 中的字段混入测试参数。
+    """
+    return QSGraphDB(args=embedding_args, config_file="")
 
 
 def test_generate_embedding_openai():
