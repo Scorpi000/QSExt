@@ -22,11 +22,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from QSExt.QSRegistry.QSGraphDB import QSGraphDB
 
 
-def load_neo4j_config():
-    """加载 Neo4j 配置"""
-    config_path = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
+def load_qsgraphdb_config():
+    """加载 QSGraphDB 配置"""
+    config_path = os.path.expanduser("~/QuantStudioConfig/QSGraphDBConfig.json")
     if not os.path.exists(config_path):
-        print(f"错误：Neo4j 配置文件不存在: {config_path}")
+        print(f"错误：QSGraphDB 配置文件不存在: {config_path}")
         return None
     with open(config_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -249,7 +249,7 @@ def main():
     print("=" * 60)
 
     # 加载配置
-    config = load_neo4j_config()
+    config = load_qsgraphdb_config()
     if not config:
         return
 

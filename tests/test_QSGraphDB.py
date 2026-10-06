@@ -9,20 +9,20 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
 
 # 配置路径
-NEO4J_CONFIG = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
-with open(NEO4J_CONFIG, "r", encoding="utf-8") as f:
+QSGRAPHDB_CONFIG = os.path.expanduser("~/QuantStudioConfig/QSGraphDBConfig.json")
+with open(QSGRAPHDB_CONFIG, "r", encoding="utf-8") as f:
     content = f.read()
 # 容忍尾随逗号
 import re
 content = re.sub(r",\s*([}\]])", r"\1", content)
-neo4j_cfg = json.loads(content)
+cfg = json.loads(content)
 
 gdb_args = {
-    "IPAddr": neo4j_cfg["IPAddr"],
-    "Port": neo4j_cfg["Port"],
-    "User": neo4j_cfg["User"],
-    "Pwd": neo4j_cfg["Pwd"],
-    "DBName": neo4j_cfg.get("DBName", "neo4j"),
+    "IPAddr": cfg["IPAddr"],
+    "Port": cfg["Port"],
+    "User": cfg["User"],
+    "Pwd": cfg["Pwd"],
+    "DBName": cfg.get("DBName", "neo4j"),
 }
 
 # ============================================================

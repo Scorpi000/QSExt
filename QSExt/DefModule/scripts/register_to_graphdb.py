@@ -66,10 +66,8 @@ def main(settings_path: str = "settings", **cmd_overrides):
         # 初始化 QSGraphDB
         extra_tags = list(extra_args.get("_graph_tags", []))
         fgdb = init_graphdb(
-            neo4j_config_path=settings.neo4j_config_path,
+            qsgraphdb_config_path=settings.qsgraphdb_config_path,
             skip_embedding=settings.skip_embedding,
-            embedding_model=settings.embedding_model,
-            embedding_dim=settings.embedding_dim,
         )
         if fgdb is None:
             Logger.error("QSGraphDB 初始化失败，无法注册")
@@ -309,8 +307,8 @@ def _dry_run(settings: DefSettings):
             Logger.info(f"    因子模块 ({len(p.factor_modules)}): {p.factor_modules}")
         if p.strategy_modules:
             Logger.info(f"    策略模块 ({len(p.strategy_modules)}): {p.strategy_modules}")
-    Logger.info(f"Neo4j: {settings.neo4j_config_path}")
-    Logger.info(f"嵌入: {settings.embedding_model} (skip={settings.skip_embedding})")
+    Logger.info(f"QSGraphDB: {settings.qsgraphdb_config_path}")
+    Logger.info(f"嵌入: skip={settings.skip_embedding}")
 
 
 def _parse_args():

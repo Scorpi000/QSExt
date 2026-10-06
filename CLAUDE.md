@@ -326,7 +326,8 @@ evaluation_config = pipeline_config.load_evaluation_config()
 
 数据库连接配置存放在 `~/QuantStudioConfig/` 目录：
 - `JYDBConfig.json`：聚源数据库（PostgreSQL）
-- `Neo4jDBConfig.json`：Neo4j 图数据库
+- `Neo4jDBConfig.json`：因子数据 Neo4jDB 连接配置
+- `QSGraphDBConfig.json`：QSRegistry 计算图注册中心连接配置（含向量嵌入参数）
 - `settings.py`：统一运行时配置（FactorDef/StrategyDef 共享）
 - 其他数据库配置文件
 

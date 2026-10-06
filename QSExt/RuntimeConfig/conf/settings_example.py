@@ -403,9 +403,7 @@ ENGINE = {
 # ============================================================
 # QSRegistry 计算图注册中心配置
 
-NEO4J_CONFIG_PATH = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
-EMBEDDING_MODEL = "bge-m3"     # 语义向量模型名称
-EMBEDDING_DIM = 1024           # 向量维度
+QSGRAPHDB_CONFIG_PATH = os.path.expanduser("~/QuantStudioConfig/QSGraphDBConfig.json")
 SKIP_EMBEDDING = False         # True: 跳过语义向量生成
 
 

@@ -19,7 +19,6 @@
 """
 import os
 import json
-import re
 import logging
 from typing import Optional
 
@@ -30,6 +29,7 @@ setDefaultLogLevel(logging.WARNING)
 from QuantStudio.Core import __QS_Logger__
 from QSExt.QSRegistry._serialization import _desanitizeFromJSON
 from QSExt.QSRegistry.QSGraphDB import QSGraphDB
+from QSExt.QSRegistry.utils import load_qsgraphdb_config
 
 
 mcp = FastMCP("QSRegistry")
@@ -140,43 +140,16 @@ def _get_gdb():
     global _GDB
     if _GDB is not None:
         return _GDB
-    
-    # 加载 Neo4j 配置
-    neo4j_cfg = _load_neo4j_config()
-    if neo4j_cfg is None:
-        raise RuntimeError("无法加载 Neo4j 配置: ~/QuantStudioConfig/Neo4jDBConfig.json 不存在")
-    neo4j_args = {
-        "IPAddr": neo4j_cfg["IPAddr"],
-        "Port": neo4j_cfg["Port"],
-        "User": neo4j_cfg["User"],
-        "Pwd": neo4j_cfg["Pwd"],
-        "DBName": neo4j_cfg.get("DBName", "neo4j"),
-        "OllamaBaseURL": os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-        "OllamaAPIKey": os.getenv("OLLAMA_API_KEY", "ollama"),
-        "EmbeddingModel": os.getenv("EMBEDDING_MODEL", "bge-m3"),
-    }
-    # 根据模型设置维度
-    model = neo4j_args["EmbeddingModel"]
-    if model == "bge-m3":
-        neo4j_args["EmbeddingDim"] = 1024
-    elif model == "qwen3-embedding:8b":
-        neo4j_args["EmbeddingDim"] = 4096
 
-    _GDB = QSGraphDB(args=neo4j_args)
+    # 加载 QSGraphDB 配置
+    gdb_args = load_qsgraphdb_config()
+    if gdb_args is None:
+        raise RuntimeError("无法加载 QSGraphDB 配置: ~/QuantStudioConfig/QSGraphDBConfig.json 不存在")
+
+    _GDB = QSGraphDB(args=gdb_args)
     _GDB.connect()
     __QS_Logger__.info("QSRegistry MCP: QSGraphDB 已连接")
     return _GDB
-
-
-def _load_neo4j_config() -> Optional[dict]:
-    """加载 Neo4j 连接配置"""
-    config_path = os.path.expanduser("~/QuantStudioConfig/Neo4jDBConfig.json")
-    if not os.path.exists(config_path):
-        return None
-    with open(config_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    content = re.sub(r",\s*([}\]])", r"\1", content)
-    return json.loads(content)
 
 
 def _parse_meta_json(meta_json_str: Optional[str]) -> dict:

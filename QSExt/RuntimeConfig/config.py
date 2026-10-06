@@ -285,12 +285,10 @@ class RuntimeSettings(__QS_Args__):
     )
 
     # ---- 图数据库 ----
-    neo4j_config_path: str = Field(
-        default="~/QuantStudioConfig/Neo4jDBConfig.json",
-        title="Neo4j 配置路径",
+    qsgraphdb_config_path: str = Field(
+        default="~/QuantStudioConfig/QSGraphDBConfig.json",
+        title="QSGraphDB 配置路径",
     )
-    embedding_model: str = Field(default="bge-m3", title="嵌入模型")
-    embedding_dim: int = Field(default=1024, title="嵌入维度")
     skip_embedding: bool = Field(default=False, title="跳过向量嵌入")
 
     # ---- 日志 ----

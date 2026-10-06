@@ -42,10 +42,7 @@ GDB 为懒加载单例，首次调用时初始化 Neo4j 和 Ollama 连接。
 
 | 配置项 | 来源 | 说明 |
 |--------|------|------|
-| Neo4j 连接 | `~/QuantStudioConfig/Neo4jDBConfig.json` | IPAddr, Port, User, Pwd, DBName |
-| Ollama 地址 | 环境变量 `OLLAMA_BASE_URL` | 默认 `http://127.0.0.1:11434` |
-| Ollama API Key | 环境变量 `OLLAMA_API_KEY` | 默认 `ollama` |
-| 嵌入模型 | 环境变量 `EMBEDDING_MODEL` | 默认 `bge-m3`(1024维)；也支持 `qwen3-embedding:8b`(4096维) |
+| QSGraphDB 连接与嵌入 | `~/QuantStudioConfig/QSGraphDBConfig.json` | IPAddr, Port, User, Pwd, DBName, DataDir, EmbeddingModel, EmbeddingDim, OllamaBaseURL, OllamaAPIKey |
 | 工具过滤 | 环境变量 `QS_TOOLS` | 默认 `all`；详见下方 [工具组过滤](#工具组过滤) |
 
 ## 工具组过滤
@@ -267,9 +264,6 @@ QS_TOOLS=-report,-risk_table python mcp/qs_registry.py
       "args": ["D:/HST/QSExt/mcp/qs_registry.py"],
       "env": {
         "PYTHONPATH": "D:/HST/Project/QuantStudio;D:/HST/QSExt",
-        "OLLAMA_BASE_URL": "http://127.0.0.1:11434",
-        "OLLAMA_API_KEY": "ollama",
-        "EMBEDDING_MODEL": "bge-m3",
         "QS_TOOLS": "all"
       }
     }

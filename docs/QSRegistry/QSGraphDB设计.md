@@ -224,7 +224,7 @@ from .QSRegistry.api import *
 
 ### 配置文件
 
-支持 `~/QuantStudioConfig/QSGraphDBConfig.json` 或 `~/QuantStudioConfig/Neo4jDBConfig.json`（兼容旧配置）：
+使用 `~/QuantStudioConfig/QSGraphDBConfig.json`：
 
 ```json
 {
@@ -246,9 +246,6 @@ MCP Server 还支持以下环境变量：
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `QS_TOOLS` | `all` | 启用的工具组，逗号分隔；`-group` 排除 |
-| `EMBEDDING_MODEL` | `bge-m3` | 嵌入模型名称 |
-| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama 服务地址 |
-| `OLLAMA_API_KEY` | `ollama` | Ollama API Key |
 
 ---
 

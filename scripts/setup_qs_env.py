@@ -84,9 +84,6 @@ SKILL_SRC_DIRS = (
 )
 
 DEFAULT_EXT_CACHE_DIR = "D:/Data/DocPortal"
-DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_OLLAMA_API_KEY = "ollama"
-DEFAULT_EMBEDDING_MODEL = "bge-m3"
 DEFAULT_QS_TOOLS = "all"
 
 # QSExt 侧的因子库类型 -> (默认配置文件名, 章节标题, 内容描述)
@@ -119,7 +116,7 @@ DOCS_INCLUDE_DIRS = ("因子框架", "DefModule")
 # CLAUDE.local.md 中 QSExt 章节的哨兵，用于 --force 时定位并替换旧章节
 EXT_SECTION_SENTINEL = "<!-- QSEXT:EXT-SECTION -->"
 
-_NEO4J_CONFIG_HINT = "DBName / IPAddr / Port / User / Pwd"
+_QSGRAPHDB_CONFIG_HINT = "IPAddr / Port / User / Pwd / DBName / EmbeddingModel / EmbeddingDim"
 
 # 转发给 QuantStudio 脚本的参数名（值为 None/False 的不转发；--factor-db 可重复）
 QS_FORWARD_FLAGS = ("--target-dir", "--cache-dir", "--pip-index-url")
@@ -256,8 +253,6 @@ def render_mcp_template(
     qs_repo: Path,
     target_dir: Path,
     ext_cache_dir: Path,
-    ollama_base_url: str,
-    embedding_model: str,
 ) -> dict:
     """渲染 .mcp.example.json，返回 QSExt 的三个 MCP 服务条目。
 
@@ -268,8 +263,6 @@ def render_mcp_template(
         qs_repo: QuantStudio 仓库根目录
         target_dir: 配置目标目录（作为 MCP 服务的工作目录）
         ext_cache_dir: MCP 文档缓存根目录（其下按数据源建子目录）
-        ollama_base_url: Ollama 服务地址（qs_registry 语义检索用）
-        embedding_model: 嵌入模型名（qs_registry 语义检索用）
 
     Returns:
         服务名 -> 服务配置 的字典
@@ -291,9 +284,6 @@ def render_mcp_template(
         "{{AKSHARE_DOC_PY}}": MCP_AKSHARE_DOC.as_posix(),
         "{{TINYSOFT_CACHE_DIR}}": (ext_cache_dir / "TinySoftDoc").as_posix(),
         "{{AKSHARE_CACHE_DIR}}": (ext_cache_dir / "AKShareDoc").as_posix(),
-        "{{OLLAMA_BASE_URL}}": ollama_base_url,
-        "{{OLLAMA_API_KEY}}": DEFAULT_OLLAMA_API_KEY,
-        "{{EMBEDDING_MODEL}}": embedding_model,
         "{{QS_TOOLS}}": DEFAULT_QS_TOOLS,
     }
     for key, value in replacements.items():
@@ -311,8 +301,6 @@ def merge_mcp_config(
     target_dir: Path,
     qs_repo: Path,
     ext_cache_dir: Path,
-    ollama_base_url: str,
-    embedding_model: str,
     force: bool,
     dry_run: bool,
 ) -> None:
@@ -326,13 +314,11 @@ def merge_mcp_config(
         target_dir: 配置目标目录
         qs_repo: QuantStudio 仓库根目录
         ext_cache_dir: MCP 文档缓存根目录
-        ollama_base_url: Ollama 服务地址
-        embedding_model: 嵌入模型名
         force: 是否覆盖已存在的同名单个服务条目
         dry_run: 仅预览不落盘
     """
     target = target_dir / ".mcp.json"
-    entries = render_mcp_template(qs_repo, target_dir, ext_cache_dir, ollama_base_url, embedding_model)
+    entries = render_mcp_template(qs_repo, target_dir, ext_cache_dir)
 
     if target.is_file():
         try:
@@ -463,7 +449,7 @@ def copy_ext_docs(target_dir: Path, force: bool, dry_run: bool) -> None:
 def render_ext_section(qs_repo: Path, ext_cache_dir: Path) -> str:
     """渲染 CLAUDE.local.md 的「QSExt 扩展」章节。
 
-    不硬编码 Neo4j 库名——实际库名以 ~/QuantStudioConfig/Neo4jDBConfig.json 为准。
+    不硬编码 Neo4j 库名——实际库名以 ~/QuantStudioConfig/QSGraphDBConfig.json 为准。
 
     Args:
         qs_repo: QuantStudio 仓库根目录
@@ -492,7 +478,7 @@ QSExt 是 QuantStudio 的扩展包，提供额外的因子库适配器、策略�
 | `tinysoft_doc` | 检索天软 TSDN 文档站的函数与数据表说明 |
 | `akshare_doc` | 检索 AKShare 数据接口的参数与调用示例 |
 
-* `qs_registry` 需要 `~/QuantStudioConfig/Neo4jDBConfig.json`（连接信息以该文件为准）
+* `qs_registry` 需要 `~/QuantStudioConfig/QSGraphDBConfig.json`（连接信息以该文件为准）
 * `tinysoft_doc` / `akshare_doc` 的本地索引缓存在 {ext_cache_dir.as_posix()}
 """
 
@@ -734,7 +720,7 @@ def check_ext_config(dry_run: bool) -> None:
     Args:
         dry_run: 仅预览不执行
     """
-    config_path = Path(os.path.expanduser("~")) / "QuantStudioConfig" / "Neo4jDBConfig.json"
+    config_path = Path(os.path.expanduser("~")) / "QuantStudioConfig" / "QSGraphDBConfig.json"
     if config_path.is_file():
         _log(f"{config_path} 已就位", level="SKIP")
         return
@@ -743,9 +729,9 @@ def check_ext_config(dry_run: bool) -> None:
         _log(f"将检查配置 {config_path}（当前缺失）", level="DRY")
         return
 
-    _log(f"缺少 qs_registry 所需的 Neo4j 配置：", level="WARN")
+    _log(f"缺少 qs_registry 所需的 QSGraphDB 配置：", level="WARN")
     print(f"        {config_path}")
-    print(f"            (需要字段：{_NEO4J_CONFIG_HINT})")
+    print(f"            (需要字段：{_QSGRAPHDB_CONFIG_HINT})")
     print("        连接信息请向数据提供方索取后手动创建，脚本不会代写。")
 
 
@@ -944,10 +930,6 @@ def main() -> int:
     parser.add_argument("--qs-repo", default=None, help="QuantStudio 仓库根目录；未指定时自动定位")
     parser.add_argument("--ext-cache-dir", default=DEFAULT_EXT_CACHE_DIR,
                         help=f"QSExt MCP 文档缓存根目录 (默认: {DEFAULT_EXT_CACHE_DIR})")
-    parser.add_argument("--ollama-base-url", default=DEFAULT_OLLAMA_BASE_URL,
-                        help=f"Ollama 服务地址 (默认: {DEFAULT_OLLAMA_BASE_URL})")
-    parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL,
-                        help=f"嵌入模型名 (默认: {DEFAULT_EMBEDDING_MODEL})")
     parser.add_argument("--skip-pip", action="store_true", help="跳过依赖安装（QuantStudio 与 QSExt 两侧）")
     parser.add_argument("--force", action="store_true", help="覆盖已存在的 .mcp.json 条目 / skill / 生成产物")
     parser.add_argument("--dry-run", action="store_true", help="仅预览操作，不做任何改动")
@@ -1013,8 +995,7 @@ def main() -> int:
     else:
         install_ext_requirements(python, args.dry_run, args.pip_index_url)
 
-    merge_mcp_config(target_dir, qs_repo, ext_cache_dir, args.ollama_base_url,
-                     args.embedding_model, args.force, args.dry_run)
+    merge_mcp_config(target_dir, qs_repo, ext_cache_dir, args.force, args.dry_run)
     copy_ext_skills(target_dir, args.force, args.dry_run)
     copy_ext_docs(target_dir, args.force, args.dry_run)
     append_ext_claude_local(target_dir, qs_repo, ext_cache_dir, args.force, args.dry_run)
