@@ -99,7 +99,7 @@ StrategyDef 策略定义框架，提供策略脚本的元信息约定、标准�
 
 ### Requirement: Settings 配置系统
 
-`StrategyDefSettings` SHALL 继承 `__QS_Args__`，提供与 `FactorDefSettings` 一致的配置加载链：settings 模块 → settings_local 覆盖 → 环境变量 `STRATEGYDEF_` 前缀 → 命令行参数。
+`StrategyDefSettings` SHALL 继承 `__QS_Args__`，提供与 `FactorDefSettings` 一致的配置加载链：settings 模块 → 环境变量 `STRATEGYDEF_` 前缀 → 命令行参数。
 
 #### Scenario: 从 settings.py 加载配置
 

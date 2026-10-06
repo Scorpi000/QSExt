@@ -266,9 +266,8 @@ DEF_PROFILES = [
 
 1. `__INHERIT_FROM__` 父模块
 2. 当前模块变量
-3. `settings_local.py`（不入库）
-4. `QS_*` 环境变量
-5. 命令行 `--xxx` 参数
+3. `QS_*` 环境变量
+4. 命令行 `--xxx` 参数
 
 ---
 

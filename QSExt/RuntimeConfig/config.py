@@ -9,9 +9,8 @@
     - 配置覆盖优先级（从低到高）:
       1. 继承链中的父模块默认值
       2. 当前模块值
-      3. settings_local.py（不入库，本地覆盖）
-      4. QS_* 环境变量
-      5. 命令行 --xxx 参数
+      3. QS_* 环境变量
+      4. 命令行 --xxx 参数
 """
 
 import importlib
@@ -306,9 +305,8 @@ class RuntimeSettings(__QS_Args__):
           1. 解析模块路径并加载
           2. 若模块定义了 __INHERIT_FROM__，递归加载父模块
           3. 提取 UPPERCASE 变量
-          4. settings_local.py 覆盖（若存在）
-          5. QS_ 环境变量覆盖
-          6. 命令行参数覆盖
+          4. QS_ 环境变量覆盖
+          5. 命令行参数覆盖
 
         Args:
             module_path: 模块路径或文件路径。
@@ -325,18 +323,6 @@ class RuntimeSettings(__QS_Args__):
 
         # 加载模块并递归处理继承链
         settings_dict, hooks = cls._load_module_with_inheritance(module_path)
-
-        # settings_local 覆盖（在最终叶子模块的同目录）
-        if not os.path.isabs(module_path):
-            try:
-                # 点号路径 -> 找同目录
-                local_module_path = ".".join(
-                    module_path.split(".")[:-1] + ["settings_local"]
-                )
-                local_module = importlib.import_module(local_module_path)
-                cls._extract_settings(local_module, settings_dict, hooks)
-            except ImportError:
-                pass
 
         # QS_ 环境变量覆盖
         for env_key, env_val in dict(os.environ).items():
