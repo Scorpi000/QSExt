@@ -10,5 +10,5 @@
 	"EmbeddingAPIKey": "",
 	"EmbeddingModel": "bge-m3",
 	"EmbeddingDim": 1024,
-	"DataDir": "QSGraphDB"
+	"DataDir": "/home/hst/Data/QSGraphDB"
 }
