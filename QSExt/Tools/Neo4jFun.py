@@ -18,6 +18,7 @@ from QuantStudio.Tools.FileFun import genAvailableFile
 class QSNeo4jObject(__QS_Object__):
     """基于 Neo4j 的对象"""
     class __QS_ArgClass__(__QS_Object__.__QS_ArgClass__):
+        Name: str = Field(default="QSNeo4jObject", frozen=True, title="名称")
         DBName: str = Field(default="neo4j", title="数据库名")
         IPAddr: str = Field(default="127.0.0.1", title="IP地址")
         Port: int = Field(default=7687, ge=0, le=65535, title="端口")
@@ -42,6 +43,9 @@ class QSNeo4jObject(__QS_Object__):
         super().__setstate__(state)
         if self._Connection: self._connect()
         else: self._Connection = None
+    @property
+    def Name(self):
+        return self._QSArgs.Name
     @property
     def Connection(self):
         if self._Connection is not None:
