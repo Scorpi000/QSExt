@@ -24,7 +24,7 @@
 | `DataRef` | string | DataFactor 的数据引用（JSON） |
 | `FactorTableQSID` | string | 所属因子表 QSID（仅 FactorTableFactor） |
 | `NameInFT` | string | 在因子表中的因子名称（仅 FactorTableFactor） |
-| `Embedding` | List[float] | 因子描述文本的嵌入向量（由 Ollama 生成） |
+| `Embedding` | List[float] | 因子描述文本的嵌入向量（由嵌入服务生成） |
 | `EmbeddingModel` | string | 生成 Embedding 所使用的模型名称 |
 | `EmbeddingDim` | int | 嵌入向量的维度 |
 | `CreatedAt` | datetime | 创建时间 |

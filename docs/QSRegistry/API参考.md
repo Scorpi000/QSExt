@@ -24,8 +24,9 @@ class QSGraphDB(QSNeo4jObject):
 
     class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__):
         Name: str = Field(default="QSGraphDB", frozen=True, title="图数据库名称")
-        OllamaBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="Ollama 服务地址")
-        OllamaAPIKey: str = Field(default="ollama", frozen=True, exclude=True, repr=False, title="Ollama API Key")
+        EmbeddingProvider: Literal["ollama", "openai"] = Field(default="ollama", frozen=True, exclude=True, title="嵌入服务提供方，ollama=本地 Ollama，openai=OpenAI 兼容接口")
+        EmbeddingBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="嵌入服务地址（OpenAI 兼容接口需含 /v1 前缀）")
+        EmbeddingAPIKey: str = Field(default="", frozen=True, exclude=True, repr=False, title="嵌入服务 API Key")
         EmbeddingModel: str = Field(default="", frozen=True, exclude=True, title="嵌入模型名，空字符串表示禁用")
         EmbeddingDim: int = Field(default=0, frozen=True, exclude=True, title="预期嵌入维度，0=自动检测")
         DataDir: Optional[str] = Field(default=None, frozen=False, exclude=True, title="数据因子内联数据存储目录")
@@ -150,7 +151,7 @@ gdb.searchFactors(tag="alpha")
 
 #### `searchFactorsByDescription(query_text: str, limit: int = 20, min_score: Optional[float] = None) -> List[Dict]`
 
-基于描述文本的向量语义检索。使用 Ollama 将查询文本转为嵌入向量，通过 Neo4j 向量索引做余弦相似度搜索。
+基于描述文本的向量语义检索。使用嵌入服务将查询文本转为嵌入向量，通过 Neo4j 向量索引做余弦相似度搜索。
 
 **参数：**
 - `query_text`: 自然语言查询文本（如 "动量因子"、"成交量相关指标"）
@@ -161,7 +162,7 @@ gdb.searchFactors(tag="alpha")
 
 **前置条件：** `EmbeddingModel` 必须已配置（非空字符串）
 
-**原理：** 调用 Ollama 生成查询文本嵌入 → `db.index.vector.queryNodes('factor_embedding', ...)` 做 ANN 检索 → 按余弦相似度降序返回
+**原理：** 调用嵌入服务生成查询文本嵌入 → `db.index.vector.queryNodes('factor_embedding', ...)` 做 ANN 检索 → 按余弦相似度降序返回
 
 **示例：**
 ```python
@@ -581,7 +582,7 @@ QSGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j 中，
 
 ```
 因子描述文本（Name + Meta.Description + Operator.Description）
-    → Ollama /api/embeddings (bge-m3 / qwen3-embedding)
+    → 嵌入服务（Ollama /api/embeddings 或 OpenAI 兼容 /embeddings）
     → 1024 / 4096 维向量
     → 存储到 Neo4j Factor 节点 Embedding 属性
     → 在 Embedding 属性上创建 VECTOR INDEX (cosine)
@@ -594,19 +595,21 @@ QSGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j 中，
 
 ```json
 {
+    "EmbeddingProvider": "ollama",
+    "EmbeddingBaseURL": "http://127.0.0.1:11434",
+    "EmbeddingAPIKey": "",
     "EmbeddingModel": "bge-m3",
-    "EmbeddingDim": 1024,
-    "OllamaBaseURL": "http://127.0.0.1:11434",
-    "OllamaAPIKey": "ollama"
+    "EmbeddingDim": 1024
 }
 ```
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
+| `EmbeddingProvider` | `"ollama"` | 嵌入服务提供方：`ollama`（本地 Ollama）或 `openai`（OpenAI 兼容接口，如 OpenAI / DeepSeek / 通义千问 / 智谱 / 硅基流动） |
+| `EmbeddingBaseURL` | `"http://127.0.0.1:11434"` | 嵌入服务地址（OpenAI 兼容接口需含 `/v1` 前缀） |
+| `EmbeddingAPIKey` | `""` | 嵌入服务 API Key，空字符串表示不带鉴权头（Ollama 默认无需） |
 | `EmbeddingModel` | `""` | 嵌入模型名，空字符串表示禁用向量检索 |
 | `EmbeddingDim` | `0` | 预期嵌入维度，0 = 自动检测 |
-| `OllamaBaseURL` | `"http://127.0.0.1:11434"` | Ollama 服务地址 |
-| `OllamaAPIKey` | `"ollama"` | Ollama API Key |
 
 #### 描述文本组装规则
 

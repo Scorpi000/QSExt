@@ -107,8 +107,9 @@ class QSGraphDB(QSNeo4jObject):
 
     class __QS_ArgClass__(QSNeo4jObject.__QS_ArgClass__):
         Name: str = Field(default="QSGraphDB", frozen=True, title="图数据库名称")
-        OllamaBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="Ollama 服务地址")
-        OllamaAPIKey: str = Field(default="ollama", frozen=True, exclude=True, repr=False, title="Ollama API Key")
+        EmbeddingProvider: Literal["ollama", "openai"] = Field(default="ollama", frozen=True, exclude=True, title="嵌入服务提供方，ollama=本地 Ollama，openai=OpenAI 兼容接口")
+        EmbeddingBaseURL: str = Field(default="http://127.0.0.1:11434", frozen=True, exclude=True, title="嵌入服务地址（OpenAI 兼容接口需含 /v1 前缀）")
+        EmbeddingAPIKey: str = Field(default="", frozen=True, exclude=True, repr=False, title="嵌入服务 API Key")
         EmbeddingModel: str = Field(default="", frozen=True, exclude=True, title="嵌入模型名，空字符串表示禁用")
         EmbeddingDim: int = Field(default=0, frozen=True, exclude=True, title="预期嵌入维度，0=自动检测")
         DataDir: Optional[str] = Field(default=None, frozen=False, exclude=True, title="数据因子内联数据存储目录")
@@ -230,22 +231,31 @@ class QSGraphDB(QSNeo4jObject):
         return merged if merged else None
 
     def _generateEmbedding(self, text: str, max_retries: int = 2) -> Optional[List[float]]:
-        """调用 Ollama API 生成文本嵌入向量
+        """调用嵌入服务生成文本嵌入向量，支持 Ollama 与 OpenAI 兼容接口
 
         Returns:
             嵌入向量列表，失败或未启用时返回 None
         """
         if not self._QSArgs.EmbeddingModel:
             return None
+        provider = self._QSArgs.EmbeddingProvider
+        base_url = self._QSArgs.EmbeddingBaseURL.rstrip("/")
+        if provider == "openai":
+            url = f"{base_url}/embeddings"
+            payload = {"model": self._QSArgs.EmbeddingModel, "input": text}
+        else:  # ollama
+            url = f"{base_url}/api/embeddings"
+            payload = {"model": self._QSArgs.EmbeddingModel, "prompt": text}
+        headers = {}
+        if self._QSArgs.EmbeddingAPIKey:
+            headers["Authorization"] = f"Bearer {self._QSArgs.EmbeddingAPIKey}"
         last_error = None
         for attempt in range(max_retries + 1):
             try:
-                url = f"{self._QSArgs.OllamaBaseURL}/api/embeddings"
-                payload = {"model": self._QSArgs.EmbeddingModel, "prompt": text}
-                headers = {"Authorization": f"Bearer {self._QSArgs.OllamaAPIKey}"}
                 resp = requests.post(url, json=payload, headers=headers, timeout=30)
                 resp.raise_for_status()
-                embedding = resp.json()["embedding"]
+                data = resp.json()
+                embedding = data["data"][0]["embedding"] if provider == "openai" else data["embedding"]
                 if (expected := self._QSArgs.EmbeddingDim) > 0 and len(embedding) != expected:
                     self._QS_Logger.warning(
                         f"嵌入维度不匹配：预期 {expected}，实际 {len(embedding)}"
@@ -1756,7 +1766,7 @@ class QSGraphDB(QSNeo4jObject):
                                     user_id: Optional[str] = None) -> List[Dict]:
         """基于描述文本的向量语义检索
 
-        使用 Ollama 生成查询文本的嵌入向量，通过 Neo4j 向量索引做余弦相似度搜索。
+        使用嵌入服务生成查询文本的嵌入向量，通过 Neo4j 向量索引做余弦相似度搜索。
 
         Args:
             query_text: 自然语言查询文本

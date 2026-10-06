@@ -210,8 +210,8 @@ from .QSRegistry.api import *
 |---|------|---------|
 | `neo4j` | Neo4j Python 驱动 | `pip install neo4j`（加入 `requirements_optional.txt`） |
 | `dill`（可选） | 自定义算子序列化 | 已在框架可选依赖中 |
-| `requests` | Ollama HTTP API 调用 | Python 标准依赖，框架已包含 |
-| Ollama (外部服务) | 嵌入向量生成 | 需独立安装运行，模型: `bge-m3` 或 `qwen3-embedding:8b` |
+| `requests` | 嵌入服务 HTTP API 调用 | Python 标准依赖，框架已包含 |
+| 嵌入服务 (外部服务) | 嵌入向量生成 | Ollama（本地，模型如 `bge-m3` / `qwen3-embedding:8b`）或 OpenAI 兼容接口（OpenAI、DeepSeek、通义千问、智谱、硅基流动等） |
 
 ### 与现有代码的集成
 
@@ -234,10 +234,11 @@ from .QSRegistry.api import *
     "Pwd": "password",
     "DBName": "neo4j",
     "DataDir": "/path/to/data",
+    "EmbeddingProvider": "ollama",
+    "EmbeddingBaseURL": "http://127.0.0.1:11434",
+    "EmbeddingAPIKey": "",
     "EmbeddingModel": "bge-m3",
-    "EmbeddingDim": 1024,
-    "OllamaBaseURL": "http://127.0.0.1:11434",
-    "OllamaAPIKey": "ollama"
+    "EmbeddingDim": 1024
 }
 ```
 

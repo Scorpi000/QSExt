@@ -15,8 +15,8 @@ def load_qsgraphdb_config(config_path: Optional[str] = None) -> dict | None:
     """加载 QSGraphDB 连接配置，失败返回 None
 
     返回的字典直接作为 QSGraphDB(args=...) 的参数，字段名需与 QSGraphDB.__QS_ArgClass__
-    一致（IPAddr, Port, User, Pwd, DBName, DataDir, EmbeddingModel, EmbeddingDim,
-    OllamaBaseURL, OllamaAPIKey 等），未知字段会被 QSGraphDB 拒绝。
+    一致（IPAddr, Port, User, Pwd, DBName, DataDir, EmbeddingProvider, EmbeddingBaseURL,
+    EmbeddingAPIKey, EmbeddingModel, EmbeddingDim 等），未知字段会被 QSGraphDB 拒绝。
 
     Args:
         config_path: 配置文件路径，默认 ~/QuantStudioConfig/QSGraphDBConfig.json
@@ -61,7 +61,7 @@ def init_graphdb(
         return None
 
     if skip_embedding:
-        for key in ("EmbeddingModel", "EmbeddingDim", "OllamaBaseURL", "OllamaAPIKey"):
+        for key in ("EmbeddingModel", "EmbeddingDim", "EmbeddingProvider", "EmbeddingBaseURL", "EmbeddingAPIKey"):
             gdb_args.pop(key, None)
 
     try:

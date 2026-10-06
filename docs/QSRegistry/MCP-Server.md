@@ -4,7 +4,7 @@
 
 ## 概述
 
-基于 FastMCP 3.x 构建的本地 stdio MCP Server，将 QSGraphDB 的核心能力暴露给 Claude Code 等 MCP 客户端。部署为本地 stdio 模式，因为需要访问本地 Neo4j、Ollama 和文件系统。
+基于 FastMCP 3.x 构建的本地 stdio MCP Server，将 QSGraphDB 的核心能力暴露给 Claude Code 等 MCP 客户端。部署为本地 stdio 模式，因为需要访问本地 Neo4j、嵌入服务和文件系统。
 
 **文件位置**：`mcp/qs_registry.py`
 
@@ -36,13 +36,13 @@ Claude Code (.mcp.json)           MCP Server (stdio)           QSGraphDB
       ├── get_optimizer_info ────────┼── getOptimizerByQSID ─────────┤
 ```
 
-GDB 为懒加载单例，首次调用时初始化 Neo4j 和 Ollama 连接。
+GDB 为懒加载单例，首次调用时初始化 Neo4j 和嵌入服务连接。
 
 ## 配置加载
 
 | 配置项 | 来源 | 说明 |
 |--------|------|------|
-| QSGraphDB 连接与嵌入 | `~/QuantStudioConfig/QSGraphDBConfig.json` | IPAddr, Port, User, Pwd, DBName, DataDir, EmbeddingModel, EmbeddingDim, OllamaBaseURL, OllamaAPIKey |
+| QSGraphDB 连接与嵌入 | `~/QuantStudioConfig/QSGraphDBConfig.json` | IPAddr, Port, User, Pwd, DBName, DataDir, EmbeddingProvider, EmbeddingBaseURL, EmbeddingAPIKey, EmbeddingModel, EmbeddingDim |
 | 工具过滤 | 环境变量 `QS_TOOLS` | 默认 `all`；详见下方 [工具组过滤](#工具组过滤) |
 
 ## 工具组过滤
@@ -296,4 +296,4 @@ D:/miniforge/envs/QS312/Scripts/fastmcp.exe dev inspector D:/HST/QSExt/mcp/qs_re
 
 - `fastmcp` (≥3.0) — MCP 框架
 - `neo4j` — Neo4j 驱动（间接依赖，通过 QSGraphDB）
-- `requests` — Ollama HTTP 调用（间接依赖）
+- `requests` — 嵌入服务 HTTP 调用（间接依赖）
