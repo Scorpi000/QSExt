@@ -1786,8 +1786,8 @@ class QSGraphDB(QSNeo4jObject):
         try:
             results = self._runCypher(
                 """
-                CALL db.index.vector.queryNodes('factor_embedding', $limit, $embedding)
-                YIELD node AS f, score
+                MATCH (f:`因子`)
+                SEARCH f IN (VECTOR INDEX factor_embedding FOR $embedding LIMIT $limit) SCORE AS score
                 RETURN f {.Name, .QSID, .FactorClass, .OperatorType,
                           .OperatorName, .DataType, .userId}, score
                 ORDER BY score DESC
@@ -3696,8 +3696,8 @@ class QSGraphDB(QSNeo4jObject):
         try:
             results = self._runCypher(
                 """
-                CALL db.index.vector.queryNodes('strategy_embedding', $limit, $embedding)
-                YIELD node AS s, score
+                MATCH (s:`策略`)
+                SEARCH s IN (VECTOR INDEX strategy_embedding FOR $embedding LIMIT $limit) SCORE AS score
                 RETURN s {.Name, .QSID, .TargetTable, .IDType, .ClassName, .DefScriptPath, .userId}, score
                 ORDER BY score DESC
                 """,
@@ -3799,8 +3799,8 @@ class QSGraphDB(QSNeo4jObject):
         try:
             results = self._runCypher(
                 """
-                CALL db.index.vector.queryNodes('script_embedding', $limit, $embedding)
-                YIELD node AS s, score
+                MATCH (s:`脚本`)
+                SEARCH s IN (VECTOR INDEX script_embedding FOR $embedding LIMIT $limit) SCORE AS score
                 RETURN s {.Name, .QSID, .ModuleType, .EntryFunction, .Author, .Description, .userId}, score
                 ORDER BY score DESC
                 """,

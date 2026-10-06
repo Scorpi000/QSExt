@@ -162,7 +162,7 @@ gdb.searchFactors(tag="alpha")
 
 **前置条件：** `EmbeddingModel` 必须已配置（非空字符串）
 
-**原理：** 调用嵌入服务生成查询文本嵌入 → `db.index.vector.queryNodes('factor_embedding', ...)` 做 ANN 检索 → 按余弦相似度降序返回
+**原理：** 调用嵌入服务生成查询文本嵌入 → `SEARCH ... VECTOR INDEX factor_embedding` 做 ANN 检索 → 按余弦相似度降序返回
 
 **示例：**
 ```python
@@ -586,7 +586,7 @@ QSGraphDB 支持对因子描述文本生成嵌入向量并存储到 Neo4j 中，
     → 1024 / 4096 维向量
     → 存储到 Neo4j Factor 节点 Embedding 属性
     → 在 Embedding 属性上创建 VECTOR INDEX (cosine)
-    → searchFactorsByDescription 调用 db.index.vector.queryNodes
+    → searchFactorsByDescription 调用 SEARCH 子句做向量检索
 ```
 
 #### 配置

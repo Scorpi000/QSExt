@@ -126,13 +126,13 @@ RETURN f
 
 **基于向量索引的近似最近邻搜索：**
 ```cypher
-CALL db.index.vector.queryNodes('factor_embedding', $limit, $queryEmbedding)
-YIELD node AS f, score
+MATCH (f:`因子`)
+SEARCH f IN (VECTOR INDEX factor_embedding FOR $queryEmbedding LIMIT $limit) SCORE AS score
 RETURN f {.Name, .QSID, .FactorClass, .OperatorType, .OperatorName, .DataType}, score
 ORDER BY score DESC
 ```
 
-余弦相似度得分范围 `[0, 1]`，1 表示最相似。Neo4j 5.x 原生支持，无需 APOC 插件。
+余弦相似度得分范围 `[0, 1]`，1 表示最相似。Neo4j 2026.01+ 原生支持（`db.index.vector.queryNodes` 已在 2026.04 弃用）。
 
 ## 回测查询
 
