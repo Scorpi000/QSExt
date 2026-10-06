@@ -1,0 +1,14 @@
+{
+	"Name": "QLibDB",
+    "MainDir": "/home/hst/Data/QLibDB",
+	"Suffix": "bin",
+	"Freq": "day",
+	"CalendarsDirName": "calendars",
+	"FeaturesDirName": "features",
+	"InstrumentsDirName": "instruments",
+	"DailyFormat": "%Y-%m-%d",
+	"HighFreqFormat": "%Y-%m-%d %H:%M:%S",
+	"InstrumentsSep": "\\t",
+	"InstrumentsFileName": "all.txt",
+	"WriteConcurrentNum": 0
+}

@@ -1,0 +1,9 @@
+{
+	"Name": "SQLite3DB",
+    "DBFile": "/home/hst/Data/SQLite3DB/SQLite3DB.db",
+	"InnerPrefix": "qs_",
+	"DTField": "datetime",
+	"IDField": "code",
+	"DTFmt": "%Y-%m-%d %H:%M:%S",
+	"TablePrefix": ""
+}

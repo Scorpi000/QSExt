@@ -1,0 +1,13 @@
+{
+	"Name": "QSGraphDB",
+    "DBName": "neo4j",
+    "IPAddr": "127.0.0.1",
+    "Port": 7687,
+    "User": "neo4j",
+    "Pwd": "neo4j1234",
+	"OllamaBaseURL": "http://127.0.0.1:11434",
+	"OllamaAPIKey": "ollama",
+	"EmbeddingModel": "bge-m3",
+	"EmbeddingDim": 1024,
+	"DataDir": "QSGraphDB"
+}

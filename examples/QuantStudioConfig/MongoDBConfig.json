@@ -1,0 +1,12 @@
+{
+	"Name": "MongoDB",
+	"DBType": "Mongo",
+    "DBName": "QSData",
+    "IPAddr": "localhost",
+    "Port": 27017,
+    "User": "root",
+    "Pwd": "",
+    "InnerPrefix": "qs_",
+    "CharSet": "utf8",
+    "Connector": "default"
+}

@@ -1,0 +1,10 @@
+{
+	"Name": "DuckDB",
+    "DBFile": ":memory:",
+	"InnerPrefix": "qs_",
+	"DTField": "datetime",
+	"IDField": "code",
+	"DTFmt": "%Y-%m-%d %H:%M:%S",
+	"TablePrefix": "",
+	"ParquetDir": "/home/hst/Data/DuckDB"
+}

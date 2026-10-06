@@ -1,0 +1,7 @@
+{
+	"ConnectArgs": {
+		"host": "localhost",
+		"port": 9201,
+		"http_auth": [null, null]
+	}
+}

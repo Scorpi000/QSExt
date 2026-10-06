@@ -1,0 +1,15 @@
+{
+	"Name": "ClickHouseDB",
+	"DBType": "ClickHouse",
+    "DBName": "qsdata",
+    "IPAddr": "localhost",
+    "Port": 9000,
+    "User": "clickhouse",
+    "Pwd": "clickhouse",
+    "InnerPrefix": "qs_",
+    "CharSet": "utf8",
+    "Connector": "default",
+	"IDField": "code",
+	"DTField": "datetime",
+	"IgnoreFields": ["info", "id"]
+}

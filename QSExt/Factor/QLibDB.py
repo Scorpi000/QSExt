@@ -2,7 +2,6 @@
 """基于 QLib 的因子库"""
 import os
 import re
-import stat
 import shutil
 import datetime as dt
 from pathlib import Path
@@ -12,16 +11,15 @@ from typing import Optional, Self, Any, Dict, Literal, List, Union, Set
 
 import numpy as np
 import pandas as pd
-import fasteners
 import qlib
 from qlib.data import D
 from qlib.constant import REG_CN
-from multiprocess import Lock
+from filelock import FileLock
 from pydantic import Field, DirectoryPath
 
 from QuantStudio import __QS_ConfigPath__
 from QuantStudio.Core import __QS_Error__
-from QuantStudio.Core.QSObject import Panel, QSFileLock
+from QuantStudio.Core.QSObject import Panel
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorDB import WritableFactorDB
 from QuantStudio.Factor.FactorTable import FactorTable
@@ -134,14 +132,12 @@ class QLibDB(WritableFactorDB):
     class __QS_ArgClass__(WritableFactorDB.__QS_ArgClass__):
         Name: str = Field(default="QLibDB", title="名称", frozen=True)
         MainDir: DirectoryPath = Field(default=Path(os.path.expanduser("~/.qlib/qlib_data")), title="主目录", frozen=True, description="存放数据的主目录")
-        LockDir: Optional[DirectoryPath] = Field(default=None, title="锁目录", frozen=True, description="存放锁文件的目录, 默认 None 表示和主目录相同")
-        ProcessLock: bool = Field(default=True, title="进程锁", frozen=True, description="是否添加进程锁用于防止多进程间读写冲突")
         Suffix: str = Field(default="bin", title="文件后缀", frozen=True)
         Freq: str = Field(default="day", title="时间频率", frozen=True)
         CalendarsDirName: str = Field(default="calendars", title="时点目录", frozen=True)
         FeaturesDirName: str = Field(default="features", title="特征目录", frozen=True)
         InstrumentsDirName: str = Field(default="instruments", title="证券目录", frozen=True)
-        DailyFormt: str = Field(default="%Y-%m-%d", title="日期格式", frozen=True)
+        DailyFormat: str = Field(default="%Y-%m-%d", title="日期格式", frozen=True)
         HighFreqFormat: str = Field(default="%Y-%m-%d %H:%M:%S", title="高频时间格式", frozen=True)
         InstrumentsSep: str = Field(default="\t", title="证券分隔符", frozen=True)
         InstrumentsFileName: str = Field(default="all.txt", title="证券文件", frozen=True)
@@ -154,64 +150,22 @@ class QLibDB(WritableFactorDB):
             args: 指定的对象参数集
             config_file: 配置文件路径, 默认配置文件为 "~/QuantStudioConfig/QLibDBConfig.json"
         """
-        self._LockFile = None  # 文件锁的目标文件
-        self._DataLock = None  # 访问该因子库资源的文件锁, 防止并发访问冲突
-        self._TableLock = None  # 访问该因子表资源的临时文件锁, 防止并发访问冲突
-        self._ProcLock = None  # 访问该因子库资源的进程锁, 防止并发访问冲突
         return super().__init__(args=args, config_file=(__QS_ConfigPath__ + os.sep + "QLibDBConfig.json" if config_file is None else config_file), **kwargs)
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        state["_DataLock"] = (True if self._DataLock is not None else False)
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        if self._DataLock:
-            self._DataLock = fasteners.InterProcessLock(self._LockFile)
-        else:
-            self._DataLock = None
 
     def _getLock(self, table_name=None):
         if table_name is None:
-            return QSFileLock(self._DataLock, proc_lock=self._ProcLock)
+            return FileLock(self._QSArgs.MainDir / "_FDB.lock")
         TablePath = self._QSArgs.MainDir / table_name
         if not os.path.isdir(TablePath):
             Msg = ("因子库 '%s' 调用 _getLock 时错误, 不存在因子表: '%s'" % (self.Name, table_name))
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        LockFile = self._LockDir / table_name / "LockFile"
-        if not os.path.isfile(LockFile):
-            with QSFileLock(self._DataLock, proc_lock=self._ProcLock) as FileLock:
-                if not os.path.isdir(self._LockDir / table_name):
-                    os.mkdir(self._LockDir / table_name)
-                if not os.path.isfile(LockFile):
-                    open(LockFile, mode="a").close()
-                    os.chmod(LockFile, stat.S_IRWXO | stat.S_IRWXG | stat.S_IRWXU)
-        return QSFileLock(LockFile, self._ProcLock)
+        return FileLock(TablePath / "_Table.lock")
 
     def connect(self) -> Self:
         if not os.path.isdir(self._QSArgs.MainDir):
             raise __QS_Error__("QLibDB.connect: 不存在主目录 '%s'!" % self._QSArgs.MainDir)
-        if not self._QSArgs.LockDir:
-            self._LockDir = self._QSArgs.MainDir
-        elif not os.path.isdir(self._QSArgs.LockDir):
-            raise __QS_Error__("QLibDB.connect: 不存在锁目录 '%s'!" % self._QSArgs.LockDir)
-        else:
-            self._LockDir = self._QSArgs.LockDir
-        self._LockFile = self._LockDir / "LockFile"
-        if not os.path.isfile(self._LockFile):
-            open(self._LockFile, mode="a").close()
-            os.chmod(self._LockFile, stat.S_IRWXO | stat.S_IRWXG | stat.S_IRWXU)
-        self._DataLock = fasteners.InterProcessLock(self._LockFile)
-        if self._QSArgs.ProcessLock: self._ProcLock = Lock()
         return self
-
-    def disconnect(self):
-        self._LockFile = None
-        self._DataLock = None
-        self._ProcLock = None
 
     @property
     def TableNames(self) -> List[str]:
@@ -232,7 +186,7 @@ class QLibDB(WritableFactorDB):
         if old_table_name == new_table_name: return 0
         OldPath = self._QSArgs.MainDir / old_table_name
         NewPath = self._QSArgs.MainDir / new_table_name
-        with self._DataLock:
+        with self._getLock():
             if not os.path.isdir(OldPath): raise __QS_Error__("QLibDB.renameTable: 表: '%s' 不存在!" % old_table_name)
             if os.path.isdir(NewPath): raise __QS_Error__("QLibDB.renameTable: 表 '" + new_table_name + "' 已存在!")
             os.rename(OldPath, NewPath)
@@ -240,7 +194,7 @@ class QLibDB(WritableFactorDB):
 
     def deleteTable(self, table_name:str):
         TablePath = self._QSArgs.MainDir / table_name
-        with self._DataLock:
+        with self._getLock():
             if os.path.isdir(TablePath):
                 shutil.rmtree(TablePath, ignore_errors=True)
         return 0
@@ -252,7 +206,7 @@ class QLibDB(WritableFactorDB):
             meta_data = {}
         if key is not None:
             meta_data[key] = value
-        with self._DataLock:
+        with self._getLock():
             writeNestedDict2HDF5(meta_data, self._QSArgs.MainDir / table_name / "_TableInfo.h5", "/")
         return 0
 
@@ -261,7 +215,7 @@ class QLibDB(WritableFactorDB):
         old_factor_name = old_factor_name.replace("$", "")
         new_factor_name = new_factor_name.replace("$", "")
         TablePath = self._QSArgs.MainDir / table_name / self._QSArgs.FeaturesDirName
-        with self._DataLock:
+        with self._getLock():
             for iDir in os.listdir(path=TablePath):
                 if not os.path.isdir(TablePath / iDir): continue
                 for iFile in os.listdir(path=TablePath / iDir):
@@ -270,7 +224,7 @@ class QLibDB(WritableFactorDB):
 
     def deleteFactor(self, table_name:str, factor_names:List[str]):
         TablePath = self._QSArgs.MainDir / table_name / self._QSArgs.FeaturesDirName
-        with self._DataLock:
+        with self._getLock():
             for jFactorName in factor_names:
                 jFactorName = jFactorName.replace("$", "")
                 for iDir in os.listdir(path=TablePath):
@@ -287,7 +241,7 @@ class QLibDB(WritableFactorDB):
             meta_data = {}
         if key is not None:
             meta_data[key] = value
-        with self._DataLock:
+        with self._getLock():
             writeNestedDict2HDF5(meta_data, self._QSArgs.MainDir / table_name / "_FactorInfo.h5", f"/{ifactor_name}")
         return 0
 
@@ -338,7 +292,7 @@ class QLibDB(WritableFactorDB):
         CalendarDir.mkdir(parents=True, exist_ok=True)
         CalendarsPath = str(CalendarDir.joinpath(f"{self._QSArgs.Freq}.txt").expanduser().resolve())
         if self._QSArgs.Freq == "day":
-            calendars_data = [x.strftime(self._QSArgs.DailyFormt) for x in calendars_data]
+            calendars_data = [x.strftime(self._QSArgs.DailyFormat) for x in calendars_data]
         else:
             calendars_data = [x.strftime(self._QSArgs.HighFreqFormat) for x in calendars_data]
         np.savetxt(CalendarsPath, calendars_data, fmt="%s", encoding="utf-8")
@@ -410,7 +364,7 @@ class QLibDB(WritableFactorDB):
         data.items = data.items.str.replace("$", "")
         data.minor_axis = ["".join(reversed(iID.split("."))).lower() for iID in data.minor_axis]
         TablePath = self._QSArgs.MainDir / table_name
-        with self._DataLock:
+        with self._getLock():
             if not os.path.isdir(TablePath): os.mkdir(TablePath)
         with self._getLock(table_name=table_name):
             CalendarsData, AddedStartLen, AddedEndLen = self._mergeCalendars(table_name=table_name, calendars_data=data.major_axis.tolist())
