@@ -139,6 +139,10 @@ class QSGraphDB(QSNeo4jObject):
         with self.session() as session:
             for stmt in _SCHEMA_CONSTRAINTS + _SCHEMA_INDEXES:
                 session.run(stmt)
+            # Older schemas keyed FactorDB nodes by Name. Registration now uses
+            # QSID, so different configurations may legitimately share a name.
+            # Create the QSID constraint before removing the legacy constraint.
+            session.run("DROP CONSTRAINT fdb_name IF EXISTS")
         self._initVectorIndex()
 
     def _initVectorIndex(self):
@@ -911,7 +915,7 @@ class QSGraphDB(QSNeo4jObject):
             "Arity": op._QSArgs.Arity,
             "DataType": op._QSArgs.DataType,
             "Description": op._QSArgs.Description,
-            "OperatorJSON": json.dumps(op_data, ensure_ascii=False),
+            "OperatorJSON": json.dumps(_sanitizeForJSON(op_data), ensure_ascii=False),
             "UpdatedAt": now,
         }
 
@@ -2340,7 +2344,7 @@ class QSGraphDB(QSNeo4jObject):
         operator_json = op_data.get("OperatorJSON")
         if not operator_json:
             raise __QS_Error__(f"算子 {qsid} 缺少 OperatorJSON 字段")
-        return FactorOperator.deserialize(json.loads(operator_json))
+        return FactorOperator.deserialize(_desanitizeFromJSON(json.loads(operator_json)))
 
     # endregion
 
@@ -3344,6 +3348,8 @@ class QSGraphDB(QSNeo4jObject):
 
         # FactorDeps: {target_table: [factor_name, ...]}
         for target_table, factor_names in factor_deps.items():
+            factor_names = [entry["Name"] if isinstance(entry, dict) else entry
+                            for entry in factor_names]
             # 查找目标脚本（通过 TargetTable 匹配）
             dep_script = self._findScriptByTargetTable(target_table)
             if dep_script:

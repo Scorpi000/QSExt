@@ -74,7 +74,7 @@ class TestDepKeyToDefKey(unittest.TestCase):
     def test_match_via_import(self):
         """通过 import 匹配成功"""
         target = {self.def_key: "found"}
-        result = _dep_key_to_def_key("QSExt.FactorDef.FactorDefContent", target)
+        result = _dep_key_to_def_key("QSExt.DefModule.DefContent", target)
         self.assertEqual(result, self.def_key)
 
     def test_dep_not_found_returns_none(self):
@@ -89,12 +89,12 @@ class TestDepKeyToDefKey(unittest.TestCase):
         if "@" in self.def_key:
             upper_key += "@" + self.def_key.split("@")[1]
         target = {upper_key: "found"}
-        result = _dep_key_to_def_key("QSExt.FactorDef.FactorDefContent", target)
+        result = _dep_key_to_def_key("QSExt.DefModule.DefContent", target)
         self.assertEqual(result, upper_key)
 
     def test_empty_target_dict(self):
         """空 target_dict 返回 None"""
-        result = _dep_key_to_def_key("QSExt.FactorDef.FactorDefContent", {})
+        result = _dep_key_to_def_key("QSExt.DefModule.DefContent", {})
         self.assertIsNone(result)
 
 
