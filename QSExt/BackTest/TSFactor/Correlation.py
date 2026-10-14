@@ -16,9 +16,10 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from QuantStudio.Core import __QS_Error__
+from QuantStudio.Core.Input import DependencyModel
 from QuantStudio.Core.Node import DTInitData, DTLocalContext
 from QuantStudio.Factor.Factor import Factor, FactorContext, FactorInitData, FactorLocalContext
-from QuantStudio.Factor.FactorOperation import PanelOperator, PanelOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PanelOperator, PanelOperation
 from QuantStudio.BackTest.BackTestModel import BTNode, ReportNode
 
 
@@ -36,6 +37,13 @@ class CalcTimeSeriesCorrelation(PanelOperator):
     计算因子值与未来收益率之间的滚动时序相关性。
     对每只股票单独计算：corr(factor[t-lag], return[t:t+forecast])。
     """
+
+    class __QS_InputClass__(FactorInputModel):
+        """价格及待检验因子的公开输入。"""
+        price: Factor = Field(title="价格")
+        x: tuple[Factor, ...] = Field(min_length=1, title="待检验因子")
+
+    __QS_CallLayout__ = {"price": {"keyword_only": True}}
 
     def __init__(
         self,
@@ -59,7 +67,6 @@ class CalcTimeSeriesCorrelation(PanelOperator):
             min_summary_window: 最小统计窗口长度
             corr_method: 相关性计算方法
         """
-        Arity = args.get("Arity", None) or 1
         Args = {"Name": "calcTimeSeriesCorrelation"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {
             "forecast_period": forecast_period,
@@ -68,7 +75,7 @@ class CalcTimeSeriesCorrelation(PanelOperator):
             "min_summary_window": min_summary_window,
             "corr_method": corr_method,
         } | Args.get("ModelArgs", {})
-        Args["DescriptorSection"] = [args.get("DescriptorSection", [descriptor_ids])[0]] * Arity
+        Args["DescriptorSection"] = [args.get("DescriptorSection", [descriptor_ids])[0]]
         return super().__init__(args=Args, config_file=config_file, **kwargs)
 
     def calculate(self, f: Factor, idt, iid, x: list, args: dict) -> np.ndarray:
@@ -163,6 +170,10 @@ class TimeSeriesCorrelation(BTNode):
     并生成统计数据（平均值、中位数、最小值、最大值）。
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """时序相关性计算结果。"""
+        ts_corr: Factor = Field(title="时序相关性因子")
+
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="时序因子相关性", frozen=True, title="名称")
         FactorNameList: Optional[List[str]] = Field(default=None, frozen=True, title="因子列表")
@@ -171,7 +182,7 @@ class TimeSeriesCorrelation(BTNode):
         Lag: int = Field(default=0, frozen=True, title="滞后期数")
 
     def __init__(self, ts_corr: Factor, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        return super().__init__(deps=[ts_corr], args=args, config_file=config_file, **kwargs)
+        return super().__init__(deps={"ts_corr": ts_corr}, args=args, config_file=config_file, **kwargs)
 
     def init_compute(self, path: List[str], init_data: DTInitData, context: FactorContext) -> List[FactorInitData]:
         InitData = super().init_compute(path=path, init_data=init_data, context=context)
@@ -207,8 +218,12 @@ class TimeSeriesCorrelationReport(ReportNode):
     class __QS_ArgClass__(ReportNode.__QS_ArgClass__):
         Name: str = Field(default="时序相关性报告", frozen=True, title="名称")
 
+    class __QS_DepClass__(DependencyModel):
+        """用于渲染报告的回测结果节点。"""
+        ts_corr_node: TimeSeriesCorrelation = Field(title="时序相关性回测")
+
     def __init__(self, ts_corr_node: TimeSeriesCorrelation, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        return super().__init__(deps=[ts_corr_node], args=args, config_file=config_file, **kwargs)
+        return super().__init__(deps={"ts_corr_node": ts_corr_node}, args=args, config_file=config_file, **kwargs)
 
     @staticmethod
     def genMatplotlibFig(output: dict, file_path: Optional[str] = None) -> Figure:

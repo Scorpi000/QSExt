@@ -109,21 +109,6 @@ class SingleStrategyReport(ReportGenerator):
 
         return [account_stats]
 
-    def __init__(self, deps: list = [], args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        strategy_name = kwargs.pop("strategy_name", "")
-        self._strategy_name = strategy_name
-
-        super().__init__(deps=deps, args=args, config_file=config_file, **kwargs)
-
-        full_config = self._load_config(self._QSArgs.ReportConfig)
-        self._report_config = full_config.get("report", {})
-        self._modules_config = full_config.get("modules", {})
-
-        if "OutputFormat" not in (args or {}):
-            output_config = full_config.get("output", {})
-            fmts = output_config.get("formats", ["html"])
-            self._QSArgs.OutputFormat = fmts[0] if fmts else "html"
-
     def generate_report(self, output_list: List[Any]) -> dict:
         """将 AccountStats 产出组织为 DataContext 并渲染报告。
 

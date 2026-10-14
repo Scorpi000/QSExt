@@ -18,7 +18,7 @@ setuptools.setup(
     url="https://github.com/Scorpi000/QuantStudio/",
     license="GPLv3",
     platforms=["Windows"],
-    python_requires=">=3.5",
+    python_requires=">=3.12",
     scripts=[],
     packages=setuptools.find_packages(),
     classifiers=[
@@ -29,6 +29,7 @@ setuptools.setup(
     ],
     install_requires=[
         "QuantStudio",
+        "pydantic>=2.11,<3",
         "dateparser",
         "click"
     ],

@@ -236,10 +236,9 @@ class GPLearner(__QS_Object__):
         """从算子列表自动构建 ``{arity: [operator]}`` 映射。"""
         arity_map: Dict[int, List[FactorOperator]] = {}
         for op in self.operator_list:
-            a = op._QSArgs.Arity
-            if a is not None:
-                arity_map.setdefault(a, []).append(op)
-            # Arity=None 的算子不放入固定映射，在需要时动态处理
+            minimum, maximum = self._arity_range(op)
+            if minimum == maximum:
+                arity_map.setdefault(minimum, []).append(op)
         return arity_map
 
     # ----------------------------------------------------------------
@@ -248,9 +247,30 @@ class GPLearner(__QS_Object__):
 
     def _random_arity(self, op: FactorOperator) -> int:
         """为算子选择一个入参数量。固定入参直接返回，可变入参在范围内随机。"""
-        if op._QSArgs.Arity is not None:
-            return op._QSArgs.Arity
-        return np.random.randint(self.Args.MinArity, self.Args.MaxArity + 1)
+        minimum, maximum = self._arity_range(op)
+        if minimum == maximum:
+            return minimum
+        minimum = max(minimum, self.Args.MinArity)
+        maximum = min(maximum, self.Args.MaxArity) if maximum is not None else self.Args.MaxArity
+        if minimum > maximum:
+            raise ValueError("遗传规划配置的输入数量与算子输入声明没有交集")
+        return np.random.randint(minimum, maximum + 1)
+
+    @staticmethod
+    def _arity_range(op):
+        """从未完成绑定的输入声明计算数量范围，不另存 Arity。"""
+        minimum, maximum = 0, 0
+        for info in op.input_info().values():
+            if info["collection"]:
+                count = len(info.get("value") or ())
+                minimum += max(0, (info["min_length"] or 0) - count)
+                if maximum is not None:
+                    maximum = None if info["max_length"] is None else maximum + max(0, info["max_length"] - count)
+            elif not info["bound"]:
+                minimum += int(info["required"])
+                if maximum is not None:
+                    maximum += 1
+        return minimum, maximum
 
     def buildRandomPNExpr(self) -> list:
         """随机生成一个因子表达式 (PN 序列)。

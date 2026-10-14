@@ -16,6 +16,8 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from QuantStudio.BackTest.BackTestModel import BTNode
+from QuantStudio.Core.Input import DependencyModel
+from QuantStudio.Factor.Factor import Factor
 from QSExt.LLMFactor.evaluation.operators.sub_period import CalcSubPeriodStats
 
 
@@ -37,12 +39,17 @@ class SubPeriodNode(BTNode):
         - 汇总统计: 全期统计 + 子期间一致性指标
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """子期稳健性统计的计算因子。"""
+        stats: Factor = Field(title="子期统计因子")
+
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="子期稳健性", frozen=True, title="名称")
+        GenReport: bool = Field(default=False, title="生成报告")
         FactorNameList: Optional[List[str]] = Field(default=None, frozen=True, title="因子列表")
 
     def __init__(self, stats: Any, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        super().__init__(deps=[stats], args=args, config_file=config_file, **kwargs)
+        super().__init__(deps={"stats": stats}, args=args, config_file=config_file, **kwargs)
 
     @staticmethod
     def genMatplotlibFig(output: dict, file_path: Optional[str] = None) -> Figure:
@@ -175,7 +182,7 @@ class SubPeriodNode(BTNode):
         return [
             FactorLocalContext(
                 DTs=fwd_data.DTs,
-                IDs=context.NodeState[iDep.QSID]["section_ids"],
+                IDs=iDep.Args.SectionIDs or context.SectionIDs,
                 PIDs=context.PIDList,
             ) for iDep in self.Deps
         ], fwd_data

@@ -12,9 +12,10 @@ import datetime as dt
 from typing import Optional, List
 
 import numpy as np
+from pydantic import Field
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import PointOperator, TimeOperator, PanelOperator
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PointOperator, TimeOperator, PanelOperator
 
 
 # ============================================================================
@@ -40,6 +41,10 @@ class ThresholdClassify(PointOperator):
         ... )(signal, factor_name="牛熊状态")
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """用于状态划分的信号。"""
+        x: Factor = Field(title="连续信号")
+
     def __init__(
         self,
         thresholds: List[float] = None,
@@ -60,7 +65,7 @@ class ThresholdClassify(PointOperator):
         Args = (
             {"Name": "threshold_classify", "DataType": "object"}
             | args
-            | {"Arity": 1, "DTMode": "单时点", "IDMode": "多ID"}
+            | {"DTMode": "单时点", "IDMode": "多ID"}
         )
         Args["ModelArgs"] = {
             "thresholds": self._thresholds,
@@ -91,8 +96,8 @@ class ThresholdClassify(PointOperator):
             ``array(shape=(len(iid),), dtype=object)``，各 ID 的状态标签。
         """
         signal = x[0]
-        thresholds = args.get("thresholds", self._thresholds)
-        labels = args.get("labels", self._labels)
+        thresholds = args["thresholds"]
+        labels = args["labels"]
 
         n = len(thresholds)
         result = np.full(len(iid), labels[n // 2], dtype=object)
@@ -131,6 +136,8 @@ class QuantileClassify(TimeOperator):
         ... )(vol_signal, factor_name="波动率状态")
     """
 
+    __QS_InputClass__ = ThresholdClassify.__QS_InputClass__
+
     def __init__(
         self,
         lookback: int = 252,
@@ -150,7 +157,6 @@ class QuantileClassify(TimeOperator):
             {"Name": "quantile_classify", "DataType": "object"}
             | args
             | {
-                "Arity": 1,
                 "DTMode": "单时点",
                 "IDMode": "多ID",
                 "LookBack": [lookback],
@@ -191,9 +197,9 @@ class QuantileClassify(TimeOperator):
             ``array(shape=(len(iid),), dtype=object)``，各 ID 的状态标签。
         """
         data = x[0]                              # (LookBack+1, n_ids)
-        low_pct = args.get("low_pct", self._low_pct)
-        high_pct = args.get("high_pct", self._high_pct)
-        labels = args.get("labels", self._labels)
+        low_pct = args["low_pct"]
+        high_pct = args["high_pct"]
+        labels = args["labels"]
 
         current = data[-1, :]                    # (n_ids,)
         history = data[:-1, :]                   # (LookBack, n_ids)
@@ -241,6 +247,10 @@ class HMMClassify(PanelOperator):
         ... )
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """联合发现市场状态的特征因子集合。"""
+        x: tuple[Factor, ...] = Field(min_length=1, title="市场特征")
+
     def __init__(
         self,
         n_components: int = 4,
@@ -264,15 +274,13 @@ class HMMClassify(PanelOperator):
                 f"labels 数量 ({len(self._labels)}) 必须等于 n_components ({n_components})"
             )
 
-        # 合并参数：如果 args 中已包含 Arity/LookBack 等（来自 new()），则保留
+        # 时间维度配置来自参数模型，输入数量来自输入声明。
         default_args = {
             "Name": "hmm_classify",
             "DataType": "object",
             "DTMode": "单时点",
         }
         # 只有当 args 中没有这些参数时才设置默认值
-        if "Arity" not in args:
-            default_args["Arity"] = None  # 动态确定入参数量
         if "LookBack" not in args:
             default_args["LookBack"] = []  # 在 _QS_validate 中动态设置
         if "StartDT" not in args:
@@ -294,38 +302,24 @@ class HMMClassify(PanelOperator):
 
     def _QS_validate(self, *x, **kwargs):
         """重写验证方法，动态设置 LookBack。"""
-        Arity = len(x)
-        if self._QSArgs.Arity is None:
-            # 动态设置 Arity、LookBack、StartDT 和 DescriptorSection
-            NewArgs = {
-                "Arity": Arity,
-                "LookBack": [self._lookback] * Arity,
-                "StartDT": [None] * Arity,
-                "DescriptorSection": [None] * Arity,
-            }
-            return self.new(args=NewArgs, **kwargs)
-        elif Arity != self._QSArgs.Arity:
-            from QuantStudio.Core import __QS_Error__
-            raise __QS_Error__(
-                f"因子算子 {self._QSArgs.Name} 实际传入的因子数量 {Arity} "
-                f"和指定的入参数 {self._QSArgs.Arity} 不符!"
-            )
-        else:
-            return self
+        count = len(x)
+        operator = self.new(args={"LookBack": [self.Args.ModelArgs["lookback"]] * count,
+            "StartDT": [None] * count, "DescriptorSection": [None] * count}, _qs_operand_count=count)
+        return super(HMMClassify, operator)._QS_validate(*x, **kwargs)
 
     def _train_hmm(self, data: np.ndarray, n_components: int = None) -> tuple:
         """训练 HMM 模型。
 
         Args:
             data: shape=(n_timesteps, n_features) 的面板数据。
-            n_components: 状态数量，默认使用 self._n_components。
+            n_components: 状态数量，默认读取模型参数。
 
         Returns:
             (model, states): 训练好的模型和预测的状态序列。
             状态值保证在 [0, n_components) 范围内。
         """
         if n_components is None:
-            n_components = self._n_components
+            n_components = self.Args.ModelArgs["n_components"]
 
         try:
             from hmmlearn.hmm import GaussianHMM
@@ -344,8 +338,8 @@ class HMMClassify(PanelOperator):
 
         model = GaussianHMM(
             n_components=n_components,
-            covariance_type=self._covariance_type,
-            random_state=self._random_state,
+            covariance_type=self.Args.ModelArgs["covariance_type"],
+            random_state=self.Args.ModelArgs["random_state"],
             n_iter=100,
         )
 
@@ -394,8 +388,8 @@ class HMMClassify(PanelOperator):
         Returns:
             ``array(shape=(len(iid),), dtype=object)``，各 ID 的状态标签。
         """
-        labels = args.get("labels", self._labels)
-        n_components = args.get("n_components", self._n_components)
+        labels = args["labels"]
+        n_components = args["n_components"]
         n_ids = len(iid)
 
         # 合并所有描述子的数据: shape=(LookBack+1, n_ids, n_features)

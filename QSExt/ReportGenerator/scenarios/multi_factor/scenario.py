@@ -103,22 +103,6 @@ class MultiFactorReport(ReportGenerator):
     _IDX_IC_DECAY = 1
     _IDX_QUANTILE_START = 2
 
-    def __init__(self, deps: list = [], args: dict = {},
-                 config_file: Optional[str] = None, **kwargs):
-        factor_names = kwargs.pop("factor_names", [])
-        self._factor_names = list(factor_names)
-
-        super().__init__(deps=deps, args=args, config_file=config_file, **kwargs)
-
-        full_config = self._load_config(self._QSArgs.ReportConfig)
-        self._report_config = full_config.get("report", {})
-        self._modules_config = full_config.get("modules", {})
-
-        if "OutputFormat" not in (args or {}):
-            output_config = full_config.get("output", {})
-            fmts = output_config.get("formats", ["html"])
-            self._QSArgs.OutputFormat = fmts[0] if fmts else "html"
-
     def generate_report(self, output_list: List[Any]) -> dict:
         """将多个因子的回测产出组织为对比数据并渲染报告。
 

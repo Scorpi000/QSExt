@@ -4,10 +4,11 @@ import datetime as dt
 from typing import Optional, List, Tuple
 
 import numpy as np
+from pydantic import Field
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import SectionOperator, SectionOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, SectionOperator, SectionOperation
 
 
 class Label2Class(SectionOperator):
@@ -20,6 +21,12 @@ class Label2Class(SectionOperator):
         top_bottom_ratio: 高低值的分位数比例，(高值比例, 低值比例)
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """分类标签的公开因子输入。"""
+        f: Factor = Field(title="待分类因子")
+        mask: Factor | None = Field(default=None, title="掩码")
+        cat_data: Factor | None = Field(default=None, title="分类")
+
     def __init__(self, labels: Tuple[int, int] = (1, -1), top_bottom_ratio: Tuple[float, float] = (0.3, 0.3), args: dict = {}, config_file: Optional[str] = None, **kwargs):
         Args = {"Name": "label2Class"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {
@@ -29,9 +36,10 @@ class Label2Class(SectionOperator):
         return super().__init__(args=Args, config_file=config_file, **kwargs)
 
     def calculate(self, f: Factor, idt: List[dt.datetime], iid: List[str], x: List[np.ndarray], args: dict) -> np.ndarray:
-        FactorData = x[0]
-        Mask = (x[1].astype(bool) if f._QSArgs.ModelArgs.get("mask") else None)
-        CatData = (x[2] if f._QSArgs.ModelArgs.get("cat_data") else None)
+        inputs = f.dependency_values(x)
+        FactorData = inputs.f
+        Mask = inputs.mask.astype(bool) if inputs.mask is not None else None
+        CatData = inputs.cat_data
         Labels = args["labels"]
         TopBottomRatio = args["top_bottom_ratio"]
 
@@ -61,10 +69,6 @@ class Label2Class(SectionOperator):
         Factors = [f]
         if mask is not None: Factors.append(mask)
         if cat_data is not None: Factors.append(cat_data)
-        factor_args["ModelArgs"] = factor_args.get("ModelArgs", {}) | {
-            "mask": (mask is not None),
-            "cat_data": (cat_data is not None)
-        }
         return super().__call__(*Factors, factor_args=factor_args, **kwargs)
 
 
@@ -76,6 +80,11 @@ class LabelQuantile(SectionOperator):
     Args:
         top_bottom_ratio: 高低值的分位数比例
     """
+
+    class __QS_InputClass__(FactorInputModel):
+        """分位数标签的公开因子输入。"""
+        f: Factor = Field(title="待分类因子")
+        partition_factor: Factor | None = Field(default=None, title="分组因子")
 
     def __init__(self, top_bottom_ratio: float = 0.3, args: dict = {}, config_file: Optional[str] = None, **kwargs):
         Args = {"Name": "labelQuantile"} | args | {"DTMode": "多时点", "DataType": "double"}

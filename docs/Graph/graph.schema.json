@@ -1,0 +1,282 @@
+{
+  "$defs": {
+    "Block": {
+      "additionalProperties": false,
+      "description": "显式指定操作的构图对象。",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "definition": {
+          "$ref": "#/$defs/DefinitionRef"
+        },
+        "operation": {
+          "enum": [
+            "build",
+            "apply",
+            "bind",
+            "template"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Args",
+          "type": "object"
+        },
+        "result_args": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Result Args",
+          "type": "object"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "discriminator": {
+              "mapping": {
+                "collection": "#/$defs/Collection",
+                "literal": "#/$defs/LiteralValue",
+                "reference": "#/$defs/Reference",
+                "resource": "#/$defs/ResourceReference"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Reference"
+              },
+              {
+                "$ref": "#/$defs/LiteralValue"
+              },
+              {
+                "$ref": "#/$defs/ResourceReference"
+              },
+              {
+                "$ref": "#/$defs/Collection"
+              }
+            ]
+          },
+          "title": "Inputs",
+          "type": "object"
+        },
+        "extensions": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Extensions",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "definition",
+        "operation"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "Collection": {
+      "additionalProperties": false,
+      "description": "以数组顺序表达语义次序的集合。",
+      "properties": {
+        "kind": {
+          "const": "collection",
+          "default": "collection",
+          "title": "Kind",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/CollectionItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "title": "Collection",
+      "type": "object"
+    },
+    "CollectionItem": {
+      "additionalProperties": false,
+      "description": "有稳定标识的集合成员，空值表示编辑占位。",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "collection": "#/$defs/Collection",
+                  "literal": "#/$defs/LiteralValue",
+                  "reference": "#/$defs/Reference",
+                  "resource": "#/$defs/ResourceReference"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Reference"
+                },
+                {
+                  "$ref": "#/$defs/LiteralValue"
+                },
+                {
+                  "$ref": "#/$defs/ResourceReference"
+                },
+                {
+                  "$ref": "#/$defs/Collection"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "CollectionItem",
+      "type": "object"
+    },
+    "DefinitionRef": {
+      "additionalProperties": false,
+      "description": "稳定定义标识及独立的行为版本。",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "version": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DefinitionRef",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LiteralValue": {
+      "additionalProperties": false,
+      "description": "显式 JSON 常量，包含与未绑定有区别的 null。",
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "default": "literal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "LiteralValue",
+      "type": "object"
+    },
+    "Reference": {
+      "additionalProperties": false,
+      "description": "画布对象出口引用。",
+      "properties": {
+        "kind": {
+          "const": "reference",
+          "default": "reference",
+          "title": "Kind",
+          "type": "string"
+        },
+        "block": {
+          "minLength": 1,
+          "title": "Block",
+          "type": "string"
+        },
+        "port": {
+          "default": "result",
+          "minLength": 1,
+          "title": "Port",
+          "type": "string"
+        }
+      },
+      "required": [
+        "block"
+      ],
+      "title": "Reference",
+      "type": "object"
+    },
+    "ResourceReference": {
+      "additionalProperties": false,
+      "description": "资源逻辑名称，不包含连接句柄和凭据。",
+      "properties": {
+        "kind": {
+          "const": "resource",
+          "default": "resource",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ResourceReference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "允许不完整构图对象存在的可持久化文档。",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "blocks": {
+      "items": {
+        "$ref": "#/$defs/Block"
+      },
+      "title": "Blocks",
+      "type": "array"
+    },
+    "outputs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Reference"
+      },
+      "title": "Outputs",
+      "type": "object"
+    },
+    "extensions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Extensions",
+      "type": "object"
+    }
+  },
+  "title": "GraphDocument",
+  "type": "object"
+}

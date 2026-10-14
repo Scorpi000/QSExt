@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from QuantStudio.BackTest.BackTestModel import BTNode
+from QuantStudio.Core.Input import DependencyModel
 from QuantStudio.Factor.Factor import Factor, FactorInitData, FactorLocalContext
 from QSExt.MarketRegime.strategy_analysis import StrategyRegimeAnalyzer
 from QSExt.MarketRegime.transition import CUSUMDetector, KSTestDetector
@@ -39,8 +40,14 @@ class RegimePerformanceReport(BTNode):
             ``TransitionDetector``（可选值: ``"default"`` / ``"CUSUM"`` / ``"KS"``）。
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """策略净值与市场状态标签。"""
+        nv: Factor = Field(title="策略净值")
+        regime_label: Factor = Field(title="市场状态标签")
+
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="状态适应性分析", frozen=True, title="名称")
+        GenReport: bool = Field(default=False, title="生成报告")
         HeatmapFreq: str = Field(default="Q", frozen=True, title="热力图频率")
         Dimension: Optional[str] = Field(default=None, frozen=True, title="状态维度")
         TransitionDetector: str = Field(default="default", frozen=True,
@@ -48,7 +55,7 @@ class RegimePerformanceReport(BTNode):
 
     def __init__(self, nv: Factor, regime_label: Factor,
                  args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        super().__init__(deps=[nv, regime_label], args=args,
+        super().__init__(deps={"nv": nv, "regime_label": regime_label}, args=args,
                          config_file=config_file, **kwargs)
 
     # ------------------------------------------------------------------
@@ -69,7 +76,7 @@ class RegimePerformanceReport(BTNode):
         return [
             FactorLocalContext(
                 DTs=fwd_data.DTs,
-                IDs=context.NodeState.get(iDep.QSID, {}).get("section_ids", ids),
+                IDs=context.NodeState.get(iDep.InstanceID, {}).get("section_ids", ids),
                 PIDs=context.PIDList,
             ) for iDep in self.Deps
         ], fwd_data

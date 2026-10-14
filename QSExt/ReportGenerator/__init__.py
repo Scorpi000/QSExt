@@ -24,11 +24,13 @@
 """
 
 from typing import Any, Dict, List
+from functools import cached_property
 
 from pydantic import Field
 
 from QuantStudio.BackTest.BackTestModel import ReportNode
 from QuantStudio.Core.Node import Node
+from QuantStudio.Core.Input import DependencyModel
 
 
 class ReportGenerator(ReportNode):
@@ -40,11 +42,55 @@ class ReportGenerator(ReportNode):
     - ``generate_report()``：将上游节点产出渲染为报告，直接写入 ReportKey
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """按场景声明顺序组织的回测结果节点。"""
+        results: tuple[Node, ...] = Field(default=(), title="报告数据节点")
+
     class __QS_ArgClass__(ReportNode.__QS_ArgClass__):
         Name: str = Field(default="报告生成器", frozen=True, title="名称")
         OutputFormat: str = Field(default="html", title="输出格式", description="报告输出格式：html 或 markdown")
         ThemeName: str = Field(default="default", title="主题名称")
         ChartEngine: str = Field(default="plotly", title="图表引擎", description="plotly（交互式）或 matplotlib（静态）")
+        FactorNames: list[str] = Field(default_factory=list, title="因子名称")
+        StrategyNames: list[str] = Field(default_factory=list, title="策略名称")
+        StrategyName: str = Field(default="", title="单个策略名称")
+        ReportConfig: str = Field(default="", title="报告配置路径")
+        ReportContent: dict = Field(default_factory=dict, title="已解析的报告配置")
+
+    def __init__(self, deps=None, args=None, config_file=None, **kwargs):
+        """归一化公开参数和依赖，构造阶段不读取报告配置。"""
+        values = dict(args or {})
+        for keyword, field_name in (("factor_names", "FactorNames"), ("strategy_names", "StrategyNames"), ("strategy_name", "StrategyName")):
+            if keyword in kwargs:
+                values[field_name] = kwargs.pop(keyword)
+        if not isinstance(deps, (dict, DependencyModel)):
+            deps = {"results": tuple(deps or ())}
+        super().__init__(deps=deps, args=values, config_file=config_file, **kwargs)
+
+    @property
+    def _factor_names(self):
+        return self._QSArgs.FactorNames
+
+    @property
+    def _strategy_names(self):
+        return self._QSArgs.StrategyNames
+
+    @property
+    def _strategy_name(self):
+        return self._QSArgs.StrategyName
+
+    @cached_property
+    def _full_report_config(self):
+        """渲染阶段才读取配置；GUI 可直接提供已解析的 JSON 配置。"""
+        return self._QSArgs.ReportContent or self._load_config(self._QSArgs.ReportConfig)
+
+    @property
+    def _report_config(self):
+        return self._full_report_config.get("report", {})
+
+    @property
+    def _modules_config(self):
+        return self._full_report_config.get("modules", {})
 
     # ---- 子类必须实现 ----
 

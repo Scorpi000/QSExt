@@ -16,10 +16,11 @@ from typing import Optional, List, Literal, Dict
 import cvxpy as cp
 import numpy as np
 import pandas as pd
+from pydantic import Field
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import PanelOperator, PanelOperation, SectionOperator, SectionOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PanelOperator, PanelOperation, SectionOperator, SectionOperation
 
 
 # ----------------------截面运算--------------------------------
@@ -30,9 +31,13 @@ class ReplaceDownSignal(SectionOperator):
         top_ids: 上层信号的截面 ID 序列
         top2down_ids: 上层信号的 ID 到下层信号截面的映射, 比如: {"000300.SH": ["000001.SZ", ...], ...}
     """
+    class __QS_InputClass__(FactorInputModel):
+        """上下层策略信号的公开输入。"""
+        top_signal: Factor = Field(title="上层策略信号")
+        top2down_signal: dict[str, Factor] = Field(title="下层策略映射")
+
     def __init__(self, top_ids:List[str], top2down_ids:Dict[str, List[str]], args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Arity = args.get("Arity", None) or 1 + len(top2down_ids)
-        Args = {"Name": "replaceDownSignal"} | args | {"DTMode": "多时点", "Arity": Arity}
+        Args = {"Name": "replaceDownSignal"} | args | {"DTMode": "多时点"}
         if "DescriptorSection" not in Args:
             Args["DescriptorSection"] = [top_ids] + [top2down_ids[iID] for iID in sorted(top2down_ids.keys())]
         Args["ModelArgs"] = {"top2down_ids": top2down_ids} | Args.get("ModelArgs", {})
@@ -69,8 +74,14 @@ class MergeTopDownSignal(SectionOperator):
     Args:
         top_ids: 上层信号的截面 ID 序列
     """
+    class __QS_InputClass__(FactorInputModel):
+        """上下层策略与归属关系的公开输入。"""
+        top_signal: Factor = Field(title="上层策略信号")
+        down_signal: Factor = Field(title="下层策略信号")
+        down2top: Factor = Field(title="下层归属关系")
+
     def __init__(self, top_ids:List[str], args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Args = {"Name": "mergeTopDownSignal"} | args | {"DTMode": "多时点", "Arity": 3}
+        Args = {"Name": "mergeTopDownSignal"} | args | {"DTMode": "多时点"}
         if "DescriptorSection" not in Args:
             Args["DescriptorSection"] = [top_ids, None, None]
         Args["ModelArgs"] = {} | Args.get("ModelArgs", {})
@@ -116,8 +127,12 @@ class MergePeerSignal(SectionOperator):
         rescaled: 是否将最终的信号重新归一化，默认 False
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """同层策略的信号集合。"""
+        x: tuple[Factor, ...] = Field(min_length=1, title="待融合信号")
+
     def __init__(self, signal_sections:List[List[str]]=[], weights:Optional[List[float]]=None, rescaled:bool=False, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Arity = args.get("Arity", None) or max(1, len(signal_sections))
+        Arity = max(1, len(signal_sections))
         Args = {"Name": "mergePeerSignal"} | args | {"DTMode": "多时点", "DataType": "double"}
         Args["ModelArgs"] = {"weights": weights, "rescaled": rescaled} | Args.get("ModelArgs", {})
         DescriptorSection = Args.get("DescriptorSection", signal_sections)
@@ -150,6 +165,11 @@ class AlphaEnhanceStrategy(SectionOperator):
         allow_new_positions: 是否允许因子在零权重标的上开新仓，默认 False
         norm_method: 因子标准化方法，"zscore" 或 "rank"，默认 "zscore"
     """
+
+    class __QS_InputClass__(FactorInputModel):
+        """组合信号与增强因子。"""
+        signal: Factor = Field(title="组合信号")
+        alpha_factor: Factor = Field(title="增强因子")
 
     def __init__(self, scale:float=0.5, allow_new_positions:bool=False, norm_method:str="zscore", args:dict={}, config_file:Optional[str]=None, **kwargs):
         Args = {"Name": "alphaEnhanceStrategy"} | args | {"DTMode": "多时点"}
@@ -209,7 +229,6 @@ class AlphaEnhanceStrategy(SectionOperator):
         """
         Factors = [signal, alpha_factor]
         operator_kwargs = kwargs.pop("operator_kwargs", {})
-        operator_kwargs["args"] = operator_kwargs.get("args", {}) | {"Arity": 2}
         return super(AlphaEnhanceStrategy, self.new(**operator_kwargs)).__call__(*Factors, factor_args=factor_args, **kwargs)
 
 class MigrateAllocStrategy(PanelOperator):
@@ -227,8 +246,15 @@ class MigrateAllocStrategy(PanelOperator):
         fallback_id: 兜底标的 ID, 当某 old_id 无法找到满足要求的替代标的时, 将权重迁移到该标的上, 默认 None 表示直接丢弃
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """配置迁移的信号、来源价格和目标价格。"""
+        signal: Factor = Field(title="来源信号")
+        old_price: Factor = Field(title="来源价格")
+        new_price: Factor = Field(title="目标价格")
+        mask: Factor | None = Field(default=None, title="目标掩码")
+
     def __init__(self, window:int=240, old_ids:Optional[List[str]]=None, min_periods:Optional[int]=None, min_corr:float=0.0, fallback_id:Optional[str]=None, args:dict={}, config_file:Optional[str]=None, **kwargs):
-        Arity = args.get("Arity", None) or 3
+        Arity = 3
         Args = {"Name": "migrateAllocStrategy"} | args | {"DTMode": "单时点"}
         Args["ModelArgs"] = {"window": window, "old_ids": old_ids or [], "min_periods": min_periods, "min_corr": min_corr, "fallback_id": fallback_id} | Args.get("ModelArgs", {})
         effective_old_ids = Args["ModelArgs"]["old_ids"]
@@ -369,7 +395,6 @@ class MigrateAllocStrategy(PanelOperator):
         old_ids = self._QSArgs.ModelArgs["old_ids"]
         operator_kwargs = kwargs.pop("operator_kwargs", {})
         operator_kwargs["args"] = operator_kwargs.get("args", {}) | {
-            "Arity": nArity,
             "LookBack": [0, window - 1, window - 1] + [0] * max(0, nArity - 3),
             "StartDT": [None] * nArity,
         }
@@ -399,12 +424,19 @@ class OptMigrateAllocStrategy(SectionOperator):
         allow_cash: max_score 模式下是否允许总仓位 < 1, 默认 False
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """优化配置迁移的信号和暴露描述。"""
+        source_signal: Factor = Field(title="来源信号")
+        target_exposure_ids: Factor = Field(title="目标暴露 ID")
+        target_exposure_weights: Factor = Field(title="目标暴露权重")
+        target_mask: Factor | None = Field(default=None, title="目标掩码")
+
     def __init__(self, source_ids: Optional[List[str]] = None,
                  mode: Literal["min_deviation", "max_score"] = "min_deviation",
                  single_limit: Optional[float] = 0.25, min_weight: float = 0.0,
                  allow_cash: bool = False, args: dict = {},
                  config_file: Optional[str] = None, **kwargs):
-        Arity = args.get("Arity", None) or 3
+        Arity = 3
         Args = {"Name": "optmigrateAllocStrategy"} | args | {"DTMode": "单时点"}
         Args["ModelArgs"] = {
             "mode": mode, "single_limit": single_limit,
@@ -526,7 +558,7 @@ class OptMigrateAllocStrategy(SectionOperator):
             Factors.append(target_mask)
         nArity = len(Factors)
         operator_kwargs = kwargs.pop("operator_kwargs", {})
-        operator_kwargs["args"] = operator_kwargs.get("args", {}) | {"Arity": nArity}
+        operator_kwargs["args"] = operator_kwargs.get("args", {})
         source_ids = self._QSArgs.ModelArgs.get("source_ids")
         if source_ids and "DescriptorSection" not in operator_kwargs["args"]:
             operator_kwargs["args"]["DescriptorSection"] = [source_ids] + [None] * (nArity - 1)

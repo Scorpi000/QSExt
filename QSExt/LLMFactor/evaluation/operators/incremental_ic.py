@@ -15,9 +15,10 @@ import numpy as np
 import pandas as pd
 from numpy.lib.recfunctions import unstructured_to_structured
 import statsmodels.api as sm
+from pydantic import Field
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import PanelOperator, PanelOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PanelOperator, PanelOperation
 
 
 class CalcIncrementalIC(PanelOperator):
@@ -38,6 +39,18 @@ class CalcIncrementalIC(PanelOperator):
         相关性方法: "spearman"（默认）、"pearson"、"kendall"
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """候选因子、基准因子池与收益参考的公开输入。"""
+        price: Factor = Field(title="价格")
+        mask: Factor | None = Field(default=None, title="掩码")
+        cat_data: Factor | None = Field(default=None, title="分类")
+        base_factors: tuple[Factor, ...] = Field(title="基准因子池")
+        x: tuple[Factor, ...] = Field(min_length=1, title="候选因子")
+
+    __QS_CallLayout__ = {name: {"keyword_only": True}
+                         for name in ("price", "mask", "cat_data", "base_factors")}
+    __QS_CallLayout__["base_factors"]["grouped"] = True
+
     def __init__(
         self,
         descriptor_ids: List[str],
@@ -48,14 +61,13 @@ class CalcIncrementalIC(PanelOperator):
         config_file: Optional[str] = None,
         **kwargs,
     ):
-        Arity = args.get("Arity", None) or 1
         Args = {"Name": "calcIncrementalIC"} | args | {"DTMode": "多时点", "DataType": "object"}
         Args["ModelArgs"] = {
             "corr_method": corr_method,
             "period_lookback": period_lookback,
         } | Args.get("ModelArgs", {})
-        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]] * Arity
-        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]] * Arity
+        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]]
+        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]]
         Args["CompoundType"] = [("IC", "double"), ("MaxCorrelation", "double"), ("Breadth", "double")]
         return super().__init__(args=Args, config_file=config_file, **kwargs)
 

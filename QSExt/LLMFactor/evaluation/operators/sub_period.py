@@ -16,7 +16,8 @@ import pandas as pd
 from numpy.lib.recfunctions import unstructured_to_structured
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import PanelOperator, PanelOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PanelOperator, PanelOperation
+from pydantic import Field
 
 
 class CalcSubPeriodStats(PanelOperator):
@@ -38,6 +39,15 @@ class CalcSubPeriodStats(PanelOperator):
         计算标尺回溯期数
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """子期稳健性检验的公开输入。"""
+        price: Factor = Field(title="价格")
+        mask: Factor | None = Field(default=None, title="掩码")
+        cat_data: Factor | None = Field(default=None, title="分类")
+        x: tuple[Factor, ...] = Field(min_length=1, title="候选因子")
+
+    __QS_CallLayout__ = {name: {"keyword_only": True} for name in ("price", "mask", "cat_data")}
+
     def __init__(
         self,
         descriptor_ids: List[str],
@@ -49,15 +59,14 @@ class CalcSubPeriodStats(PanelOperator):
         config_file: Optional[str] = None,
         **kwargs,
     ):
-        Arity = args.get("Arity", None) or 1
         Args = {"Name": "calcSubPeriodStats"} | args | {"DTMode": "多时点", "DataType": "object"}
         Args["ModelArgs"] = {
             "corr_method": corr_method,
             "period_lookback": period_lookback,
             "freq": freq,
         } | Args.get("ModelArgs", {})
-        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]] * Arity
-        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]] * Arity
+        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]]
+        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]]
         Args["CompoundType"] = [("Stats", "object")]
         return super().__init__(args=Args, config_file=config_file, **kwargs)
 

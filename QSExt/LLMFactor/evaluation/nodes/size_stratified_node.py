@@ -16,6 +16,8 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from QuantStudio.BackTest.BackTestModel import BTNode
+from QuantStudio.Core.Input import DependencyModel
+from QuantStudio.Factor.Factor import Factor
 from QSExt.LLMFactor.evaluation.operators.size_stratified import CalcSizeStratifiedAlpha
 
 
@@ -37,13 +39,18 @@ class SizeStratifiedAlphaNode(BTNode):
         - Alpha图: 各组 Alpha 柱状图
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """分层收益统计的计算因子。"""
+        alpha: Factor = Field(title="规模分层 Alpha 因子")
+
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="规模分层 Alpha", frozen=True, title="名称")
+        GenReport: bool = Field(default=False, title="生成报告")
         FactorNameList: Optional[List[str]] = Field(default=None, frozen=True, title="因子列表")
         GroupNum: int = Field(default=5, frozen=True, title="分组数")
 
     def __init__(self, alpha: Any, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        super().__init__(deps=[alpha], args=args, config_file=config_file, **kwargs)
+        super().__init__(deps={"alpha": alpha}, args=args, config_file=config_file, **kwargs)
 
     @staticmethod
     def genMatplotlibFig(output: dict, file_path: Optional[str] = None) -> Figure:
@@ -141,7 +148,7 @@ class SizeStratifiedAlphaNode(BTNode):
         return [
             FactorLocalContext(
                 DTs=fwd_data.DTs,
-                IDs=context.NodeState[iDep.QSID]["section_ids"],
+                IDs=iDep.Args.SectionIDs or context.SectionIDs,
                 PIDs=context.PIDList,
             ) for iDep in self.Deps
         ], fwd_data

@@ -201,7 +201,7 @@ def printSummary(pool_factors: list, operators: list, terminals: list) -> None:
         Logger.info(f"  {_factorLabel(iFactor):<40} 深度={calcDepth(iFactor)}  表达式={toExprStr(iFactor)}")
     Logger.info(f"默认算子集（{len(operators)} 个算子）:")
     for iOperator in operators:
-        Logger.info(f"  {iOperator.Name:<20} Arity={iOperator._QSArgs.Arity}")
+        Logger.info(f"  {iOperator.Name:<20} 输入槽位={list(iOperator.input_info())}")
     Logger.info(f"默认叶子因子（{len(terminals)} 个因子表因子）:")
     for iFactor in terminals:
         Logger.info(f"  {_factorLabel(iFactor)}")

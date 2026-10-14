@@ -17,7 +17,8 @@ from numpy.lib.recfunctions import unstructured_to_structured
 import statsmodels.api as sm
 
 from QuantStudio.Factor.Factor import Factor
-from QuantStudio.Factor.FactorOperation import PanelOperator, PanelOperation
+from QuantStudio.Factor.FactorOperation import FactorInputModel, PanelOperator, PanelOperation
+from pydantic import Field
 
 
 class CalcSizeStratifiedAlpha(PanelOperator):
@@ -38,6 +39,16 @@ class CalcSizeStratifiedAlpha(PanelOperator):
         计算标尺回溯期数
     """
 
+    class __QS_InputClass__(FactorInputModel):
+        """规模分层检验的公开输入。"""
+        price: Factor = Field(title="价格")
+        market_cap: Factor = Field(title="市值")
+        mask: Factor | None = Field(default=None, title="掩码")
+        market_return: Factor | None = Field(default=None, title="市场收益率")
+        x: tuple[Factor, ...] = Field(min_length=1, title="候选因子")
+
+    __QS_CallLayout__ = {name: {"keyword_only": True} for name in ("price", "market_cap", "mask", "market_return")}
+
     def __init__(
         self,
         descriptor_ids: List[str],
@@ -48,14 +59,13 @@ class CalcSizeStratifiedAlpha(PanelOperator):
         config_file: Optional[str] = None,
         **kwargs,
     ):
-        Arity = args.get("Arity", None) or 1
         Args = {"Name": "calcSizeStratifiedAlpha"} | args | {"DTMode": "多时点", "DataType": "object"}
         Args["ModelArgs"] = {
             "group_num": group_num,
             "period_lookback": period_lookback,
         } | Args.get("ModelArgs", {})
-        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]] * Arity
-        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]] * Arity
+        Args["DescriptorSection"] = [Args.get("DescriptorSection", [descriptor_ids])[0]]
+        Args["LookBack"] = [Args.get("LookBack", [lookback])[0]]
 
         # 输出：每组的年化收益、Alpha、t统计量、Sharpe
         compound_types = []

@@ -313,7 +313,8 @@ async def run_development_skill_with_fix(
 只修复上述错误，不要改变因子的核心计算逻辑。
 
 常见修复指南：
-- 如果是 @FactorOperatorized 参数错误，args 只允许以下键：Arity, DTMode, IDMode, DataType, ModelArgs, LookBack
+- 如果是 @FactorOperatorized 输入声明错误，请使用 input_model=自定义的 FactorInputModel 类；输入数量来自模型字段，不要在 args 中指定 Arity
+- 常用 args 键包括 DTMode, IDMode, DataType, ModelArgs, LookBack
 - IDMode 只能是 "单ID" 或 "多ID"，不能是 "全ID" 等其他值
 - DTMode 只能是 "单时点" 或 "多时点"
 - DataType 只能是 "double"、"object" 或 "string"

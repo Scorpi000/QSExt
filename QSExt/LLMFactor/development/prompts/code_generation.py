@@ -124,16 +124,26 @@ factor = rename(factor, factor_name="xxx", factor_args={"Meta": {"Description": 
 
 ### 自定义算子（@FactorOperatorized）
 ```python
-from QuantStudio.Factor.FactorOperation import FactorOperatorized
+from QuantStudio.Factor.FactorOperation import FactorOperatorized, FactorInputModel
+from QuantStudio.Factor.Factor import Factor
+
+class OneInput(FactorInputModel):
+    '''单因子输入声明。'''
+    x: Factor
+
+class TwoInputs(FactorInputModel):
+    '''两个因子输入声明。'''
+    left: Factor
+    right: Factor
 
 # Point 算子 — 单点运算
-@FactorOperatorized(operator_type="Point", args={"Arity": 2, "DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
+@FactorOperatorized(operator_type="Point", input_model=TwoInputs, args={"DTMode": "多时点", "IDMode": "多ID", "DataType": "double"})
 def calcXxx(f, idt, iid, x, args):
     return x[0] + x[1]
 
 # Time 算子 — 时序运算
-@FactorOperatorized(operator_type="Time", args={
-    "Arity": 1, "LookBack": [20-1], "IDMode": "多ID", "DTMode": "单时点",
+@FactorOperatorized(operator_type="Time", input_model=OneInput, args={
+    "LookBack": [20-1], "IDMode": "多ID", "DTMode": "单时点",
     "ModelArgs": {"非空率": 0.8},
 })
 def calcMomentum(f, idt, iid, x, args):
@@ -141,7 +151,7 @@ def calcMomentum(f, idt, iid, x, args):
     return x[0][-1] / x[0][0] - 1
 
 # Section 算子 — 截面运算
-@FactorOperatorized(operator_type="Section", args={"Arity": 1, "DTMode": "单时点", "DataType": "double"})
+@FactorOperatorized(operator_type="Section", input_model=OneInput, args={"DTMode": "单时点", "DataType": "double"})
 def calcRank(f, idt, iid, x, args):
     return scipy.stats.rankdata(x[0]) / len(x[0])
 ```

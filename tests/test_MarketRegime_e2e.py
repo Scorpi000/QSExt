@@ -182,7 +182,7 @@ class TestQuantileClassify:
 
         # 读取尾部高波区域，需传入完整 dt_ruler 使 LookBack 有足够历史
         test_dates = dates[-50:]
-        labels = f_regime.readData(ids=["000001"], dts=test_dates, dt_ruler=dates)
+        labels = f_regime.readData(ids=["000001"], dts=list(test_dates), dt_ruler=list(dates))
         result = labels["000001"].values
 
         # 尾部高波值（0.30），在历史分布（多为 0.15）中应多为 "高波"
@@ -209,7 +209,7 @@ class TestQuantileClassify:
         )(f_signal, factor_name="波动率状态")
 
         test_dates = dates[-50:]
-        labels = f_regime.readData(ids=["000001"], dts=test_dates, dt_ruler=dates)
+        labels = f_regime.readData(ids=["000001"], dts=list(test_dates), dt_ruler=list(dates))
         result = labels["000001"].values
 
         # 中段区域的波动值 ~0.25，在历史 (也 ~0.25) 中应多为中波

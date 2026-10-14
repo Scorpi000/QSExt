@@ -204,22 +204,8 @@ class TestIncrementalICNodeCompute:
     def _make_mock_node(self):
         """创建模拟节点用于测试。"""
         from QSExt.LLMFactor.evaluation.nodes.incremental_ic_node import IncrementalICNode
-        # 创建一个模拟的节点对象，仅用于测试 backward_compute
-        class MockDep:
-            QSID = "mock_dep_001"
-
-        class MockNode(IncrementalICNode):
-            def __init__(self):
-                # 跳过父类 __init__，直接设置必要属性
-                self._QSArgs = type('Args', (), {
-                    'FactorNameList': ['test_factor'],
-                    'RollingAvgPeriod': 3,
-                    'GenReport': False,
-                    'Name': '增量 IC 检验',
-                })()
-                self.Deps = [MockDep()]
-
-        return MockNode()
+        from QuantStudio.Factor.Factor import DataFactor
+        return IncrementalICNode(DataFactor(0), args={"FactorNameList": ["test_factor"], "RollingAvgPeriod": 3})
 
     def test_backward_compute_basic(self):
         """基本的 backward_compute 测试。"""
@@ -315,20 +301,8 @@ class TestSizeStratifiedAlphaNodeCompute:
         """创建模拟节点用于测试。"""
         from QSExt.LLMFactor.evaluation.nodes.size_stratified_node import SizeStratifiedAlphaNode
 
-        class MockDep:
-            QSID = "mock_dep_002"
-
-        class MockNode(SizeStratifiedAlphaNode):
-            def __init__(self):
-                self._QSArgs = type('Args', (), {
-                    'FactorNameList': ['test_factor'],
-                    'GroupNum': 3,
-                    'GenReport': False,
-                    'Name': '规模分层 Alpha',
-                })()
-                self.Deps = [MockDep()]
-
-        return MockNode()
+        from QuantStudio.Factor.Factor import DataFactor
+        return SizeStratifiedAlphaNode(DataFactor(0), args={"FactorNameList": ["test_factor"], "GroupNum": 3})
 
     def test_backward_compute_basic(self):
         """基本的 backward_compute 测试。"""
@@ -353,7 +327,7 @@ class TestSizeStratifiedAlphaNodeCompute:
     def test_backward_compute_multiple_factors(self):
         """多个因子的 backward_compute 测试。"""
         node = self._make_mock_node()
-        node._QSArgs.FactorNameList = ['factor_a', 'factor_b']
+        node = node.new(args={"FactorNameList": ['factor_a', 'factor_b']})
 
         mock_data = np.array([
             [0.08, 0.06, 2.5, 0.10, 0.08, 3.0, 0.12, 0.10, 3.5],
@@ -375,20 +349,8 @@ class TestSubPeriodNodeCompute:
         """创建模拟节点用于测试。"""
         from QSExt.LLMFactor.evaluation.nodes.sub_period_node import SubPeriodNode
 
-        class MockDep:
-            QSID = "mock_dep_003"
-
-        class MockNode(SubPeriodNode):
-            def __init__(self):
-                self._QSArgs = type('Args', (), {
-                    'FactorNameList': ['test_factor'],
-                    'GenReport': False,
-                    'Name': '子期稳健性',
-                    'ModelArgs': {'freq': 'yearly'},
-                })()
-                self.Deps = [MockDep()]
-
-        return MockNode()
+        from QuantStudio.Factor.Factor import DataFactor
+        return SubPeriodNode(DataFactor(0), args={"FactorNameList": ["test_factor"]})
 
     def test_backward_compute_basic(self):
         """基本的 backward_compute 测试。"""

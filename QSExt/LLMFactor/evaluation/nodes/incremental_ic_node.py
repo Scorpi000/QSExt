@@ -16,6 +16,8 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from QuantStudio.BackTest.BackTestModel import BTNode
+from QuantStudio.Core.Input import DependencyModel
+from QuantStudio.Factor.Factor import Factor
 from QSExt.LLMFactor.evaluation.operators.incremental_ic import CalcIncrementalIC
 
 
@@ -39,13 +41,18 @@ class IncrementalICNode(BTNode):
         - 统计数据: DataFrame（均值、标准差、IC_IR、t 统计量、最大相关性均值）
     """
 
+    class __QS_DepClass__(DependencyModel):
+        """增量 IC 的计算因子。"""
+        ic: Factor = Field(title="增量 IC 因子")
+
     class __QS_ArgClass__(BTNode.__QS_ArgClass__):
         Name: str = Field(default="增量 IC 检验", frozen=True, title="名称")
+        GenReport: bool = Field(default=False, title="生成报告")
         FactorNameList: Optional[List[str]] = Field(default=None, frozen=True, title="因子列表")
         RollingAvgPeriod: int = Field(default=12, frozen=True, title="移动平均期数")
 
     def __init__(self, ic: Any, args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        super().__init__(deps=[ic], args=args, config_file=config_file, **kwargs)
+        super().__init__(deps={"ic": ic}, args=args, config_file=config_file, **kwargs)
 
     @staticmethod
     def genMatplotlibFig(output: dict, file_path: Optional[str] = None) -> Figure:
@@ -141,7 +148,7 @@ class IncrementalICNode(BTNode):
         return [
             FactorLocalContext(
                 DTs=fwd_data.DTs,
-                IDs=context.NodeState[iDep.QSID]["section_ids"],
+                IDs=iDep.Args.SectionIDs or context.SectionIDs,
                 PIDs=context.PIDList,
             ) for iDep in self.Deps
         ], fwd_data

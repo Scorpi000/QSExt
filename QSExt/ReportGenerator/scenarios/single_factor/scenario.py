@@ -220,24 +220,6 @@ class SingleFactorReport(ReportGenerator):
     _IDX_IC_DECAY = 1
     _IDX_QUANTILE_START = 2  # 分位数组合从索引 2 开始
 
-    def __init__(self, deps: list = [], args: dict = {}, config_file: Optional[str] = None, **kwargs):
-        # 在 super().__init__ 之前提取，避免传给父类
-        factor_names = kwargs.pop("factor_names", [])
-        self._factor_names = list(factor_names) if factor_names else []
-
-        super().__init__(deps=deps, args=args, config_file=config_file, **kwargs)
-
-        # 加载 YAML 报告配置
-        full_config = self._load_config(self._QSArgs.ReportConfig)
-        self._report_config = full_config.get("report", {})
-        self._modules_config = full_config.get("modules", {})
-
-        # 从配置中提取 OutputFormat（仅当用户未显式指定时）
-        if "OutputFormat" not in (args or {}):
-            output_config = full_config.get("output", {})
-            fmts = output_config.get("formats", ["html"])
-            self._QSArgs.OutputFormat = fmts[0] if fmts else "html"
-
     def generate_report(self, output_list: List[Any]) -> dict:
         """将上游节点产出组织为 output dict 并渲染报告。
 

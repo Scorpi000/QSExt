@@ -37,7 +37,8 @@ from QSExt.ReportGenerator.components.section import Section
 from QSExt.ReportGenerator.layout import LayoutRenderer
 from QSExt.ReportGenerator import ReportGenerator
 from QSExt.ReportGenerator.scenarios.single_factor import SingleFactorReport
-from QuantStudio.Core.Node import Context
+from QuantStudio.Core.Node import Context, Node
+from QuantStudio.Core.Input import EmptyDependencies
 
 
 # ============================================================
@@ -639,30 +640,19 @@ class TestEndToEnd(unittest.TestCase):
             )
 
 
-class _MockBTNode:
+class _MockBTNode(Node):
     """模拟 BTNode：backward_compute 返回预置数据。
 
-    不继承真实 BTNode（避免触发其复杂的 init/prepare 流程），
-    仅提供 Engine DAG 遍历所需的最小接口。
+    使用真实 Node 声明和身份，预置确定性的回测输出。
     """
 
     def __init__(self, name, output_data):
-        import logging
+        super().__init__(args={"Name": name})
         self._output = dict(output_data)
-        # 模拟 Node 的核心属性
-        self._QS_Logger = logging.getLogger(f"mock.{name}")
-        self.QSID = name
 
-    @property
-    def Name(self):
-        return self.QSID
-
-    @property
-    def Deps(self):
-        return []
+    __QS_DepClass__ = EmptyDependencies
 
     def init_compute(self, path, init_data, context):
-        context.NodeDict[self.QSID] = self
         return []
 
     def forward_compute(self, path, fwd_data, context):
@@ -691,7 +681,7 @@ class TestSingleFactorReport(unittest.TestCase):
             config_file=None,
         )
         self.assertEqual(len(node.Deps), 1)
-        self.assertEqual(node.Deps[0].QSID, "IC")
+        self.assertIs(node.Dependencies.results[0], mock_bt)
         self.assertEqual(node._factor_names, ["test"])
 
     def test_backward_compute(self):

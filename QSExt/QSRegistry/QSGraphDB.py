@@ -907,12 +907,14 @@ class QSGraphDB(QSNeo4jObject):
 
     def _serializeOperatorNode(self, op: FactorOperator, now: str) -> dict:
         """序列化算子为节点属性字典（供批量写入复用）"""
+        from QSExt.Graph.Metadata import describe_fields
         op_data = op.serialize()
         return {
             "Name": op._QSArgs.Name,
             "QSID": op.QSID,
             "OperatorType": op._QSArgs.OperatorType,
-            "Arity": op._QSArgs.Arity,
+            "InputInfoJSON": json.dumps([field.model_dump(mode="json") for field in describe_fields(op.InputClass,
+                values={name: info["value"] for name, info in op.input_info().items() if info["bound"]})], ensure_ascii=False),
             "DataType": op._QSArgs.DataType,
             "Description": op._QSArgs.Description,
             "OperatorJSON": json.dumps(_sanitizeForJSON(op_data), ensure_ascii=False),
