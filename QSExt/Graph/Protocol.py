@@ -141,6 +141,8 @@ class DefinitionDescriptor(ProtocolModel):
     inputs: list[FieldDescriptor] = Field(default_factory=list)
     outputs: dict[str, TypeDescriptor]
     dynamic_inputs: bool = False
+    default_args: dict[str, JsonValue] = Field(default_factory=dict)
+    default_result_args: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class Diagnostic(ProtocolModel):

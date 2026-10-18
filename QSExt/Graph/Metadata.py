@@ -124,6 +124,9 @@ def describe_fields(model, types=None, values=None):
         按模型声明顺序组织的传输字段列表。
     """
     types, values = types or TypeRegistry(), values or {}
+    snapshot = getattr(model, "__graph_snapshot_fields__", None)
+    if snapshot is not None:
+        return [field.model_copy(deep=True, update={"bound": field.name in values}) for field in snapshot]
     result = []
     for name, field in model.model_fields.items():
         default, available = None, False

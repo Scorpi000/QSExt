@@ -1,5 +1,6 @@
 """以稳定 ID 和版本注册可构图组件，目录查询不实例化组件。"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from copy import deepcopy
 from typing import Callable
 
 from QuantStudio.Core.Input import InputModel
@@ -44,6 +45,9 @@ class Definition:
     operations: tuple[str, ...]
     infer_output: Callable | None = None
     category: str = "通用"
+    target: type | None = None
+    default_args: dict = field(default_factory=dict)
+    default_result_args: dict = field(default_factory=dict)
 
     def output_type(self, operation, args):
         """在不调用构造器的情况下确定出口类型。"""
@@ -82,6 +86,16 @@ class DefinitionRegistry:
         self._definitions[key] = definition
         return definition
 
+    def fork(self):
+        """复制目录及类型映射，供用户私有定义扩展，不修改共享启动目录。"""
+        from copy import copy
+        types = copy(self.types)
+        types._types = dict(self.types._types)
+        registry = DefinitionRegistry(types)
+        for name in ("_definitions", "sources", "locations", "source_categories", "directory_categories"):
+            setattr(registry, name, dict(getattr(self, name)))
+        return registry
+
     def freeze(self):
         """检查元信息并冻结启动目录。"""
         self.list_definitions()
@@ -97,14 +111,21 @@ class DefinitionRegistry:
         """生成可直接通过 JSON 返回给 GUI 的定义描述。"""
         definition = self.get(reference, version)
         source_path = self.locations.get((definition.id, definition.version), "")
+        args = describe_fields(definition.args_model, self.types)
+        for item in args:
+            if item.name in definition.default_args:
+                item.default = deepcopy(definition.default_args[item.name])
+                item.default_available = item.has_default = True
+                item.required = item.default_factory = False
         return DefinitionDescriptor(definition=DefinitionRef(id=definition.id, version=definition.version),
             title=definition.title, category=definition.category, description=definition.description, operations=list(definition.operations),
             source_path=source_path,
             source_category=self.source_categories.get(source_path, ""),
             directory_categories={path: category for path, category in self.directory_categories.items()
                                   if source_path.startswith(path + "/")},
-            args=describe_fields(definition.args_model, self.types), inputs=describe_fields(definition.input_model, self.types),
-            outputs={"result": definition.output_type(definition.operations[0], {})},
+            args=args, inputs=describe_fields(definition.input_model, self.types),
+            default_args=deepcopy(definition.default_args), default_result_args=deepcopy(definition.default_result_args),
+            outputs={"result": definition.output_type(definition.operations[0], definition.default_args)},
             dynamic_inputs=definition.kind in ("operator_apply", "template_apply"))
 
     def list_definitions(self):
@@ -123,7 +144,7 @@ class DefinitionRegistry:
             return template if block.operation == "template" else template.build()
 
         return self.register(Definition(id_, version, title or node_class.__name__, node_class.__doc__ or "", "node",
-            node_class.__QS_ArgClass__, node_class.__QS_DepClass__, self.types.describe(node_class), builder, ("build", "template"), category=category))
+            node_class.__QS_ArgClass__, node_class.__QS_DepClass__, self.types.describe(node_class), builder, ("build", "template"), category=category, target=node_class))
 
     def register_operator(self, id_, operator_class, version=1, title=None, factory=None, infer_output=None, category="因子算子"):
         """注册因子算子；参数构造可由可信代码提供工厂适配。"""
@@ -136,7 +157,7 @@ class DefinitionRegistry:
 
         return self.register(Definition(id_, version, title or operator_class.__name__, operator_class.__doc__ or "", "operator",
             operator_class.__QS_ArgClass__, operator_class.__QS_InputClass__,
-            TypeDescriptor(kind="factor", type_id="qs.factor"), builder, ("apply", "bind"), infer_output, category))
+            TypeDescriptor(kind="factor", type_id="qs.factor"), builder, ("apply", "bind"), infer_output, category, target=operator_class))
 
     def register_factory(self, id_, *, args_model, input_model, output, builder, version=1, title=None,
                          operations=("build",), infer_output=None, category="通用"):

@@ -1,6 +1,7 @@
 """组件列表的声明协议，将类或构图声明转换为内部注册项。"""
 from dataclasses import dataclass
 import inspect
+import sys
 from typing import Callable
 
 from QuantStudio.Core.Node import Node
@@ -47,7 +48,8 @@ def component_id(target):
     """生成不包含服务目录绝对路径或加载批次摘要的标识。"""
     module = target.__module__
     if module.split(".")[0].startswith("qs_components_"):
-        module = "components" + module[module.find("."):] if "." in module else "components"
+        namespace = getattr(sys.modules.get(module.split(".")[0]), "__qs_component_namespace__", "components")
+        module = namespace + module[module.find("."):] if "." in module else namespace
     return f"{module}.{target.__qualname__}"
 
 

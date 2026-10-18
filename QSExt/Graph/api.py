@@ -15,9 +15,12 @@ from .Resources import (
     RESOURCE_RESOLVER_KEY, DBPoolResourceResolver, MappingResourceResolver, RegistryResourceResolver,
     ResourceCatalog, ResourceResolver,
 )
-from .Sources import ResourceFactor, SOURCE_COMPONENT, register_source_definitions
+from .Sources import ResourceFactor, SOURCE_COMPONENT, SPECIAL_CONSTANT_COMPONENT, register_source_definitions
+from .Tabular import TABULAR_DATA_COMPONENT
 from .Nodes import SelectResult
 from .Loader import load_component_directory
 from .Context import GraphContext
 from .Workbench import construction_scope, get_construction_context
 from .Templates import TemplateRecipe, export_template, import_template, insert_template
+from .Import import DefinitionImportError, DefinitionDatabase, graph_from_nodes, import_definition
+from .OperatorSnapshots import operator_snapshot, register_operator_snapshot

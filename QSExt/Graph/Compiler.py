@@ -1,5 +1,6 @@
 """静态校验图文档，并将选定输出的依赖闭包编译为核心对象。"""
 from dataclasses import dataclass, field
+from copy import deepcopy
 import ast
 import re
 from typing import Any
@@ -209,6 +210,9 @@ def _analyze(document, registry, targets, allow_partial):
         except KeyError:
             report("unknown_definition", f"定义或行为版本未注册: {block.definition.id}@{block.definition.version}", id_, ("definition",))
             continue
+        block = block.model_copy(update={"args": deepcopy(definition.default_args) | block.args,
+            "result_args": (deepcopy(definition.default_result_args) if block.operation == "apply" else {}) | block.result_args})
+        blocks[id_] = block
         if block.operation not in definition.operations:
             report("unsupported_operation", f"定义不支持操作: {block.operation}", id_, ("operation",))
         if block.result_args and block.operation != "apply":

@@ -16,6 +16,7 @@ import os
 import re
 import json
 import importlib
+import importlib.util
 import traceback
 import datetime as dt
 from typing import List, Dict, Optional, Tuple, Union
@@ -492,6 +493,16 @@ class DefInputBuilder:
 
 def resolve_dep_module(dep_name: str, caller_module) -> object:
     """将依赖名解析为模块对象。"""
+    # Web 导入使用独立命名空间，同名上传依赖必须优先于进程已有模块。
+    if getattr(caller_module, "__name__", "").startswith("_qs_def_import_"):
+        caller_pkg = caller_module.__name__.rsplit(".", 1)[0]
+        name = f"{caller_pkg}.{dep_name}"
+        try:
+            spec = importlib.util.find_spec(name)
+        except ModuleNotFoundError:
+            spec = None
+        if spec is not None:
+            return importlib.import_module(name)
     try:
         return importlib.import_module(dep_name)
     except ImportError:
@@ -522,12 +533,18 @@ def _dep_key_to_def_key(dep_name: str, target_dict: dict) -> Optional[str]:
     try:
         dep_mod = resolve_dep_module(dep_name, os)
     except ImportError:
-        return None
-    dep_file = os.path.normcase(os.path.abspath(dep_mod.__file__))
-    for def_key in target_dict:
-        key_file = os.path.normcase(def_key.split("@")[0])
-        if key_file == dep_file:
-            return def_key
+        dep_mod = None
+    candidates = [dep_mod] if dep_mod is not None else []
+    # 上传定义的相对模块不注册为全局短名，通过本次依赖字典的文件键定位。
+    import sys
+    candidates += [module for name, module in list(sys.modules.items())
+                   if name.startswith("_qs_def_import_") and name.endswith("." + dep_name)]
+    for module in candidates:
+        dep_file = os.path.normcase(os.path.abspath(module.__file__))
+        for def_key in target_dict:
+            key_file = os.path.normcase(def_key.split("@")[0])
+            if key_file == dep_file:
+                return def_key
     return None
 
 
@@ -592,11 +609,15 @@ def _build_factors(resolved_deps, dep_fd, fdi, proxy_db=None, proxy_table_mappin
     return factors
 
 
-def _build_factors_for_strategy(meta, dep_fd, sdi) -> Dict[str, Factor]:
+def _build_factors_for_strategy(meta, dep_fd, sdi, module=None) -> Dict[str, Factor]:
     """根据 FactorDeps 声明从 dep_fd 构建因子字典（策略场景）。"""
     factors = {}
     for dep_name, entries in meta.get("FactorDeps", {}).items():
-        def_key = _dep_key_to_def_key(dep_name, dep_fd)
+        if module is not None:
+            dep_mod = resolve_dep_module(dep_name, module)
+            def_key = make_def_key(dep_mod, _extract_dep_model_args(entries, sdi.ModelArgs))
+        else:
+            def_key = _dep_key_to_def_key(dep_name, dep_fd)
         if def_key is None:
             continue
         fd = dep_fd.get(def_key)
@@ -738,6 +759,21 @@ def compute_max_lookback_sd(dep_sd: Dict[str, Def], dep_fd: Dict = None) -> None
 # 核心依赖解析：build_dep_fd
 # ============================================================
 
+def _call_definition(entry_fn, di):
+    """统一输入位置，不依赖入口把参数命名为 fdi 还是 sdi。"""
+    import inspect
+    signature = inspect.signature(entry_fn)
+    try:
+        signature.bind(di)
+    except TypeError:
+        for name in ("fdi", "sdi", "di"):
+            if name in signature.parameters:
+                signature.bind(**{name: di})
+                return entry_fn(**{name: di})
+        raise TypeError("定义入口必须接收一个 DefInput 参数")
+    return entry_fn(di)
+
+
 def build_dep_fd(
     modules: List[Tuple[object, dict, dict]],
     fdi: DefInput,
@@ -788,7 +824,7 @@ def build_dep_fd(
                     fdi.Factors = _build_factors(resolved_deps, dep_fd, fdi, proxy_db, proxy_table_mapping, proxy_tables)
                     # 查找入口函数：defNode > defFactor > defStrategy
                     entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defFactor', None) or getattr(module, 'defStrategy', None)
-                    items = entry_fn(fdi=fdi)
+                    items = _call_definition(entry_fn, fdi)
                 finally:
                     fdi.ModelArgs = saved_args
                     fdi.Factors = saved_factors
@@ -806,7 +842,7 @@ def build_dep_fd(
             fdi.Factors = {}
             try:
                 entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defFactor', None) or getattr(module, 'defStrategy', None)
-                items = entry_fn(fdi=fdi)
+                items = _call_definition(entry_fn, fdi)
             finally:
                 fdi.ModelArgs = saved_args
                 fdi.Factors = saved_factors
@@ -849,21 +885,7 @@ def build_dep_sd(
     dep_sd: Dict[str, Def] = {}
     _resolving: set = set()
 
-    # Step 1: 收集所有 FactorDeps，统一解析因子依赖
-    all_factor_modules = []
-    for module, model_args, strategy_meta in modules:
-        meta = getattr(module, '__STRATEGY_META__', None)
-        if meta and isinstance(meta, dict):
-            effective_meta = dict(meta)
-            effective_meta.update(strategy_meta)
-            for dep_name in effective_meta.get("FactorDeps", {}):
-                dep_mod = resolve_dep_module(dep_name, module)
-                all_factor_modules.append((dep_mod, {}, {}))
-
     dep_fd: Dict[str, Def] = {}
-    if all_factor_modules:
-        _Logger.info(f"解析策略因子依赖: {len(all_factor_modules)} 个因子模块")
-        dep_fd, _ = build_dep_fd(all_factor_modules, sdi)
 
     # Step 2: 递归解析策略依赖并执行 defStrategy/defNode
     def _ensure(module, model_args, strategy_meta=None):
@@ -894,6 +916,12 @@ def build_dep_sd(
                 saved_strategies = sdi.Strategies
                 sdi.ModelArgs = model_args
                 try:
+                    # 每个递归策略分别解析因子依赖，保留该实例传递的 ModelArgs。
+                    factor_modules = [(resolve_dep_module(name, module), _extract_dep_model_args(entries, model_args), {})
+                                      for name, entries in effective_meta.get("FactorDeps", {}).items()]
+                    if factor_modules:
+                        resolved, _ = build_dep_fd(factor_modules, sdi)
+                        dep_fd.update(resolved)
                     strategies = {}
                     for dep_module_path, entries in effective_meta.get('StrategyDeps', {}).items():
                         dep_mod = resolve_dep_module(dep_module_path, module)
@@ -910,7 +938,7 @@ def build_dep_sd(
                                 else:
                                     dep_model_args[k] = v
                         _ensure(dep_mod, dep_model_args, {})
-                        dep_def_key = _dep_key_to_def_key(dep_module_path, dep_sd)
+                        dep_def_key = make_def_key(dep_mod, dep_model_args)
                         dep_sd_entry = dep_sd.get(dep_def_key) if dep_def_key else None
                         if dep_sd_entry is None:
                             dep_meta = getattr(dep_mod, '__STRATEGY_META__', {}) or {}
@@ -926,14 +954,14 @@ def build_dep_sd(
                             strategies[alias] = dep_sd_entry.getStrategy(signal_name)
                     sdi.Strategies = strategies
 
-                    sdi.Factors = _build_factors_for_strategy(effective_meta, dep_fd, sdi)
+                    sdi.Factors = _build_factors_for_strategy(effective_meta, dep_fd, sdi, module)
 
                     # 查找入口函数
                     entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defStrategy', None) or getattr(module, 'defFactor', None)
                     if hasattr(module, 'StrategyObjects'):
                         items = list(module.StrategyObjects)
                     else:
-                        items = entry_fn(sdi=sdi)
+                        items = _call_definition(entry_fn, sdi)
                 finally:
                     sdi.ModelArgs = saved_args
                     sdi.Factors = saved_factors
@@ -959,7 +987,7 @@ def build_dep_sd(
                 if hasattr(module, 'StrategyObjects'):
                     items = list(module.StrategyObjects)
                 else:
-                    items = entry_fn(sdi=sdi)
+                    items = _call_definition(entry_fn, sdi)
             finally:
                 sdi.ModelArgs = saved_args
                 sdi.Factors = saved_factors

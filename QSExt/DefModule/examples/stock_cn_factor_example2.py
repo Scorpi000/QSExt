@@ -19,7 +19,7 @@ import numpy as np
 
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor import FactorOperator as fo
-from QuantStudio.Factor.FactorOperation import FactorOperatorized
+from QuantStudio.Factor.FactorOperation import FactorOperatorized, OperandSpec
 from QSExt.DefModule.DefContent import DefInput
 
 
@@ -56,12 +56,12 @@ __FACTOR_META__ = {
 
 @FactorOperatorized(
     operator_type="Time",
+    operand_info=(OperandSpec(Name="x"),),
     args={
-        "Arity": 1,
-        "DTMode": "多时点",
+        "DTMode": "单时点",          # 每次计算接收当前时点的 21 日窗口
         "IDMode": "单ID",
         "DataType": "double",
-        "LookBack": [20],              # 回溯 20 个时点（长度与 Arity 一致）
+        "LookBack": [20],              # 单个输入因子回溯 20 个时点
     },
 )
 def calcMomentum(f, idt, iid, x, args):
@@ -78,8 +78,8 @@ def calcMomentum(f, idt, iid, x, args):
 
 @FactorOperatorized(
     operator_type="Section",
+    operand_info=(OperandSpec(Name="x"),),
     args={
-        "Arity": 1,
         "DTMode": "单时点",
         "DataType": "double",
     },

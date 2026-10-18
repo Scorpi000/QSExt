@@ -1,5 +1,6 @@
 """从服务组件目录读取 COMPONENTS 列表，统一完成注册和静态检查。"""
 import hashlib
+from dataclasses import replace
 import importlib
 from importlib.abc import MetaPathFinder
 from importlib.machinery import SourceFileLoader
@@ -44,11 +45,13 @@ class _ComponentFinder(MetaPathFinder):
         return None
 
 
-def load_component_directory(directory):
+def load_component_directory(directory, *, allow_empty=False, component_namespace="components"):
     """加载所有 Python 模块中显式列出的组件，失败时不发布部分目录。
 
     Args:
         directory: 组件根目录，文件名不限于 definition.py。
+        allow_empty: 允许已有目录暂时没有组件，供用户扩展目录使用。
+        component_namespace: 本地类型及私有组件标识的稳定命名空间。
 
     Returns:
         已冻结且带有源文件摘要的定义目录。
@@ -58,10 +61,15 @@ def load_component_directory(directory):
     """
     root = Path(directory).expanduser().resolve()
     files = sorted(path for path in root.rglob("*.py") if "__pycache__" not in path.parts) if root.is_dir() else []
-    if not files:
+    if not root.is_dir() or (not files and not allow_empty):
         raise ValueError(f"组件目录不存在或没有 Python 定义文件：{root}")
+    if not files:
+        return DefinitionRegistry().freeze()
     sources = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
-    signature = hashlib.sha256((str(root) + repr(sources)).encode()).hexdigest()[:20]
+    identity = str(root) + repr(sources)
+    if component_namespace != "components":
+        identity += component_namespace
+    signature = hashlib.sha256(identity.encode()).hexdigest()[:20]
     namespace = "qs_components_" + signature
     registry = DefinitionRegistry()
     finder = _ComponentFinder(namespace, root)
@@ -69,6 +77,8 @@ def load_component_directory(directory):
     sys.meta_path.insert(0, finder)
     file, index = root, None
     try:
+        package = importlib.import_module(namespace)
+        package.__qs_component_namespace__ = component_namespace
         modules = {}
         for file in files:
             parts = file.relative_to(root).with_suffix("").parts
@@ -93,11 +103,16 @@ def load_component_directory(directory):
             registry.source_categories[file.relative_to(root).as_posix()] = category or ""
             for index, value in enumerate(module.COMPONENTS):
                 item = as_component(value)
+                if component_namespace != "components":
+                    id_ = item.id or component_id(item.target or item.builder)
+                    if not id_.startswith(component_namespace + "."):
+                        id_ = component_namespace + "." + id_
+                    item = replace(item, id=id_)
                 items.append((file, index, item, category))
                 # 先登记所有出口类型，使文件顺序不影响下游报告的类型检查。
                 output = item.target or item.output_type
                 registry.types.register(component_id(output), output)
-        if not items:
+        if not items and not allow_empty:
             raise ValueError("组件目录没有非空的 COMPONENTS 列表")
         for file, index, item, category in items:
             definition = register_component(registry, item, category)
