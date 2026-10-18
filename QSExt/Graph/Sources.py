@@ -4,10 +4,12 @@ from pydantic import Field
 
 from QuantStudio.Core.Input import EmptyDependencies, InputModel
 from QuantStudio.Core.Identity import ExecutionEffect
+from QuantStudio.Core.CalcEngine import Engine
 from QuantStudio.Factor.Factor import Factor, FactorContext
 
 from .Protocol import ResourceDescriptor, TypeDescriptor
 from .Resources import resolve_resource
+from .Components import Component, register_component
 
 
 class ResourceFactor(Factor):
@@ -29,6 +31,9 @@ class ResourceFactor(Factor):
 
     def init_compute(self, path, init_data, context):
         """将来源加入准备队列，保持来源为运行图叶子。"""
+        state = context.NodeState.setdefault(self.InstanceID, {})
+        state.setdefault("source_dates", set()).update(context.getDateTime(init_data.DTRange))
+        state.setdefault("source_ids", set()).update(getattr(init_data, "SectionIDs", None) or context.SectionIDs)
         context.PrepareNodeDict[self.InstanceID] = (self.InstanceID, None)
         return []
 
@@ -38,26 +43,27 @@ class ResourceFactor(Factor):
         handle = resolve_resource(context, resource)
         if resource.kind == "factor_database":
             handle = handle.getTable(self._QSArgs.Table)
-        context.NodeState.setdefault(self.InstanceID, {})["graph_resource"] = handle
+        state = context.NodeState[self.InstanceID]
+        dates, ids = sorted(state.pop("source_dates")), sorted(state.pop("source_ids"))
+        if resource.kind == "factor_database" or isinstance(handle, Factor):
+            nested_context = FactorContext(DTRuler=context.DTRuler, SectionIDs=ids,
+                Resources=context.Resources, DataVersion=context.DataVersion)
+            # readData 会启动一次引擎运行，必须隔离外层图的状态和缓存。
+            with nested_context, Engine(args={"IOConcurrentNum": 1}):
+                if resource.kind == "factor_database":
+                    data = handle.readData(factor_names=[self._QSArgs.FactorName], ids=ids, dts=dates,
+                        section_ids=ids, dt_ruler=context.DTRuler).iloc[0]
+                else:
+                    data = handle.readData(ids=ids, dts=dates, section_ids=ids, dt_ruler=context.DTRuler)
+        elif isinstance(handle, pd.DataFrame):
+            data = handle.reindex(index=dates, columns=ids)
+        else:
+            raise TypeError("资源必须解析为因子库、因子或 DataFrame")
+        state["graph_resource"] = data
 
     def backward_compute(self, path, bwd_data_list, context, local_context=None):
         """按运行请求读取数据，不修改画布文档。"""
-        handle = context.NodeState[self.InstanceID]["graph_resource"]
-        resource = self._QSArgs.Resource
-        if resource.kind == "factor_database":
-            data = handle.readData(factor_names=[self._QSArgs.FactorName], ids=local_context.IDs, dts=local_context.DTs)
-            return data.iloc[0]
-        if isinstance(handle, Factor):
-            # 注册因子的嵌套执行使用独立运行上下文，避免清空外层状态。
-            nested_context = FactorContext(DTRuler=context.DTRuler,
-                SectionIDs=local_context.SectionIDs or context.SectionIDs,
-                Resources=context.Resources, DataVersion=context.DataVersion)
-            with nested_context:
-                return handle.readData(ids=local_context.IDs, dts=local_context.DTs,
-                                       section_ids=local_context.SectionIDs, dt_ruler=context.DTRuler)
-        if isinstance(handle, pd.DataFrame):
-            return handle.reindex(index=local_context.DTs, columns=local_context.IDs)
-        raise TypeError("资源必须解析为因子库、因子或 DataFrame")
+        return context.NodeState[self.InstanceID]["graph_resource"].reindex(index=local_context.DTs, columns=local_context.IDs)
 
 
 class SourceArgs(InputModel):
@@ -75,16 +81,21 @@ class SourceInputs(InputModel):
     resource: ResourceDescriptor
 
 
+def build_source(block, args, inputs):
+    """构造资源因子，编译阶段只接收资源描述。"""
+    values = SourceArgs(**args)
+    resource = inputs["resource"]
+    if resource.kind == "factor_database" and (not values.table or not values.factor_name):
+        raise ValueError("因子库来源必须指定 table 和 factor_name")
+    return ResourceFactor.from_dependencies({}, args={"Resource": resource,
+        "Table": values.table, "FactorName": values.factor_name, "Name": values.name, "DataType": values.data_type})
+
+
+SOURCE_COMPONENT = Component(id="qs.factor.source", args_model=SourceArgs, input_model=SourceInputs,
+    output_type=Factor, builder=build_source, title="资源因子", category="来源",
+    infer_output=lambda args: TypeDescriptor(kind="factor", type_id="qs.factor", data_type=args.get("data_type", "double")))
+
+
 def register_source_definitions(registry):
     """登记不在编译阶段连接资源的来源构造器。"""
-    def build(block, args, inputs):
-        values = SourceArgs(**args)
-        resource = inputs["resource"]
-        if resource.kind == "factor_database" and (not values.table or not values.factor_name):
-            raise ValueError("因子库来源必须指定 table 和 factor_name")
-        return ResourceFactor.from_dependencies({}, args={"Resource": resource,
-            "Table": values.table, "FactorName": values.factor_name, "Name": values.name, "DataType": values.data_type})
-
-    registry.register_factory("qs.factor.source", args_model=SourceArgs, input_model=SourceInputs,
-        output=TypeDescriptor(kind="factor", type_id="qs.factor"), builder=build, title="资源因子",
-        infer_output=lambda args: TypeDescriptor(kind="factor", type_id="qs.factor", data_type=args.get("data_type", "double")))
+    register_component(registry, SOURCE_COMPONENT)

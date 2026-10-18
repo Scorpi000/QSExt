@@ -232,7 +232,8 @@ class TestGraphExtensions(unittest.TestCase):
             [FactorLocalContext(DTs=self.dts, IDs=self.ids)], [FactorInitData(DTRange=(self.dts[0], self.dts[-1]))])[0]
         pd.testing.assert_frame_equal(output, self.data)
         database.getTable.assert_called_once_with("prices")
-        database.getTable.return_value.readData.assert_called_once_with(factor_names=["close"], ids=self.ids, dts=self.dts)
+        database.getTable.return_value.readData.assert_called_once_with(factor_names=["close"], ids=self.ids,
+            dts=self.dts, section_ids=self.ids, dt_ruler=self.dts)
 
 
 if __name__ == "__main__":

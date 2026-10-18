@@ -5,14 +5,19 @@ from .Protocol import (
     ResourceReference, TypeDescriptor,
 )
 from .Metadata import TypeRegistry, describe_fields
+from .Components import Component, APPLICATION_COMPONENTS
 from .Definitions import (
     Definition, DefinitionRegistry, create_default_registry, register_application_definitions, register_extension_definitions,
+    register_builtin_operators,
 )
 from .Compiler import Compilation, GraphError, SourceMapping, compile_graph, describe_block, validate_graph
 from .Resources import (
     RESOURCE_RESOLVER_KEY, DBPoolResourceResolver, MappingResourceResolver, RegistryResourceResolver,
     ResourceCatalog, ResourceResolver,
 )
-from .Sources import ResourceFactor, register_source_definitions
+from .Sources import ResourceFactor, SOURCE_COMPONENT, register_source_definitions
 from .Nodes import SelectResult
+from .Loader import load_component_directory
+from .Context import GraphContext
+from .Workbench import construction_scope, get_construction_context
 from .Templates import TemplateRecipe, export_template, import_template, insert_template

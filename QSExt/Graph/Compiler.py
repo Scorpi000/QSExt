@@ -1,5 +1,6 @@
 """静态校验图文档，并将选定输出的依赖闭包编译为核心对象。"""
 from dataclasses import dataclass, field
+import ast
 import re
 from typing import Any
 
@@ -176,6 +177,15 @@ def _analyze(document, registry, targets, allow_partial):
                 continue
             if expected.choices and value not in expected.choices:
                 report("literal_choice", "参数不在允许的取值中", id_, prefix + (name,))
+            schema = model_field.json_schema_extra or {}
+            if isinstance(schema, dict) and schema.get("format") == "python" and isinstance(value, str):
+                try:
+                    tree = ast.parse(value)
+                    entry = schema.get("x-entrypoint")
+                    if entry and not any(isinstance(item, ast.FunctionDef) and item.name == entry for item in tree.body):
+                        report("python_entrypoint", f"缺少函数入口 {entry}", id_, prefix + (name,))
+                except SyntaxError as error:
+                    report("python_syntax", f"第 {error.lineno} 行：{error.msg}", id_, prefix + (name,))
             for metadata in model_field.metadata:
                 checks = (("ge", lambda v: value >= v), ("gt", lambda v: value > v),
                           ("le", lambda v: value <= v), ("lt", lambda v: value < v),
@@ -285,16 +295,14 @@ def describe_block(document, block_id, registry):
     _, _, views, diagnostics, _ = _analyze(document, registry, None, True)
     if block_id not in views:
         raise GraphError(diagnostics)
-    from .Protocol import DefinitionDescriptor, DefinitionRef
     view = views[block_id]
     block = next(item for item in document.blocks if item.id == block_id)
     fields = [item.model_copy(deep=True) for item in view.inputs]
     for item in fields:
         item.bound = item.name in view.captured or item.name in block.inputs
-    return DefinitionDescriptor(definition=DefinitionRef(id=view.definition.id, version=view.definition.version),
-        title=view.definition.title, description=view.definition.description, operations=list(view.definition.operations),
-        args=describe_fields(view.args_model, registry.types, view.captured_args | block.args), inputs=fields,
-        outputs={"result": view.output}, dynamic_inputs=view.definition.kind in ("operator_apply", "template_apply"))
+    return registry.describe_definition(view.definition.id, view.definition.version).model_copy(update={
+        "args": describe_fields(view.args_model, registry.types, view.captured_args | block.args),
+        "inputs": fields, "outputs": {"result": view.output}})
 
 
 def compile_graph(document, registry, *, targets=None, resources=None):

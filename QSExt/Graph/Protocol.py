@@ -131,6 +131,10 @@ class DefinitionDescriptor(ProtocolModel):
 
     definition: DefinitionRef
     title: str
+    category: str = "通用"
+    source_path: str = ""
+    source_category: str = ""
+    directory_categories: dict[str, str] = Field(default_factory=dict)
     description: str = ""
     operations: list[str]
     args: list[FieldDescriptor] = Field(default_factory=list)
