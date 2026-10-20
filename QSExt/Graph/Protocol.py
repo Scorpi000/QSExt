@@ -130,6 +130,7 @@ class DefinitionDescriptor(ProtocolModel):
     """代码注册目录的公开描述。"""
 
     definition: DefinitionRef
+    component_kind: str = ""
     title: str
     category: str = "通用"
     source_path: str = ""
@@ -143,6 +144,7 @@ class DefinitionDescriptor(ProtocolModel):
     dynamic_inputs: bool = False
     default_args: dict[str, JsonValue] = Field(default_factory=dict)
     default_result_args: dict[str, JsonValue] = Field(default_factory=dict)
+    default_extensions: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class Diagnostic(ProtocolModel):

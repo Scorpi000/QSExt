@@ -24,3 +24,5 @@ from .Workbench import construction_scope, get_construction_context
 from .Templates import TemplateRecipe, export_template, import_template, insert_template
 from .Import import DefinitionImportError, DefinitionDatabase, graph_from_nodes, import_definition
 from .OperatorSnapshots import operator_snapshot, register_operator_snapshot
+from .Subgraphs import (SubgraphRecipe, SubgraphInput, SubgraphParameter, InputEndpoint,
+                        ParameterEndpoint, extract_subgraph, register_subgraph, expand_subgraphs, replace_subgraph)

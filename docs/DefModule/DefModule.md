@@ -165,6 +165,16 @@ def defStrategy(sdi: DefInput) -> list:
     return [strategy_instance]
 ```
 
+`stock_cn_strategy_example.py` 返回 `strategy_from_signal`、`strategy_from_custom_class`
+和 `strategy_from_timing_account` 三个账户。第三个使用 `MakeTimingAccount`：短期均线
+不低于长期均线时看多，否则看空并清仓；仅价格大于零且两条均线齐备的标的入池。
+`ModelArgs["timing_init_cash"]` 设置每个标的的固定入池本金，缺省时沿用 `init_cash`。
+盈亏留在各自子账户复投，出池清仓后提走剩余现金，再入池重新注入本金。
+
+配置 `BT_STORE` 后，执行脚本自动为该账户选择 `TimingAccountStats`，保存资金流水、
+资金流调整净值、择时交易及胜率和赔率。单独生成报告时，使用
+`TimingAccountReport(TimingAccountStats(account))`。
+
 ### 混合模块示例
 
 ```python

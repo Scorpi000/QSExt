@@ -1,5 +1,5 @@
 """静态校验图文档，并将选定输出的依赖闭包编译为核心对象。"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from copy import deepcopy
 import ast
 import re
@@ -32,6 +32,7 @@ class SourceMapping:
     port: str
     instance_id: str
     role: str
+    internal_path: tuple[str, ...] = ()
 
 
 @dataclass
@@ -290,7 +291,19 @@ def validate_graph(document, registry, *, targets=None, allow_partial=True):
         诊断元组；结构和类型错误即使在草稿中仍为 error。
     """
     document = _document_snapshot(document)
-    return tuple(_analyze(document, registry, targets, allow_partial)[3])
+    diagnostics = _analyze(document, registry, targets, allow_partial)[3]
+    if any(item.severity == "error" for item in diagnostics):
+        return tuple(diagnostics)
+    from .Subgraphs import expand_subgraphs
+    try:
+        expansion = expand_subgraphs(document, registry, targets=targets)
+    except ValueError as error:
+        return (*diagnostics, Diagnostic(code="invalid_subgraph", message=str(error)))
+    if not expansion.origins:
+        return tuple(diagnostics)
+    diagnostics += [expansion.diagnostic(item) for item in
+                    _analyze(expansion.document, registry, targets, allow_partial)[3]]
+    return tuple({item.model_dump_json(): item for item in diagnostics}.values())
 
 
 def describe_block(document, block_id, registry):
@@ -309,7 +322,30 @@ def describe_block(document, block_id, registry):
         "inputs": fields, "outputs": {"result": view.output}})
 
 
-def compile_graph(document, registry, *, targets=None, resources=None):
+def compile_graph(document, registry, *, targets=None, resources=None, source_origins=None):
+    """静态展开子图后构造普通图，将内部诊断和运行来源映射到组件实例。"""
+    from .Subgraphs import expand_subgraphs
+    document = _document_snapshot(document)
+    diagnostics = _analyze(document, registry, _target_names(document, targets), False)[3]
+    if any(item.severity == "error" for item in diagnostics):
+        raise GraphError(diagnostics)
+    try:
+        expansion = expand_subgraphs(document, registry, targets=_target_names(document, targets))
+    except ValueError as error:
+        raise GraphError([Diagnostic(code="invalid_subgraph", message=str(error))]) from error
+    expansion.origins = {**(source_origins or {}), **expansion.origins}
+    try:
+        result = _compile_graph(expansion.document, registry, targets=targets, resources=resources)
+    except GraphError as error:
+        raise GraphError([expansion.diagnostic(item) for item in error.diagnostics]) from error
+    result.source_map = tuple(replace(item, block_id=expansion.origins[item.block_id][0],
+        internal_path=tuple(expansion.origins[item.block_id][1])) if item.block_id in expansion.origins else item
+        for item in result.source_map)
+    result.diagnostics = tuple(expansion.diagnostic(item) for item in result.diagnostics)
+    return result
+
+
+def _compile_graph(document, registry, *, targets=None, resources=None):
     """只构造目标依赖闭包，不执行计算、不解析资源句柄。
 
     Args:

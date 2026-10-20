@@ -48,6 +48,8 @@ class Definition:
     target: type | None = None
     default_args: dict = field(default_factory=dict)
     default_result_args: dict = field(default_factory=dict)
+    default_extensions: dict = field(default_factory=dict)
+    recipe: object | None = None
 
     def output_type(self, operation, args):
         """在不调用构造器的情况下确定出口类型。"""
@@ -118,6 +120,7 @@ class DefinitionRegistry:
                 item.default_available = item.has_default = True
                 item.required = item.default_factory = False
         return DefinitionDescriptor(definition=DefinitionRef(id=definition.id, version=definition.version),
+            component_kind=definition.kind,
             title=definition.title, category=definition.category, description=definition.description, operations=list(definition.operations),
             source_path=source_path,
             source_category=self.source_categories.get(source_path, ""),
@@ -125,6 +128,7 @@ class DefinitionRegistry:
                                   if source_path.startswith(path + "/")},
             args=args, inputs=describe_fields(definition.input_model, self.types),
             default_args=deepcopy(definition.default_args), default_result_args=deepcopy(definition.default_result_args),
+            default_extensions=deepcopy(definition.default_extensions),
             outputs={"result": definition.output_type(definition.operations[0], definition.default_args)},
             dynamic_inputs=definition.kind in ("operator_apply", "template_apply"))
 

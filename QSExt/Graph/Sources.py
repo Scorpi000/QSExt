@@ -37,18 +37,25 @@ class ResourceFactor(Factor):
         """将来源加入准备队列，保持来源为运行图叶子。"""
         state = context.NodeState.setdefault(self.InstanceID, {})
         state.setdefault("source_dates", set()).update(context.getDateTime(init_data.DTRange))
-        state.setdefault("source_ids", set()).update(getattr(init_data, "SectionIDs", None) or context.SectionIDs)
+        state.setdefault("source_ids", set()).update(getattr(init_data, "SectionIDs", None) or self.Args.SectionIDs or context.SectionIDs)
         context.PrepareNodeDict[self.InstanceID] = (self.InstanceID, None)
         return []
 
     def prepare_compute(self, prepare_data, context):
         """解析当前运行的资源句柄，状态仅存放在 Context 中。"""
+        state = context.NodeState[self.InstanceID]
+        dates, ids = sorted(state.pop("source_dates")), sorted(state.pop("source_ids"))
+        if dates:
+            calculation_dates = self._QS_getCalcDTs(dates)
+            if calculation_dates is not None:
+                dates = calculation_dates
+        if not dates:
+            state["graph_resource"] = pd.DataFrame(index=dates, columns=ids)
+            return
         resource = self._QSArgs.Resource
         handle = resolve_resource(context, resource)
         if resource.kind == "factor_database":
             handle = handle.getTable(self._QSArgs.Table, args=self._QSArgs.TableArgs) if self._QSArgs.TableArgs else handle.getTable(self._QSArgs.Table)
-        state = context.NodeState[self.InstanceID]
-        dates, ids = sorted(state.pop("source_dates")), sorted(state.pop("source_ids"))
         if resource.kind == "factor_database" or isinstance(handle, Factor):
             nested_context = FactorContext(DTRuler=context.DTRuler, SectionIDs=ids,
                 Resources=context.Resources, DataVersion=context.DataVersion)
@@ -81,8 +88,8 @@ class SourceArgs(InputModel):
     factor_name: str = ""
     name: str = "ResourceFactor"
     data_type: str = "double"
-    table_args: dict[str, JsonValue] = Field(default_factory=dict)
-    factor_args: dict[str, JsonValue] = Field(default_factory=dict)
+    table_args: dict[str, JsonValue] = Field(default_factory=dict, title="因子表参数")
+    factor_args: dict[str, JsonValue] = Field(default_factory=dict, title="因子参数")
 
 
 class SourceInputs(InputModel):

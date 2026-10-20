@@ -30,6 +30,7 @@ from QuantStudio.BackTest.BackTestModel import DTInitData, DTLocalContext
 from QuantStudio.Factor.FactorCache import FeatherFactorCache
 from QuantStudio.Factor.FactorStorer import FactorStorer
 from QuantStudio.BackTest.Strategy.Strategy import AccountStats
+from QuantStudio.BackTest.Strategy.TimingStrategy import MakeTimingAccount, TimingAccountStats
 from QuantStudio.BackTest.BTResultDB import HDF5BTResultDB
 from QuantStudio.BackTest.BTStorer import BTStorer
 from QSExt.DefModule.DefContent import (
@@ -43,6 +44,20 @@ filterWarnings()
 
 __NOW__ = dt.datetime.now()
 __FILE_NAME__ = os.path.splitext(os.path.basename(__file__))[0]
+
+
+def _make_account_stats(account, section_ids):
+    """根据账户类型创建配套统计节点。
+
+    Args:
+        account: 普通账户或独立择时账户因子。
+        section_ids: 回测账户的完整标的截面。
+
+    Returns:
+        使用正确现金汇总和资金流口径的账户统计节点。
+    """
+    stats_class = TimingAccountStats if isinstance(account.Operator, MakeTimingAccount) else AccountStats
+    return stats_class(account=account, args={"AccountSection": section_ids, "Name": account.Name})
 
 
 def main(settings_path: str = "settings", use_proxy: bool = False, register_graph: bool = False, **cmd_overrides):
@@ -318,7 +333,7 @@ def _build_strategy_storers_from_defs(settings, pool, di, def_results, profile=N
                 if val is not None and val != "" and val != []:
                     metadata[key] = val
             bt_storer = BTStorer(
-                deps=[AccountStats(account=s, args={"AccountSection": di.SectionIDs, "Name": s.Name}) for s in iDef.StrategyList],
+                deps=[_make_account_stats(s, di.SectionIDs) for s in iDef.StrategyList],
                 args={"TargetDB": bt_result_db, "GroupName": group_name, "Metadata": metadata or None},
             )
             StorerList.append(bt_storer)
@@ -400,7 +415,7 @@ def _build_strategy_storers(settings, pool, di, modules, profile=None, dtruler=N
                 if val is not None and val != "" and val != []:
                     metadata[key] = val
             bt_storer = BTStorer(
-                deps=[AccountStats(account=s, args={"AccountSection": di.SectionIDs, "Name": s.Name}) for s in iDef.StrategyList],
+                deps=[_make_account_stats(s, di.SectionIDs) for s in iDef.StrategyList],
                 args={"TargetDB": bt_result_db, "GroupName": group_name, "Metadata": metadata or None},
             )
             StorerList.append(bt_storer)

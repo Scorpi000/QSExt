@@ -30,6 +30,7 @@ _BUILTIN_DB_CLASSES = {
     "BaoStockDB": "QuantStudio.Factor.BaoStockDB.BaoStockDB",
     "HDF5DB": "QuantStudio.Factor.HDF5DB.HDF5DB",
     "SQLDB": "QuantStudio.Factor.SQLDB.SQLDB",
+    "AKShareDB": "QSExt.Factor.AKShareDB.AKShareDB",
 }
 
 

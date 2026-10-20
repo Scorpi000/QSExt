@@ -6,8 +6,11 @@
 1. __STRATEGY_META__ 元信息声明
 2. MakeStrategy 子类 —— 重写 genSignal()
 3. defStrategy 标准签名 —— 从 sdi 获取依赖并构造策略实例
+4. MakeTimingAccount —— 每个标的独立注入固定本金并交易，输出 strategy_from_timing_account
 
 策略逻辑：当短期均线上穿长期均线时买入（信号=1），下穿时卖出（信号=-1）。
+独立择时账户在价格有效且均线齐备时入池；每个标的的本金由 timing_init_cash
+指定，未设置时沿用 init_cash。回测结果使用 TimingAccountStats 统计出入金与胜率、赔率。
 
 """
 import datetime as dt
@@ -17,6 +20,7 @@ import pandas as pd
 
 from QuantStudio.Factor import FactorOperator as fo
 from QuantStudio.BackTest.Strategy.Strategy import MakeStrategy, MakeAccount
+from QuantStudio.BackTest.Strategy.TimingStrategy import MakeTimingAccount
 from QSExt.DefModule.DefContent import DefInput
 
 
@@ -52,6 +56,7 @@ __STRATEGY_META__ = {
     "ModelArgs": {
         "short_window": "短期均线窗口",
         "long_window": "长期均线窗口",
+        "timing_init_cash": "独立择时账户每个标的的入池本金，未设置时沿用 init_cash",
     },
 
     "Author": "示例作者",
@@ -169,5 +174,15 @@ def defStrategy(sdi: DefInput) -> list:
     )
     Strategy = makeStrategy(ma_short, ma_long, last_price=close, factor_args={"Name": "strategy_from_custom_class"})
     StrategyList.append(Strategy)
-    
+
+    # 独立择时账户：直接使用方向信号，价格有效且均线齐备时进入标的池。
+    TimingSignal = fo.Where()(1, ma_short >= ma_long, -1)
+    TimingMask = fo.NotNull()(ma_short) & fo.NotNull()(ma_long) & (close > 0)
+    timing_init_cash = float(sdi.ModelArgs.get("timing_init_cash", init_cash))
+    Strategy = MakeTimingAccount(init_cash=timing_init_cash, start_dt=start_dt)(
+        last_price=close, signal=TimingSignal, mask=TimingMask,
+        factor_args={"Name": "strategy_from_timing_account"},
+    )
+    StrategyList.append(Strategy)
+
     return StrategyList
