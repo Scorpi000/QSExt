@@ -3,7 +3,7 @@
 import ast
 import os
 import datetime as dt
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional, List, Union, Tuple
 
 import numpy as np
 import pandas as pd
@@ -18,15 +18,6 @@ from QuantStudio.Factor.FactorUtils import (
 )
 from QuantStudio.Tools.SQLDBFun import genSQLInCondition
 from QSExt import __QS_MainPath__, __QS_ConfigPath__
-
-
-def _normalizeArgs(args, arg_class):
-    """将旧元数据中的中文参数名转换为当前参数名，英文键优先。"""
-    fields = arg_class.model_fields
-    titles = {field.title: name for name, field in fields.items() if field.title}
-    values = {titles.get(key, key): value for key, value in args.items()}
-    values.update({key: value for key, value in args.items() if key in fields})
-    return values
 
 
 def _importInfo(info_resource):
@@ -53,45 +44,132 @@ def _importInfo(info_resource):
             FactorInfo.loc[name, "FieldType"] = fields.replace({"InDate": "Date", "OutDate": "EndDate"}).to_numpy()
     return TableInfo, FactorInfo
 
+class WindIDMapping:
+    WindDB = None
+    _MFID2WindCodeMapping = None
 
-class _WindSQLTable:
-    """为通用 SQL 表注入 Wind 元数据和表名前缀。"""
+    @classmethod
+    def MFID2WindCode(cls, ids):
+        IDMapping = cls._MFID2WindCodeMapping
+        if IDMapping is not None:
+            IDs = IDMapping.set_index(["ID"]).iloc[:, 0].reindex(index=ids)
+            if pd.notnull(IDs).all(): return IDs.tolist()
+        SQLStr = f"""SELECT s_info_outercode, f_info_windcode
+        FROM {cls.WindDB.Args.TablePrefix}ChinaMutualFundDescription
+        """
+        IDMapping = pd.DataFrame(cls.WindDB.fetchall(SQLStr), columns=["ID", "WindCode"])
+        cls._MFID2WindCodeMapping = IDMapping
+        IDs = IDMapping.set_index(["ID"]).iloc[:, 0].reindex(index=ids)
+        return IDs.where(pd.notnull(IDs), ids).tolist()
 
-    def __init__(self, fdb, args={}, **kwargs):
-        args = _normalizeArgs(args, self.__QS_ArgClass__)
-        args = {"TablePrefix": fdb.Args.TablePrefix, **args}
-        name = args["Name"]
-        super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[name],
-                         factor_info=fdb._FactorInfo.loc[name], security_info=None,
-                         exchange_info=None, **kwargs)
+    @classmethod
+    def WindCode2MFID(cls, ids):
+        IDMapping = cls._MFID2WindCodeMapping
+        if IDMapping is not None:
+            IDs = IDMapping.set_index(["WindCode"]).iloc[:, 0].reindex(index=ids)
+            if pd.notnull(IDs).all(): return IDs.tolist()
+        SQLStr = f"""SELECT s_info_outercode, f_info_windcode
+        FROM {cls.WindDB.Args.TablePrefix}ChinaMutualFundDescription
+        """
+        IDMapping = pd.DataFrame(cls.WindDB.fetchall(SQLStr), columns=["ID", "WindCode"])
+        cls._MFID2WindCodeMapping = IDMapping
+        IDs = IDMapping.set_index(["WindCode"]).iloc[:, 0].reindex(index=ids)
+        return IDs.where(pd.notnull(IDs), ids).tolist()
+
+class _WindSQLTable(SQL_Table):
+    """为通用 SQL 表注入 Wind 元数据和表名前缀"""
+    class __QS_ArgClass__(SQL_Table.__QS_ArgClass__):
+        IDMapping:Optional[Literal["MFID2WindCode"]] = Field(default=None, title="ID映射", frozen=True, repr=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        WindIDMapping.WindDB = self._FactorDB
+
+    def __QS_adjustID__(self, ids):
+        if self.Args.IDMapping == "MFID2WindCode":
+            return WindIDMapping.MFID2WindCode(ids=ids)
+        return ids
+    
+    def __QS_restoreID__(self, ids):
+        if self.Args.IDMapping == "MFID2WindCode":
+            return WindIDMapping.WindCode2MFID(ids=ids)
+        return ids
 
 
 class _WideTable(_WindSQLTable, SQL_WideTable):
-    """Wind 宽因子表。"""
+    """Wind 宽因子表"""
+    __doc__ = SQL_WideTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_WideTable.__QS_ArgClass__):
+        pass
+
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
+
 
 
 class _NarrowTable(_WindSQLTable, SQL_NarrowTable):
-    """Wind 窄因子表。"""
+    """Wind 窄因子表"""
+    __doc__ = SQL_NarrowTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_NarrowTable.__QS_ArgClass__):
+        pass
+    
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
 
 
 class _FeatureTable(_WindSQLTable, SQL_FeatureTable):
-    """Wind 特征因子表。"""
+    """Wind 特征因子表"""
+    __doc__ = SQL_FeatureTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_FeatureTable.__QS_ArgClass__):
+        pass
+    
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
+    
 
 
 class _TimeSeriesTable(_WindSQLTable, SQL_TimeSeriesTable):
-    """Wind 时序因子表。"""
+    """Wind 时序因子表"""
+    __doc__ = SQL_TimeSeriesTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_TimeSeriesTable.__QS_ArgClass__):
+        pass
+            
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
 
 
 class _MappingTable(_WindSQLTable, SQL_MappingTable):
-    """Wind 映射因子表。"""
+    """Wind 映射因子表"""
+    __doc__ = SQL_MappingTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_MappingTable.__QS_ArgClass__):
+        pass
+                
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
+    
 
 
 class _ConstituentTable(_WindSQLTable, SQL_ConstituentTable):
-    """Wind 成份因子表。"""
-
+    """Wind 成份因子表"""
+    __doc__ = SQL_ConstituentTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_ConstituentTable.__QS_ArgClass__):
+        pass
+                    
+    def __init__(self, fdb, args={}, **kwargs):
+        Name = args["Name"]
+        return super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
+        
 
 class _FinancialTable(_WindSQLTable, SQL_FinancialTable):
-    """保留 Wind 公告日期和业绩快报口径的财务因子表。"""
+    """保留 Wind 公告日期和业绩快报口径的财务因子表"""
+    __doc__ = SQL_FinancialTable.__doc__
+    class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_FinancialTable.__QS_ArgClass__):
+        pass
 
     class __QS_ArgClass__(SQL_FinancialTable.__QS_ArgClass__):
         ReportType: list[str] = Field(default_factory=lambda: ["408001000", "408004000", "408005000"], title="报表类型", frozen=True)
@@ -99,7 +177,8 @@ class _FinancialTable(_WindSQLTable, SQL_FinancialTable):
         NoticeFactor: str = Field(default="", title="业绩预告因子", frozen=True)
 
     def __init__(self, fdb, args={}, **kwargs):
-        super().__init__(fdb=fdb, args=args, **kwargs)
+        Name = args["Name"]
+        super().__init__(fdb=fdb, args=args, table_info=fdb._TableInfo.loc[Name], factor_info=fdb._FactorInfo.loc[Name], security_info=None, exchange_info=None, **kwargs)
         self._ANNDateField = self.Args.PublDTField
         self._ReportDateField = self.Args.DTField
         self._ReportTypeField = self.Args.AdjustTypeField
@@ -574,6 +653,8 @@ class _AnalystEstDetailTable(_AnalystRatingDetailTable):
         return _alignAnalystData(Panel(Data, items=factor_names, major_axis=Dates, minor_axis=ids), factor_names, ids, dts)
 
 
+StockExchangeType = Literal["SSE", "SZSE", "BSE"]
+MFTypeType = Literal["ETF", "LOF", "QDII", "封闭基金", "ETF联接基金"]
 
 class WindDB2(QSSQLObject, FactorDB):
     """Wind 量化研究数据库。
@@ -610,71 +691,146 @@ class WindDB2(QSSQLObject, FactorDB):
     def getTable(self, table_name: str, args: dict={}) -> SQL_Table:
         if self._TableInfo is not None and table_name in self._TableInfo.index:
             info = self._TableInfo.loc[table_name]
-            table_type = args.get("TableType", args.get("因子表类型", info["TableClass"]))
+            table_type = args.get("TableType", info["TableClass"])
             table_class = _TABLE_CLASSES.get(table_type)
             if table_class is not None:
                 defaults = info["DefaultArgs"] if table_type == info["TableClass"] else None
                 defaults = {} if pd.isna(defaults) else ast.literal_eval(defaults)
-                if table_type == "MappingTable" and defaults.get("公告时点字段") is None:
-                    defaults.pop("公告时点字段", None)
-                arg_class = table_class.__QS_ArgClass__
+                if table_type == "MappingTable" and defaults.get("PublDTField") is None:
+                    defaults.pop("PublDTField", None)
                 values = {"DTFmt": "%Y%m%d", "DateFmt": "%Y%m%d"}
-                for source in (self.Args.FTArgs, defaults, args):
-                    values.update(_normalizeArgs(source, arg_class))
+                values = values | self.Args.FTArgs | defaults | args
                 values["Name"] = table_name
                 return table_class(fdb=self, args=values, logger=self.Logger)
         raise __QS_Error__(f"因子库 '{self.Args.Name}' 目前尚不支持因子表: '{table_name}'")
 
-    def getTradeDay(self, start_date=None, end_date=None, exchange="SSE", **kwargs):
+    def getTradeDay(self, start_date:Optional[dt.datetime]=None, end_date:Optional[dt.datetime]=None, exchange:Literal["SSE", "SZSE", "SHFE", "DCE", "CZCE", "INE", "CFFEX"]="SSE", **kwargs) -> List[dt.datetime]:
+        """给定交易所、起始日和结束日, 获取交易日序列
+        
+        Args:
+            start_date: 起始日, None 表示从 1900-01-01 开始
+            end_date: 结束日, None 表示当前日期
+            exchange: 交易所, 默认 SSE(上交所)
+
+        Returns:
+            交易日序列
+        """
         if start_date is None: start_date = dt.datetime(1900, 1, 1)
         if end_date is None: end_date = dt.datetime.today()
         ExchangeInfo = self._TableInfo.reindex(["香港交易所交易日历", "中国A股交易日历", "中国期货交易日历", "中国债券市场交易日", "中国期权交易日历"])
         ExchangeInfo = ExchangeInfo[ExchangeInfo["Description"].str.contains(exchange, regex=False, na=False)]
         if ExchangeInfo.shape[0]==0: raise __QS_Error__("不支持交易所: '%s' 的交易日序列!" % exchange)
         else: Dates = self.getTable(ExchangeInfo.index[0]).getDateTime(iid=exchange, start_dt=start_date, end_dt=end_date)
-        if kwargs.get("output_type", "datetime")=="date": return list(map(lambda x: x.date(), Dates))
-        else: return Dates
+        return Dates
 
-    def _getAllAStock(self, date, is_current=True):
+    def _getAllAStock(self, date, is_current=True, start_date=None, exchange=("SSE", "SZSE", "BSE")):
+        if start_date is not None: start_date = start_date.strftime("%Y%m%d")
         if is_current:
-            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}AShareDescription WHERE (S_INFO_DELISTDATE is NULL OR S_INFO_DELISTDATE>'{Date}') AND S_INFO_LISTDATE<='{Date}' ORDER BY S_INFO_WINDCODE"
+            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}AShareDescription WHERE (S_INFO_DELISTDATE IS NULL OR S_INFO_DELISTDATE > '{Date}') AND S_INFO_LISTDATE <= '{Date}'"
         else:
-            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}AShareDescription WHERE S_INFO_LISTDATE<='{Date}' ORDER BY S_INFO_WINDCODE"
-        return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d")))]
-
-    def getStockID(self, index_id="全体A股", date=None, is_current=True, **kwargs):
+            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}AShareDescription WHERE S_INFO_LISTDATE <= '{Date}'"
+        if start_date is not None:
+            SQLStr += " AND (S_INFO_DELISTDATE IS NULL OR S_INFO_DELISTDATE > '{StartDate}')"
+            if is_current: SQLStr += " AND S_INFO_LISTDATE <= '{StartDate}'"
+        SQLStr += f""" AND S_INFO_EXCHMARKET IN ('{"','".join(exchange)}')"""
+        SQLStr += " ORDER BY S_INFO_WINDCODE"
+        return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), StartDate=start_date))]
+    
+    def getStockID(self, exchange:Union[StockExchangeType, Tuple[StockExchangeType, ...]]=("SSE", "SZSE", "BSE"), date=None, is_current=True, start_date:Optional[dt.datetime]=None, **kwargs) -> List[str]:
+        """给定交易所和日期, 获取股票证券 ID 序列
+        
+        Args:
+            exchange: 交易所(str)或者交易所列表(tuple), 默认 ("SSE", "SZSE", "BSE") 表示上交所、深交所、北交所
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示上市日期在指定日之前的股票, True 表示上市日期在指定日之前且尚未退市的股票
+            start_date: 起始日, 如果非 None 并且 is_current=False 表示提取在 start_date 至 date 之间上市过的股票, 如果 is_current=True 表示提取在 start_date 至 date 之间均保持上市的股票
+        
+        Returns:
+            股票证券 ID 序列
+        """
         if date is None: date = dt.date.today()
-        if index_id=="全体A股": return self._getAllAStock(date=date, is_current=is_current)
-        for iTableName in self._TableInfo[(self._TableInfo["TableClass"]=="ConstituentTable") & self._TableInfo.index.str.contains("A股")].index:
-            IDs = self.getTable(iTableName).getID(ifactor_name=index_id, idt=date, is_current=is_current)
-            if IDs: return IDs
-        else: return []
+        if isinstance(exchange, str):
+            exchange = {exchange}
+        else:
+            exchange = set(exchange)
+        IDs = []
+        # A 股
+        iExchange = {"SSE", "SZSE", "BSE"}
+        if not exchange.isdisjoint(iExchange):
+            IDs += self._getAllAStock(exchange=exchange.intersection(iExchange), date=date, is_current=is_current, start_date=start_date)
+            exchange = exchange.difference(iExchange)
+        if exchange:
+            Msg = f"外部因子库 '{self._QSArgs.Name}' 调用 getStockID 时错误: 尚不支持交易所 {str(exchange)}"
+            self._QS_Logger.error(Msg)
+            raise __QS_Error__(Msg)
+        return IDs
 
-    def getMutualFundID(self, exchange=None, date=None, is_current=True, start_date=None, **kwargs):
+    def getMutualFundID(self, type:Optional[MFTypeType]=None, exchange:Optional[Union[str, Tuple[str]]]=None, date:Optional[dt.datetime]=None, is_current:bool=True, start_date:Optional[dt.datetime]=None, **kwargs) -> List[str]:
+        """给定日期, 获取公募基金 ID 序列
+        
+        Args:
+            type: 基金类型, None 表示取所有的基金
+            exchange: 交易所(str)或者交易所列表(tuple), 如果非 None 表示只考虑在这些指定的交易所上市的基金, None 表示包括非上市基金
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示成立日在指定日之前的基金, True 表示成立日在指定日之前且尚未清盘的基金
+            start_date: 起始日, 如果非 None 并且 is_current=False 表示提取在 start_date 至 date 之间存续过的基金, 如果 is_current=True 表示提取在 start_date 至 date 之间均保持存续的基金
+        
+        Returns:
+            公募基金证券 ID 序列
+        """
         if date is None: date = dt.date.today()
         if start_date is not None: start_date = start_date.strftime("%Y%m%d")
-        SQLStr = "SELECT f_info_windcode AS ID FROM {Prefix}ChinaMutualFundDescription "
-        SQLStr += "WHERE {Prefix}ChinaMutualFundDescription.f_info_setupdate <= '{Date}' "
+        SQLStr = "SELECT s_info_outercode AS ID FROM {Prefix}ChinaMutualFundDescription "
+        SQLStr += "WHERE f_info_setupdate <= '{Date}' "
         if start_date is not None:
-            SQLStr += "AND (({Prefix}ChinaMutualFundDescription.f_info_maturitydate IS NULL) OR ({Prefix}ChinaMutualFundDescription.f_info_maturitydate >= '{StartDate}')) "
+            SQLStr += "AND ((f_info_maturitydate IS NULL) OR (f_info_maturitydate >= '{StartDate}')) "
         if is_current:
             if start_date is None:
-                SQLStr += "AND (({Prefix}ChinaMutualFundDescription.f_info_maturitydate IS NULL) OR ({Prefix}ChinaMutualFundDescription.f_info_maturitydate >= '{Date}')) "
+                SQLStr += "AND ((f_info_maturitydate IS NULL) OR (f_info_maturitydate >= '{Date}')) "
             else:
-                SQLStr += "AND {Prefix}ChinaMutualFundDescription.f_info_setupdate <= '{StartDate}' "
-                SQLStr += "AND (({Prefix}ChinaMutualFundDescription.f_info_maturitydate IS NULL) OR ({Prefix}ChinaMutualFundDescription.f_info_maturitydate >= '{Date}')) "
+                SQLStr += "AND f_info_setupdate <= '{StartDate}' "
+                SQLStr += "AND ((f_info_maturitydate IS NULL) OR (f_info_maturitydate >= '{Date}')) "
         if exchange:
             if isinstance(exchange, str):
-                SQLStr += f"AND {self.Args.TablePrefix}ChinaMutualFundDescription.f_info_exchmarket = '{exchange}' "
+                SQLStr += f"AND f_info_exchmarket = '{exchange}' "
             else:
-                SQLStr += "AND {Prefix}ChinaMutualFundDescription.f_info_exchmarket IN ('"+"', '".join(exchange)+"') "
+                SQLStr += "AND f_info_exchmarket IN ('"+"', '".join(exchange)+"') "
+        if type:
+            if type == "ETF":
+                SQLStr += "AND f_info_name LIKE '%ETF%' AND f_info_exchmarket IS NOT NULL "
+            elif type == "LOF":
+                SQLStr += "AND f_info_fullname LIKE '%LOF%' AND f_info_exchmarket IS NOT NULL "
+            elif type == "ETF联接基金":
+                SQLStr += "AND f_info_name LIKE '%ETF%' AND f_info_exchmarket IS NULL "
+            elif type == "封闭基金":
+                SQLStr += "AND f_info_type = '契约型封闭式' "
+            elif type == "QDII":
+                SQLStr += "AND f_info_firstinvesttype = 'QDII' "
+            else:
+                raise __QS_Error__(f"不支持的入参 type={type}")
         SQLStr += "ORDER BY ID"
         Rslt = np.array(self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), StartDate=start_date)))
         if Rslt.shape[0]>0: return Rslt[:, 0].tolist()
         else: return []
 
-    def getFutureID(self, future_code="IF", date=None, is_current=True, **kwargs):
+    def getFutureID(self, future_code:Optional[Union[str, Tuple[str]]]=None, exchange:Optional[Union[str, Tuple[str]]]=None, date=None, is_current=True, start_date:Optional[dt.datetime]=None, **kwargs) -> List[str]:
+        """给定交易所、期货品种代码和日期, 获取期货证券 ID 序列
+        
+        Args:
+            exchange: 交易所(str)或者交易所列表(tuple), 默认 None 表示所有交易所
+            future_code: 期货品种代码(str)或者期货品种代码列表(tuple), None 表示所有期货品种代码
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示上市日在指定日之前的期货, True 表示上市日在指定日之前且尚未退市的期货
+            start_date: 起始日, 如果非 None 并且 is_current=False 表示提取在 start_date 至 date 之间上市过的期货, 如果 is_current=True 表示提取在 start_date 至 date 之间均保持上市的期货
+            kwargs:
+                contract_type: 合约类型, 可选 "月合约", "连续合约", "所有", 默认值 "月合约"
+                include_simulation: 是否包含仿真合约, 默认值 False
+                
+        Returns:
+            期货证券 ID 序列
+        """
         if date is None: date = dt.date.today()
+        if start_date is not None: start_date = start_date.strftime("%Y%m%d")
         SQLStr = "SELECT DISTINCT s_info_windcode FROM {Prefix}CFuturesDescription "
         if future_code:
             if isinstance(future_code, str): SQLStr += "WHERE fs_info_sccode='"+future_code+"' "
@@ -682,14 +838,34 @@ class WindDB2(QSSQLObject, FactorDB):
         else: SQLStr += "WHERE fs_info_sccode IS NOT NULL "
         if not kwargs.get("include_simulation", False): SQLStr += "AND s_info_name NOT LIKE '%仿真%' "
         ContractType = kwargs.get("contract_type", "月合约")
-        if ContractType!="所有": SQLStr += "AND fs_info_type="+("2" if ContractType=="连续合约" else "1")+" "
-        if ContractType!="连续合约":
-            SQLStr += "AND ((s_info_listdate<='{Date}') OR (s_info_listdate IS NULL)) "
-            if is_current: SQLStr += "AND ((s_info_delistdate>='{Date}') OR (s_info_delistdate IS NULL)) "
+        if ContractType != "所有": SQLStr += "AND fs_info_type="+("2" if ContractType=="连续合约" else "1")+" "
+        if ContractType != "连续合约":
+            SQLStr += "AND ((s_info_listdate <= '{Date}') OR (s_info_listdate IS NULL)) "
+            if is_current: SQLStr += "AND ((s_info_delistdate >= '{Date}') OR (s_info_delistdate IS NULL)) "
+            if start_date is not None:
+                SQLStr += " AND (s_info_delistdate IS NULL OR s_info_delistdate >= '{StartDate}')"
+                if is_current: SQLStr += " AND s_info_listdate <= '{StartDate}'"
+        if exchange:
+            if isinstance(exchange, str):
+                SQLStr += f"AND s_info_exchmarket = '{exchange}' "
+            else:
+                SQLStr += "AND s_info_exchmarket IN ('"+"', '".join(exchange)+"') "
         SQLStr += "ORDER BY s_info_windcode"
-        return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), FutureCode=future_code))]
+        return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), FutureCode=future_code, StartDate=start_date))]
 
-    def getFutureCode(self, exchange=None, date=None, is_current=True, **kwargs):
+    def getFutureCode(self, exchange:Optional[Union[str, Tuple[str]]]=None, date:Optional[dt.datetime]=None, is_current:bool=True, **kwargs) -> List[str]:
+        """给定交易所和日期, 获取期货品种代码序列
+        
+        Args:
+            exchange: 交易所(str)或者交易所列表(tuple), 默认 None 表示所有交易所
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示上市日在指定日之前的期货品种, True 表示上市日在指定日之前且尚未退市的期货品种
+            kwargs:
+                include_simulation: 是否包含仿真合约, 默认值 False
+        
+        Returns:
+            期货品种代码序列
+        """
         if date is None: date = dt.date.today()
         SQLStr = "SELECT DISTINCT fs_info_sccode FROM {Prefix}CFuturesDescription "
         SQLStr += "WHERE s_info_listdate<='{Date}' "
@@ -701,12 +877,28 @@ class WindDB2(QSSQLObject, FactorDB):
         SQLStr += "ORDER BY fs_info_sccode"
         return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d")))]
 
-    def getOptionID(self, option_code="510050OP", date=None, is_current=True, **kwargs):
+    def getOptionID(self, option_code:Optional[str]="510050", exchange:Optional[Union[str, Tuple[str]]]=None, date:Optional[dt.datetime]=None, is_current:bool=True, start_date:Optional[dt.datetime]=None, **kwargs) -> List[str]:
+        """给定期权品种代码和日期, 获取期权证券 ID 序列
+        
+        Args:
+            option_code: 期权品种代码, None 表示取全部的期权品种
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示上市日在指定日之前的期权, True 表示上市日在指定日之前且尚未退市的期权
+        
+        Returns:
+            期权证券 ID 序列
+        """
         if date is None: date = dt.date.today()
         SQLStr = "SELECT DISTINCT s_info_windcode FROM {Prefix}ChinaOptionDescription "
         SQLStr += "WHERE s_info_sccode LIKE '{OptionCode}%%' "
-        SQLStr += "AND s_info_ftdate<='{Date}' "
-        if is_current: SQLStr += "AND s_info_lasttradingdate>='{Date}' "
+        SQLStr += "AND s_info_ftdate <= '{Date}' "
+        if is_current: SQLStr += "AND s_info_lasttradingdate >= '{Date}' "
+        if start_date is not None:
+            SQLStr += " AND (s_info_lasttradingdate IS NULL OR s_info_lasttradingdate >= '{StartDate}')"
+            if is_current: SQLStr += " AND s_info_ftdate <= '{StartDate}'"
+        if exchange:
+            if isinstance(exchange, str): SQLStr += "AND s_info_exchange_name='"+exchange+"' "
+            else: SQLStr += "AND s_info_exchange_name IN ('"+"', '".join(exchange)+"') "
         SQLStr += "ORDER BY s_info_windcode"
         return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), OptionCode=option_code))]
 
