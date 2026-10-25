@@ -1,7 +1,8 @@
 """在执行准备阶段读取外部因子资源的叶子节点。"""
 import pandas as pd
+from datetime import datetime
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic import JsonValue
 
 from QuantStudio.Core.Input import EmptyDependencies, InputModel
@@ -132,9 +133,36 @@ SPECIAL_CONSTANT_COMPONENT = Component(id="qs.factor.special_constant", args_mod
     operations=("build", "apply"), title="特殊数值常量", category="因子")
 
 
+class DateTimeConstantArgs(InputModel):
+    value: str = Field(default="2026-01-01T00:00:00", title="日期时间",
+        description="固定的日期时间因子值，与计算日期轴无关；不带时区时保留原始时间，带时区时保留偏移。",
+        json_schema_extra={"format": "date-time"})
+    name: str = Field(default="日期时间常量", title="名称")
+
+    @field_validator("value")
+    @classmethod
+    def validate_datetime(cls, value):
+        datetime.fromisoformat(value)
+        return value
+
+
+def build_datetime_constant(block, args, inputs):
+    """将保存的 ISO 日期时间还原为 datetime，以 object 类型提供常量因子。"""
+    values = DateTimeConstantArgs(**args)
+    return DataFactor(datetime.fromisoformat(values.value),
+        args={**block.result_args, "Name": values.name, "DataType": "object"})
+
+
+DATETIME_CONSTANT_COMPONENT = Component(id="qs.factor.datetime_constant", args_model=DateTimeConstantArgs,
+    input_model=EmptyDependencies, output_type=Factor, builder=build_datetime_constant,
+    title="日期时间常量因子", category="因子",
+    infer_output=lambda args: TypeDescriptor(kind="factor", type_id="qs.factor", data_type="object"))
+
+
 def register_source_definitions(registry):
     """登记不在编译阶段连接资源的来源构造器。"""
     from .Tabular import TABULAR_DATA_COMPONENT
     register_component(registry, SOURCE_COMPONENT)
     register_component(registry, SPECIAL_CONSTANT_COMPONENT)
+    register_component(registry, DATETIME_CONSTANT_COMPONENT)
     register_component(registry, TABULAR_DATA_COMPONENT)

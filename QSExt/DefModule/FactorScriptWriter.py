@@ -145,6 +145,8 @@ def generate_script(
     Returns:
         输出文件的绝对路径
     """
+    if any(not isinstance(factor, Factor) for factor in factors):
+        raise TypeError("FactorScriptWriter 仅支持 Factor；普通节点请使用计算图导出")
     if factor_names is None:
         factor_names = [f.Name for f in factors]
     elif len(factor_names) != len(factors):

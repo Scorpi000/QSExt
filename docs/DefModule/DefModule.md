@@ -1,6 +1,37 @@
 # DefModule — 统一定义框架
 
-DefModule 是 QSExt 的统一因子/策略定义框架，支持在同一个脚本中定义和运行因子与策略。
+DefModule 是 QSExt 的统一计算图定义框架，支持返回任意 Node 子类的列表，供 QSWeb 展开为可编辑计算图；保留原因子/策略运行与注册接口。
+
+## 通用计算图定义
+
+推荐 `defNode(di: DefInput) -> list[Node]`。返回列表是公开输出，完整依赖图通过节点的 Dependencies 展开。使用 `__GRAPH_META__` 声明公共元信息，通用定义无需 TargetTable。
+
+```python
+__GRAPH_META__ = {
+    "MaxLookBack": 365,
+    "NodeDeps": [{"Module": ".signal", "Output": "signal", "Alias": "signal",
+                  "ModelArgs": {"window": "$window"}}],
+}
+
+def defNode(di):
+    return [make_report(di.Nodes["signal"])]
+```
+
+`Output` 匹配依赖模块的公开输出名，Alias 在当前模块内唯一。`$name` 引用父模块参数，`$$name` 转义为字面值。FactorDeps/StrategyDeps 保持兼容，并填充 di.Factors/di.Strategies；所有显式依赖同时出现在 di.Nodes。新的 GRAPH_META 优先；两种旧元信息字段冲突时需用 GRAPH_META 消歧。
+
+Python 使用 `build_graph_def([(module, model_args, meta_override)], di)`，得到 GraphBuildResult：requested 是按请求顺序排列的 GraphDef，definitions 是本次共享缓存，max_lookback 是依赖闭包最大回溯需求。GraphDef 的 NodeList/OutputNames 对应公开输出，FactorList/StrategyList/OtherNodeList 是派生视图。相同模块、参数和有效元信息在一次构图内只执行一次，不同实例不会按名称或 QSID 合并。
+
+`prepare_input(plan, di)` 回调在依赖分析后、执行入口前运行，可根据 plan.max_lookback 准备日期。RequireDates=True 的模块缺少 DTs 时在调用入口前失败。新协议严格返回列表；同一对象重复返回只保留首次，同名不同对象自动生成不同输出名。
+
+QSWeb 的脚本导入已接入该协议，并自动持久化可还原的上传 Node 类。示例 `examples/graph_example.py` 无需数据库，同时公开普通汇总节点和常量因子。未知外部类需先注册组件；上传类必须是模块级类，且不能带未建模的额外实例状态。
+
+只需导出已注册组件构成的图时：
+
+```bash
+python -m QSExt.DefModule.scripts.export_graph --source-dir ./definitions --entry main.py --components-dir ./components --output ./graph.json
+```
+
+旧 build_dep_fd/build_dep_sd/build_dep 返回结构不变，使用同一解析核心，遇到普通 Node 输出时明确拒绝进入旧写库/注册流程。FactorScriptWriter 继续只支持 Factor。
 
 ## 目录结构
 

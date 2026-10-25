@@ -16,15 +16,16 @@ description: |
 ## 核心约束
 
 - 产出符合 DefModule 框架规范的定义脚本
-- 因子代码必须符合 `__FACTOR_META__` + `defNode(fdi) -> List[Factor]` 规范（兼容 `defFactor`）
-- 策略代码必须符合 `__STRATEGY_META__` + `defNode(sdi) -> List[Factor]` 规范（兼容 `defStrategy`）
-- 混合代码使用 `defNode(di: DefInput)` 一个入口，返回的列表中可同时包含因子和策略
+- 计算图流程可用 `__GRAPH_META__` + `defNode(di) -> list[Node]`，返回因子、策略、回测或报告的混合输出；通过 NodeDeps 和 di.Nodes 引用其他模块的公开输出。通用图不要求 TargetTable。普通 Node 不使用旧因子写库/注册入口。
+- 旧写库流程的因子代码符合 `__FACTOR_META__` + `defNode(fdi) -> List[Factor]` 规范（兼容 `defFactor`）
+- 旧写库流程的策略代码符合 `__STRATEGY_META__` + `defNode(sdi) -> List[Factor]` 规范（兼容 `defStrategy`）
+- 混合代码使用 `defNode(di: DefInput)` 一个入口；QSWeb 图导入允许返回普通 Node，旧写库流程仅接受 Factor
 - 数据表和字段必须来自真实的数据源（通过 jy_base_doc 工具验证），**禁止捏造**
 - 遵循 CLAUDE.md 中的行为准则：简洁优先、精准改动、编码前先思考
 
 ## 脚本命名规范
 
-脚本文件名必须与 `__FACTOR_META__` 中的 `TargetTable` 保持一致：
+旧因子写库脚本的文件名必须与 `__FACTOR_META__` 中的 `TargetTable` 保持一致；通用图定义不受此约束：
 
 - 格式：`{TargetTable}.py`
 - 示例：`TargetTable = "stock_cn_factor_pe_ttm"` → 文件名 `stock_cn_factor_pe_ttm.py`
@@ -39,11 +40,11 @@ DefModule 支持三种等价入口函数，推荐使用 `defNode`：
 
 | 入口函数 | 用途 | 说明 |
 |----------|------|------|
-| `defNode(di: DefInput)` | **推荐**，统一入口 | 可返回因子和策略的混合列表 |
+| `defNode(di: DefInput)` | **推荐**，统一入口 | 返回 list[Node]，可混合因子、策略、回测和报告 |
 | `defFactor(fdi: DefInput)` | 因子入口（兼容旧模块） | 等价于 defNode |
 | `defStrategy(sdi: DefInput)` | 策略入口（兼容旧模块） | 等价于 defNode |
 
-框架按优先级 `defNode > defFactor > defStrategy` 查找入口。返回的 `List[Factor]` 中，算子为 `MakeAccount` 实例的自动归入策略列表，其余归入因子列表。
+框架按优先级 `defNode > defFactor > defStrategy` 查找可调用入口。Factor 中的 MakeAccount 实例归入策略视图，其他 Factor 归入因子视图，普通 Node 单独保留。定义任意 Node 的参考示例为 `QSExt/DefModule/examples/graph_example.py`；上传 Node 类及模型须位于模块作用域，计算所需状态显式声明在 Args/Dependencies 中。
 
 ## 可用工具
 

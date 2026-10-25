@@ -148,7 +148,7 @@ def register_operator_snapshot(registry, snapshot, directory):
     def builder(block, values, dependencies):
         from .Workbench import get_construction_context
         namespace = snapshot["namespace"]
-        if namespace:
+        if namespace and namespace not in sys.modules:
             runtime = get_construction_context()
             module_directory = Path(runtime.module_directory) if runtime and runtime.module_directory else directory
             if module_directory != directory:
@@ -167,5 +167,5 @@ def register_operator_snapshot(registry, snapshot, directory):
     path = f"_auto_operators/{directory.name}/{relative}"
     registry.locations[(definition.id, definition.version)] = path
     registry.source_categories[path] = Path(snapshot["source"]).stem if snapshot.get("source") else snapshot["title"]
-    registry.directory_categories["_auto_operators"] = "自动导入算子"
+    registry.directory_categories["_auto_operators"] = "自动导入组件"
     return definition

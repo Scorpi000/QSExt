@@ -23,6 +23,7 @@ class TypeRegistry:
     """将本地类型映射到稳定类型 ID，并保留本地继承检查。"""
 
     def __init__(self):
+        self.ancestry = {}
         self._types = {"qs.node": Node, "qs.factor": Factor, "qs.operator": FactorOperator,
                        "qs.template": NodeTemplate, "qs.resource": ResourceDescriptor}
 
@@ -94,7 +95,7 @@ class TypeRegistry:
             expected_class, actual_class = self._types.get(expected.type_id), self._types.get(actual.type_id)
             if expected_class and actual_class:
                 return issubclass(actual_class, expected_class)
-            return expected.type_id == actual.type_id
+            return expected.type_id == actual.type_id or expected.type_id in self.ancestry.get(actual.type_id, [])
         if expected.kind == "array" and expected.items and actual.items:
             return self.accepts(expected.items, actual.items)
         return True

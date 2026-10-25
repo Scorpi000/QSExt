@@ -5,7 +5,9 @@ import importlib
 import importlib.abc
 import importlib.util
 import math
+import hashlib
 from pathlib import PurePosixPath
+from tempfile import TemporaryDirectory
 import sys
 from uuid import uuid4
 
@@ -72,7 +74,7 @@ def _model_args(model, *, fields=None, skip=(), path="args"):
     return result
 
 
-def graph_from_nodes(outputs, registry, *, construction_inputs=None, register_operator=None):
+def graph_from_nodes(outputs, registry, *, construction_inputs=None, register_operator=None, register_node=None):
     """按对象实例去重展开命名输入，不合并语义相同但独立的节点。"""
     from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
     from .Compiler import validate_graph
@@ -166,7 +168,11 @@ def graph_from_nodes(outputs, registry, *, construction_inputs=None, register_op
                         item, args = register_operator(operator, registry)
                     definition, operation = DefinitionRef(id=item.id, version=item.version), "apply"
             else:
-                item = definition_for(type(node), "node")
+                matches = [item for item in definitions if item.target is type(node) and item.kind == "node"]
+                if not matches and register_node is not None:
+                    item = register_node(node, registry)
+                else:
+                    item = definition_for(type(node), "node")
                 definition, operation = DefinitionRef(id=item.id, version=item.version), "build"
                 args, result_args = _model_args(node.Args), {}
                 inputs = {name: binding(getattr(node.Dependencies, name)) for name in type(node.Dependencies).model_fields}
@@ -270,7 +276,12 @@ class _SourceModules(importlib.abc.MetaPathFinder, importlib.abc.Loader):
         source = self.sources.get(module.__name__)
         module.__file__ = f"{self.namespace}/{source[2] if source else '__init__.py'}"
         if source:
+            module.__qs_source_digest__ = hashlib.sha256(source[0].encode()).hexdigest()
             exec(compile(source[0], module.__file__, "exec"), module.__dict__)
+            from .NodeSnapshots import node_class_fingerprint
+            module.__qs_node_signatures__ = {value: node_class_fingerprint(value) for value in vars(module).values()
+                                            if isinstance(value, type) and issubclass(value, Node)
+                                            and value.__module__ == module.__name__}
 
 
 @contextmanager
@@ -279,7 +290,12 @@ def definition_modules(files):
     finder = _SourceModules(files)
     sys.meta_path.insert(0, finder)
     try:
-        yield lambda path: importlib.import_module(finder.namespace + "." + path[:-3].replace("/", "."))
+        def load(path):
+            parts = PurePosixPath(path).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            return importlib.import_module(".".join((finder.namespace, *parts)))
+        yield load
     finally:
         sys.meta_path.remove(finder)
         for name in list(sys.modules):
@@ -287,29 +303,51 @@ def definition_modules(files):
                 sys.modules.pop(name, None)
 
 
-def import_definition(files, entry, registry, definition_input, *, model_args=None, register_operator=None, prepare_input=None):
+def import_definition(files, entry, registry, definition_input, *, model_args=None, register_operator=None,
+                      register_node=None, prepare_input=None):
     """用户明确导入时执行定义函数，展开模块依赖并冻结本次构图结果。"""
-    from QSExt.DefModule.DefContent import build_dep_fd, build_dep_sd
+    from QSExt.DefModule.DefContent import build_graph_def
     if entry not in files:
         raise DefinitionImportError("入口脚本未上传")
     with definition_modules(files) as load, record_factor_construction() as records:
         module = load(entry)
         if not any(callable(getattr(module, name, None)) for name in ("defNode", "defFactor", "defStrategy")):
             raise DefinitionImportError("脚本必须定义 defNode、defFactor 或 defStrategy")
-        if prepare_input is not None:
-            prepare_input(module, definition_input)
-        strategy = bool(getattr(module, "__STRATEGY_META__", None)) and not bool(getattr(module, "__FACTOR_META__", None))
-        dependencies, requested = (build_dep_sd if strategy else build_dep_fd)([(module, model_args or {}, {})], definition_input)
-        result = requested[0][0]
-        outputs = {}
-        for node in [*result.FactorList, *result.StrategyList]:
-            name, index = node.Name, 2
-            while name in outputs:
-                name, index = f"{node.Name}_{index}", index + 1
-            outputs[name] = node
+        built = build_graph_def([(module, model_args or {}, {})], definition_input, prepare_input=prepare_input)
+        result = built.requested[0]
+        outputs = dict(zip(result.OutputNames, result.NodeList))
         if not outputs:
-            raise DefinitionImportError("定义脚本没有返回因子或策略")
-        document = graph_from_nodes(outputs, registry, construction_inputs=records, register_operator=register_operator)
+            raise DefinitionImportError("定义脚本未返回计算节点")
+        document = graph_from_nodes(outputs, registry, construction_inputs=records, register_operator=register_operator,
+                                    register_node=register_node)
+        # 构建只在用户明确导入时执行，保证保存的是可还原节点。
+        from .Compiler import compile_graph
+        from .Resources import ResourceCatalog
+        resources, visited = {}, set()
+        def collect_resources(node):
+            if node.InstanceID in visited:
+                return
+            visited.add(node.InstanceID)
+            if isinstance(node, ResourceFactor):
+                resources[node.Args.Resource.id] = node.Args.Resource
+            for child in node.Deps:
+                collect_resources(child)
+        for node in outputs.values():
+            collect_resources(node)
+        from .Workbench import construction_scope
+        with TemporaryDirectory(prefix="qs-definition-check-") as directory:
+            try:
+                with construction_scope(definition_input.DTs, definition_input.SectionIDs, directory):
+                    compile_graph(document, registry, resources=ResourceCatalog(resources.values())).execution_nodes()
+            finally:
+                if directory in sys.path:
+                    sys.path.remove(directory)
+                for name, imported in list(sys.modules.items()):
+                    if name.startswith("_qs_def_import_") and str(getattr(imported, "__file__", "")).startswith(directory):
+                        sys.modules.pop(name, None)
         document.extensions["qsweb"]["definition_import"] = {"entry": entry, "files": dict(files), "model_args": model_args or {},
-            "max_lookback": max(item.Meta.MaxLookBack for item in dependencies.values()), "description": result.Meta.Description}
+            "protocol_version": 1, "outputs": result.OutputNames,
+            "sources": _json(built.sources, "sources"),
+            "meta": _json(result.Meta, "meta"),
+            "max_lookback": built.max_lookback, "description": result.Meta.Description}
         return document

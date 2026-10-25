@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DefModule 核心模块 —— 统一因子定义和策略定义框架。
+DefModule 核心模块 —— 统一计算图定义框架，兼容因子和策略流程。
 
 将因子定义和策略定义合并为单一模块，支持：
 - 统一输入对象 DefInput（因子和策略共用）
@@ -8,7 +8,7 @@ DefModule 核心模块 —— 统一因子定义和策略定义框架。
 - 统一定义容器 Def（同时持有 FactorList 和 StrategyList，自动归类）
 - 统一配置 DefSettings / DefProfile（支持 FACTOR_PROFILES / STRATEGY_PROFILES / DEF_PROFILES）
 - 统一构建器 DefInputBuilder（合并两个 Builder，消除重复代码）
-- 统一依赖解析 build_dep（内部复用 build_dep_fd + build_dep_sd）
+- 通用 GraphDef、build_graph_def；旧 build_dep 系列接口复用统一依赖解析核心
 
 入口函数优先级：defNode > defFactor > defStrategy（三者等价）
 """
@@ -25,6 +25,7 @@ import pandas as pd
 from pydantic import Field
 
 from QuantStudio.Core import __QS_Args__, __QS_Error__
+from QuantStudio.Core.Node import Node
 from QuantStudio.Factor.Factor import Factor
 from QuantStudio.Factor.FactorDB import FactorDB, WritableFactorDB
 from QSExt.RuntimeConfig.config import DBDef, DBPool, RuntimeSettings
@@ -51,6 +52,7 @@ class DefInput(__QS_Args__):
     TDB: Optional[WritableFactorDB] = Field(default=None, title="写入因子库")
     Factors: Dict[str, Factor] = Field(default={}, title="已解析的依赖因子")
     Strategies: Dict[str, Factor] = Field(default={}, title="已解析的依赖策略")
+    Nodes: Dict[str, Node] = Field(default_factory=dict, title="已解析的依赖节点")
 
 
 # ============================================================
@@ -64,6 +66,8 @@ class DefMeta(__QS_Args__):
     因子特有字段（DefaultStartDT, DTType, Freq）保留默认值。
     """
     TargetTable: str = Field(default="", title="因子表/策略信号输出表")
+    NodeDeps: List[dict] = Field(default_factory=list, title="计算图节点依赖")
+    RequireDates: bool = Field(default=False, title="构图需要日期")
     IDType: str = Field(default="", title="ID类型")
     Author: str = Field(default="Anonymous", title="作者")
     Description: str = Field(default="", title="描述信息")
@@ -108,6 +112,8 @@ def _classify(items: List[Factor]) -> Tuple[List[Factor], List[Factor]]:
     """
     factors, strategies = [], []
     for item in items:
+        if not isinstance(item, Factor):
+            raise TypeError("旧因子/策略流程不支持普通节点输出，请使用 build_graph_def 或计算图导入")
         operator = getattr(item, '_Operator', None)
         if operator is None and hasattr(item, '_QSArgs'):
             operator = getattr(item._QSArgs, 'Operator', None)
@@ -493,6 +499,8 @@ class DefInputBuilder:
 
 def resolve_dep_module(dep_name: str, caller_module) -> object:
     """将依赖名解析为模块对象。"""
+    if dep_name.startswith("."):
+        return importlib.import_module(dep_name, package=caller_module.__package__)
     # Web 导入使用独立命名空间，同名上传依赖必须优先于进程已有模块。
     if getattr(caller_module, "__name__", "").startswith("_qs_def_import_"):
         caller_pkg = caller_module.__name__.rsplit(".", 1)[0]
@@ -756,7 +764,7 @@ def compute_max_lookback_sd(dep_sd: Dict[str, Def], dep_fd: Dict = None) -> None
 
 
 # ============================================================
-# 核心依赖解析：build_dep_fd
+# 入口调用与旧接口适配
 # ============================================================
 
 def _call_definition(entry_fn, di):
@@ -774,281 +782,54 @@ def _call_definition(entry_fn, di):
     return entry_fn(di)
 
 
-def build_dep_fd(
-    modules: List[Tuple[object, dict, dict]],
-    fdi: DefInput,
-    proxy_db=None, proxy_table_mapping=None, proxy_tables=None,
-) -> Tuple[Dict[str, Def], List[Tuple[Def, dict]]]:
-    """根据 __FACTOR_META__ 递归解析因子依赖链并执行 defFactor/defNode/defStrategy。"""
-    from QuantStudio.Core import __QS_Logger__ as _Logger
-
-    dep_fd: Dict[str, Def] = {}
-    _resolving: set = set()
-
-    def _ensure(module, model_args, factor_meta=None):
-        if factor_meta is None:
-            factor_meta = {}
-        meta = getattr(module, '__FACTOR_META__', None)
-
-        if meta and isinstance(meta, dict) and meta.get('TargetTable'):
-            def_key = make_def_key(module, model_args)
-            if def_key in dep_fd:
-                return
-            if def_key in _resolving:
-                chain = " → ".join(_resolving)
-                raise RuntimeError(f"检测到循环依赖: {chain} → {def_key}")
-
-            _resolving.add(def_key)
-            try:
-                effective_meta = dict(meta)
-                effective_meta.update(factor_meta)
-                _check_model_args_refs(effective_meta, module)
-
-                for db_name in effective_meta.get("DBDeps", {}):
-                    if db_name not in fdi.FDB:
-                        mod_name = getattr(module, '__name__', str(module))
-                        raise KeyError(f"模块 '{mod_name}' 声明依赖因子库 '{db_name}'，但该库未在 FDB 中配置。当前可用: {list(fdi.FDB.keys())}")
-
-                saved_args = fdi.ModelArgs
-                saved_factors = fdi.Factors
-                fdi.ModelArgs = model_args
-                try:
-                    resolved_deps = {}
-                    for dep_name, entries in effective_meta.get('FactorDeps', {}).items():
-                        dep_mod = resolve_dep_module(dep_name, module)
-                        dep_model_args = _extract_dep_model_args(entries, fdi.ModelArgs)
-                        _ensure(dep_mod, dep_model_args, {})
-                        dep_def_key = make_def_key(dep_mod, dep_model_args)
-                        resolved_deps[dep_def_key] = entries
-
-                    fdi.Factors = _build_factors(resolved_deps, dep_fd, fdi, proxy_db, proxy_table_mapping, proxy_tables)
-                    # 查找入口函数：defNode > defFactor > defStrategy
-                    entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defFactor', None) or getattr(module, 'defStrategy', None)
-                    items = _call_definition(entry_fn, fdi)
-                finally:
-                    fdi.ModelArgs = saved_args
-                    fdi.Factors = saved_factors
-
-                factor_list, strategy_list = _classify(items)
-                result = Def(FactorList=factor_list, StrategyList=strategy_list, Meta=DefMeta(**effective_meta))
-                dep_fd[def_key] = result
-                _Logger.debug(f"  ✓ {def_key} ({len(result.FactorList)} 因子, {len(result.StrategyList)} 策略)")
-            finally:
-                _resolving.discard(def_key)
-        else:
-            saved_args = fdi.ModelArgs
-            saved_factors = fdi.Factors
-            fdi.ModelArgs = model_args
-            fdi.Factors = {}
-            try:
-                entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defFactor', None) or getattr(module, 'defStrategy', None)
-                items = _call_definition(entry_fn, fdi)
-            finally:
-                fdi.ModelArgs = saved_args
-                fdi.Factors = saved_factors
-
-            factor_list, strategy_list = _classify(items)
-            result = Def(FactorList=factor_list, StrategyList=strategy_list, Meta=DefMeta(**factor_meta))
-            def_key = make_def_key(module, model_args)
-            dep_fd[def_key] = result
-            mod_name = module.__name__.split(".")[-1] if hasattr(module, '__name__') else str(module)
-            _Logger.debug(f"  ✓ {def_key} ({len(result.FactorList)} 因子, {len(result.StrategyList)} 策略) [无 __FACTOR_META__: {mod_name}]")
-
-    for mod, model_args, factor_meta in modules:
-        _ensure(mod, model_args, factor_meta)
-
-    compute_max_lookback(dep_fd)
-
-    requested = []
-    for mod, model_args, factor_meta in modules:
-        def_key = make_def_key(mod, model_args)
-        if def_key in dep_fd:
-            requested.append((dep_fd[def_key], factor_meta))
-        else:
-            requested.append((None, factor_meta))
-            _Logger.warning(f"模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_fd 中找到")
-
-    return dep_fd, requested
+def __getattr__(name):
+    if name in ("GraphDef", "GraphBuildResult", "GraphDefinitionPlan"):
+        from . import GraphDefinition
+        return getattr(GraphDefinition, name)
+    raise AttributeError(name)
 
 
-# ============================================================
-# 核心依赖解析：build_dep_sd
-# ============================================================
-
-def build_dep_sd(
-    modules: List[Tuple[object, dict, dict]],
-    sdi: DefInput,
-) -> Tuple[Dict[str, Def], List[Tuple[Def, dict]]]:
-    """根据 __STRATEGY_META__ 递归解析策略依赖链。"""
-    from QuantStudio.Core import __QS_Logger__ as _Logger
-
-    dep_sd: Dict[str, Def] = {}
-    _resolving: set = set()
-
-    dep_fd: Dict[str, Def] = {}
-
-    # Step 2: 递归解析策略依赖并执行 defStrategy/defNode
-    def _ensure(module, model_args, strategy_meta=None):
-        if strategy_meta is None:
-            strategy_meta = {}
-        meta = getattr(module, '__STRATEGY_META__', None)
-
-        if meta and isinstance(meta, dict) and meta.get('TargetTable'):
-            def_key = make_def_key(module, model_args)
-            if def_key in dep_sd:
-                return
-            if def_key in _resolving:
-                chain = " → ".join(_resolving)
-                raise RuntimeError(f"检测到策略循环依赖: {chain} → {def_key}")
-
-            _resolving.add(def_key)
-            try:
-                effective_meta = dict(meta)
-                effective_meta.update(strategy_meta)
-
-                for db_name in effective_meta.get("DBDeps", {}):
-                    if db_name not in sdi.FDB:
-                        mod_name = getattr(module, '__name__', str(module))
-                        raise KeyError(f"策略模块 '{mod_name}' 声明依赖因子库 '{db_name}'，但该库未在 FDB 中配置。当前可用: {list(sdi.FDB.keys())}")
-
-                saved_args = sdi.ModelArgs
-                saved_factors = sdi.Factors
-                saved_strategies = sdi.Strategies
-                sdi.ModelArgs = model_args
-                try:
-                    # 每个递归策略分别解析因子依赖，保留该实例传递的 ModelArgs。
-                    factor_modules = [(resolve_dep_module(name, module), _extract_dep_model_args(entries, model_args), {})
-                                      for name, entries in effective_meta.get("FactorDeps", {}).items()]
-                    if factor_modules:
-                        resolved, _ = build_dep_fd(factor_modules, sdi)
-                        dep_fd.update(resolved)
-                    strategies = {}
-                    for dep_module_path, entries in effective_meta.get('StrategyDeps', {}).items():
-                        dep_mod = resolve_dep_module(dep_module_path, module)
-                        dep_model_args = {}
-                        for entry in entries:
-                            if not isinstance(entry, dict):
-                                continue
-                            raw_args = entry.get("ModelArgs")
-                            if not raw_args:
-                                continue
-                            for k, v in raw_args.items():
-                                if isinstance(v, str) and v.startswith("$"):
-                                    dep_model_args[k] = sdi.ModelArgs.get(v[1:], v[1:])
-                                else:
-                                    dep_model_args[k] = v
-                        _ensure(dep_mod, dep_model_args, {})
-                        dep_def_key = make_def_key(dep_mod, dep_model_args)
-                        dep_sd_entry = dep_sd.get(dep_def_key) if dep_def_key else None
-                        if dep_sd_entry is None:
-                            dep_meta = getattr(dep_mod, '__STRATEGY_META__', {}) or {}
-                            dep_tt = dep_meta.get('TargetTable', dep_module_path)
-                            raise KeyError(f"依赖策略 '{dep_module_path}' (TargetTable='{dep_tt}') 解析失败，未在 dep_sd 中找到")
-                        for entry in entries:
-                            if isinstance(entry, dict):
-                                signal_name = entry.get("Name", entry.get("name", ""))
-                                alias = entry.get("Alias", signal_name)
-                            else:
-                                signal_name = entry
-                                alias = entry
-                            strategies[alias] = dep_sd_entry.getStrategy(signal_name)
-                    sdi.Strategies = strategies
-
-                    sdi.Factors = _build_factors_for_strategy(effective_meta, dep_fd, sdi, module)
-
-                    # 查找入口函数
-                    entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defStrategy', None) or getattr(module, 'defFactor', None)
-                    if hasattr(module, 'StrategyObjects'):
-                        items = list(module.StrategyObjects)
-                    else:
-                        items = _call_definition(entry_fn, sdi)
-                finally:
-                    sdi.ModelArgs = saved_args
-                    sdi.Factors = saved_factors
-                    sdi.Strategies = saved_strategies
-
-                if not isinstance(items, list):
-                    items = [items]
-                factor_list, strategy_list = _classify(items)
-                result = Def(FactorList=factor_list, StrategyList=strategy_list, Meta=DefMeta(**effective_meta))
-                dep_sd[def_key] = result
-                _Logger.debug(f"  ✓ {def_key} ({len(result.FactorList)} 因子, {len(result.StrategyList)} 策略)")
-            finally:
-                _resolving.discard(def_key)
-        else:
-            saved_args = sdi.ModelArgs
-            saved_factors = sdi.Factors
-            saved_strategies = sdi.Strategies
-            sdi.ModelArgs = model_args
-            sdi.Factors = {}
-            sdi.Strategies = {}
-            try:
-                entry_fn = getattr(module, 'defNode', None) or getattr(module, 'defStrategy', None) or getattr(module, 'defFactor', None)
-                if hasattr(module, 'StrategyObjects'):
-                    items = list(module.StrategyObjects)
-                else:
-                    items = _call_definition(entry_fn, sdi)
-            finally:
-                sdi.ModelArgs = saved_args
-                sdi.Factors = saved_factors
-                sdi.Strategies = saved_strategies
-
-            if not isinstance(items, list):
-                items = [items]
-            factor_list, strategy_list = _classify(items)
-            result = Def(FactorList=factor_list, StrategyList=strategy_list, Meta=DefMeta(**strategy_meta))
-            def_key = make_def_key(module, model_args)
-            dep_sd[def_key] = result
-            mod_name = module.__name__.split(".")[-1] if hasattr(module, '__name__') else str(module)
-            _Logger.debug(f"  ✓ {def_key} ({len(result.FactorList)} 因子, {len(result.StrategyList)} 策略) [无 __STRATEGY_META__: {mod_name}]")
-
-    for mod, model_args, strategy_meta in modules:
-        _ensure(mod, model_args, strategy_meta)
-
-    compute_max_lookback_sd(dep_sd, dep_fd)
-
-    requested = []
-    for mod, model_args, strategy_meta in modules:
-        def_key = make_def_key(mod, model_args)
-        if def_key in dep_sd:
-            requested.append((dep_sd[def_key], strategy_meta))
-        else:
-            requested.append((None, strategy_meta))
-            _Logger.warning(f"策略模块 {getattr(mod, '__name__', mod)} 的结果未在 dep_sd 中找到")
-
-    return dep_sd, requested
+def build_graph_def(modules, di, *, prepare_input=None):
+    from .GraphDefinition import build_graph_def as build
+    return build(modules, di, prepare_input=prepare_input)
 
 
-# ============================================================
-# 统一入口 build_dep
-# ============================================================
+def _legacy_graph_results(modules, di, proxy_db=None, proxy_table_mapping=None, proxy_tables=None):
+    from .GraphDefinition import GraphDefinitionPlan
+    plan = GraphDefinitionPlan(modules)
+    def resolve_factor(node, definition):
+        table = definition.Meta.TargetTable
+        if proxy_db is not None and (proxy_tables == "*" or table in (proxy_tables or [])):
+            replacement = _get_proxy_factor(proxy_db, proxy_table_mapping or {}, table, node.Name)
+            if replacement is not None:
+                return replacement
+        return node
+    built = plan.execute(di, factor_resolver=resolve_factor)
+    definitions = {}
+    for key, result in built.definitions.items():
+        request = plan.requests[key]
+        legacy_key = make_def_key(request.module, request.args)
+        if legacy_key in definitions:
+            raise ValueError("旧定义接口不能表达同模块同参数的多个元信息覆盖，请使用 build_graph_def")
+        definitions[legacy_key] = result.as_legacy()
+    requested = [(result.as_legacy(), override) for result, (_, _, override) in zip(built.requested, modules)]
+    return definitions, requested
 
-def build_dep(
-    modules: List[Tuple[object, dict, dict]],
-    di: DefInput,
-    collect_mode: str = "both",
-    proxy_db=None, proxy_table_mapping=None, proxy_tables=None,
-) -> Tuple[Dict[str, Def], List[Tuple[Def, dict]], Dict[str, Def], List[Tuple[Def, dict]]]:
-    """统一依赖解析入口。
 
-    Args:
-        modules: 模块列表
-        di: 统一输入对象
-        collect_mode: "factor" | "strategy" | "both"
-        proxy_db, proxy_table_mapping, proxy_tables: 代理因子库参数
+def build_dep_fd(modules, fdi, proxy_db=None, proxy_table_mapping=None, proxy_tables=None):
+    """使用统一解析核心，返回兼容的因子定义字典和请求列表。"""
+    return _legacy_graph_results(modules, fdi, proxy_db, proxy_table_mapping, proxy_tables)
 
-    Returns:
-        (dep_fd, factor_results, dep_sd, strategy_results)
-    """
-    dep_fd, factor_results = {}, []
-    dep_sd, strategy_results = {}, []
 
-    if collect_mode in ("factor", "both"):
-        # 将所有模块当作因子模块解析
-        dep_fd, factor_results = build_dep_fd(modules, di, proxy_db=proxy_db, proxy_table_mapping=proxy_table_mapping, proxy_tables=proxy_tables)
+def build_dep_sd(modules, sdi):
+    """使用统一解析核心，返回兼容的策略定义字典和请求列表。"""
+    return _legacy_graph_results(modules, sdi)
 
-    if collect_mode in ("strategy", "both"):
-        # 将所有模块当作策略模块解析
-        dep_sd, strategy_results = build_dep_sd(modules, di)
 
-    return dep_fd, factor_results, dep_sd, strategy_results
+def build_dep(modules, di, collect_mode="both", proxy_db=None, proxy_table_mapping=None, proxy_tables=None):
+    """按旧四元组返回结果；both 模式在同一次构图中复用全部实例。"""
+    if collect_mode not in ("factor", "strategy", "both"):
+        raise ValueError(f"未知收集模式: {collect_mode}")
+    definitions, requested = _legacy_graph_results(modules, di, proxy_db, proxy_table_mapping, proxy_tables)
+    return (definitions if collect_mode != "strategy" else {}, requested if collect_mode != "strategy" else [],
+            definitions if collect_mode != "factor" else {}, requested if collect_mode != "factor" else [])

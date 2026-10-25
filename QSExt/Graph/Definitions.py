@@ -93,6 +93,7 @@ class DefinitionRegistry:
         from copy import copy
         types = copy(self.types)
         types._types = dict(self.types._types)
+        types.ancestry = {key: list(value) for key, value in self.types.ancestry.items()}
         registry = DefinitionRegistry(types)
         for name in ("_definitions", "sources", "locations", "source_categories", "directory_categories"):
             setattr(registry, name, dict(getattr(self, name)))
