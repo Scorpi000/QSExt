@@ -264,14 +264,20 @@ def defNode(di: DefInput) -> list:
 
 ## Notebook 定义
 
-框架支持 `.ipynb` notebook 作为定义载体。通过 cell tag（`node-def` 或 `strategy-def`）标记核心 cell，框架只执行带 tag 的 cell。从执行结果中收集 `MakeAccount` 实例作为策略输出。
+框架支持 Python `.ipynb` notebook 作为定义载体，与 `.py` 共用 `defNode(di: DefInput) -> list[Node]` 入口，兼容 `defFactor`、`defStrategy`。返回值可以包含因子、账户、统计、报告及普通自定义 Node，完整依赖由统一构图器展开，不再从全局变量自动收集策略对象。
 
-在配置中直接引用 `.ipynb` 文件路径：
+为定义区域的最后一个代码单元添加 `node-def` 标签（兼容 `strategy-def`）。加载器按文件顺序提取该单元及之前的所有代码单元，之后的调试单元不执行；没有定义标签时明确报错。定义区域仅支持标准 Python，IPython 魔法命令和绘图、计算等交互代码应放在后面的调试区域。加载失败直接报告 notebook 路径、单元序号和行号，不回退执行全部单元。
+
+`QSExt.DefModule.Source.extract_notebook_source(content, path)` 只返回提取源码和单元映射，不执行代码。`normalize_definition_sources(files)` 将 `.py`、`.ipynb` 混合文件统一为 Python 模块源码，拒绝同名格式冲突；`QSExt.Graph.import_definition` 复用此转换和原有构图流程。模块级自定义 Node 和算子的快照保存提取后的源码，因此修改历史输出、执行次数或调试区域不会改变组件身份。原 notebook 由 QSWeb 保存到 `users/<用户ID>/notebooks/<所选目录>/`，同批依赖保留相对路径，计算图库按当前账号发现这些定义，Jupyter 可以直接打开原文件。
+
+示例 `stock_cn_strategy_example.ipynb` 的 `defNode` 使用 `di.FDB["BSDB"]` 和 `di.ModelArgs`，同时返回均线、策略账户、账户统计与报告；BaoStock 连接及本地执行仅放在调试单元。旧运行/注册流程仍只接受因子或策略，包含普通节点或报告的 notebook 应使用 `build_graph_def` 或 QSWeb 计算图导入。
+
+仅返回因子/策略的 notebook 仍可在原运行配置中直接引用 `.ipynb` 文件路径：
 
 ```python
 DEF_PROFILES = [{
     "strategy_modules": [
-        "QSExt/DefModule/examples/stock_cn_strategy_example.ipynb",
+        "path/to/strategy_definition.ipynb",
     ],
 }]
 ```

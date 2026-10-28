@@ -3,8 +3,6 @@
 
 import fnmatch
 import importlib
-import json
-import os
 import pkgutil
 import types
 
@@ -39,82 +37,41 @@ def expand_glob(pattern: str) -> list:
 
 
 def load_notebook_as_module(path: str) -> types.ModuleType:
-    """加载 .ipynb 文件作为定义模块。
-
-    定义协议：在 notebook 中对核心 cell 打 ``node-def`` 或 ``strategy-def`` tag。
-    框架找到最后一个带此 tag 的 cell，执行该 cell 及其之前的所有 code cell。
-    若执行失败则回退为执行所有 code cell。
-
-    从最终命名空间中收集所有产出对象，自动通过算子类型区分因子和策略。
+    """通过统一定义协议加载 notebook，不执行定义区域之后的调试单元。
 
     Args:
-        path: .ipynb 文件路径（绝对或相对）
+        path: notebook 的绝对或相对路径。
 
     Returns:
-        types.ModuleType 对象，包含:
-        - __file__: notebook 路径
-        - __FACTOR_META__ / __STRATEGY_META__: 元信息字典（若 notebook 中定义了）
-        - defNode / defFactor / defStrategy: 若 notebook 中定义了入口函数则保留
+        包含元信息与 defNode/defFactor/defStrategy 入口的模块。
 
     Raises:
-        FileNotFoundError: 文件不存在
-        ValueError: notebook 中无 code cell 或执行失败
+        ValueError: 定义区域无效、缺少入口或代码加载失败。
     """
-    if not os.path.isabs(path):
-        path = os.path.abspath(path)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"Notebook 文件不存在: {path}")
+    import hashlib
+    from pathlib import Path
+    import sys
+    from QSExt.DefModule.Source import extract_notebook_source, format_definition_error
 
-    with open(path, encoding="utf-8") as f:
-        nb = json.load(f)
-
-    code_cells = [c for c in nb.get("cells", []) if c.get("cell_type") == "code"]
-    if not code_cells:
-        raise ValueError(f"Notebook 中没有 code cell: {path}")
-
-    # 找最后一个带 node-def 或 strategy-def tag 的 cell
-    last_tagged_idx = -1
-    for i, cell in enumerate(code_cells):
-        tags = cell.get("metadata", {}).get("tags", [])
-        if "node-def" in tags or "strategy-def" in tags:
-            last_tagged_idx = i
-
-    def _exec_cells(cells):
-        ns = {"__name__": "__def_module__", "__file__": path}
-        for cell in cells:
-            source = "".join(cell["source"])
-            if source.strip():
-                exec(compile(source, path, "exec"), ns)
-        return ns
-
-    # 优先：执行到最后一个 tagged cell 为止
-    if last_tagged_idx >= 0:
-        cells_to_run = code_cells[: last_tagged_idx + 1]
-        try:
-            namespace = _exec_cells(cells_to_run)
-        except Exception:
-            namespace = _exec_cells(code_cells)  # 回退：执行全部
-    else:
-        namespace = _exec_cells(code_cells)
-
-    # 构造 module 对象
-    mod = types.ModuleType(f"_notebook_def:{os.path.basename(path)}")
-    mod.__file__ = path
-
-    # 将命名空间中的对象复制到 module（跳过内部名称）
-    for k, v in namespace.items():
-        if k.startswith("__") and k not in ("__FACTOR_META__", "__STRATEGY_META__"):
-            continue
-        setattr(mod, k, v)
-
-    # 收集由 MakeAccount / MakeStrategy 算子产出的策略因子
-    from QuantStudio.BackTest.Strategy.Strategy import MakeAccount
-    strategy_objects = []
-    for val in namespace.values():
-        if hasattr(val, '_Operator') and isinstance(val._Operator, MakeAccount):
-            strategy_objects.append(val)
-        elif hasattr(val, '_QSArgs') and hasattr(val._QSArgs, 'Operator') and isinstance(val._QSArgs.Operator, MakeAccount):
-            strategy_objects.append(val)
-    mod.StrategyObjects = strategy_objects
-
-    return mod
+    file = Path(path).resolve()
+    code, mapping = extract_notebook_source(file.read_text(encoding="utf-8-sig"), str(file))
+    generated = str(file.with_suffix(".py"))
+    name = "_qs_notebook_" + hashlib.sha256(str(file).encode()).hexdigest()[:32]
+    module = types.ModuleType(name)
+    module.__file__ = str(file)
+    module.__package__ = ""
+    module.__qs_source_digest__ = hashlib.sha256(code.encode()).hexdigest()
+    module.__qs_source_map__ = mapping
+    previous = sys.modules.get(name)
+    sys.modules[name] = module
+    try:
+        exec(compile(code, generated, "exec"), module.__dict__)
+        if not any(callable(getattr(module, entry, None)) for entry in ("defNode", "defFactor", "defStrategy")):
+            raise ValueError(f"{file}: notebook 必须定义 defNode、defFactor 或 defStrategy")
+    except Exception as error:
+        if previous is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+        raise ValueError(format_definition_error(error, {generated: mapping})) from error
+    return module

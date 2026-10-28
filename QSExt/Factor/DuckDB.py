@@ -1,13 +1,16 @@
 # coding=utf-8
 """基于 DuckDB 数据库的因子库"""
 import os
+import json
 import datetime as dt
+from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional, Dict, Tuple, Literal, Any
 
 import numpy as np
 import pandas as pd
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from QuantStudio import __QS_ConfigPath__
 from QuantStudio.Core import __QS_Error__
@@ -19,7 +22,7 @@ from QuantStudio.Tools.SQLDBFun import genSQLInCondition
 
 def _quote(name: str) -> str:
     """DuckDB 使用双引号引用标识符"""
-    return '"' + name + '"'
+    return '"' + name.replace('"', '""') + '"'
 
 
 def _identifyDataType(dtypes):
@@ -34,7 +37,7 @@ class DuckDB(WritableFactorDB):
 
     class __QS_ArgClass__(WritableFactorDB.__QS_ArgClass__):
         Name: str = Field(default="DuckDB", title="名称", frozen=True)
-        DBFile: str = Field(default=":memory:", title="DuckDB文件", frozen=True)
+        DBFile: str = Field(default=":memory:", title="DuckDB文件", frozen=True, description="未显式指定时优先使用 ParquetDir 内已有的 _metadata.duckdb，否则使用内存库")
         InnerPrefix: str = Field(default="qs_", title="内部前缀", frozen=True)
         DTField: str = Field(default="datetime", title="时点字段", frozen=True)
         IDField: str = Field(default="code", title="ID字段", frozen=True)
@@ -45,6 +48,17 @@ class DuckDB(WritableFactorDB):
         CheckWriteData: bool = Field(default=False, title="检查写入值", frozen=False)
         CheckNullable: bool = Field(default=False, title="检查缺失容许", frozen=False)
         ParquetDir: str = Field(default="", title="Parquet目录", frozen=True, description="Parquet 文件根目录，设置后将自动注册各 data_class 子目录为 DuckDB 视图")
+
+        @model_validator(mode="before")
+        @classmethod
+        def _resolveDBFile(cls, data):
+            """未指定 DBFile 时自动使用 Parquet 根目录内已有的元信息库。"""
+            if isinstance(data, dict) and "DBFile" not in data and isinstance(data.get("ParquetDir"), str):
+                if data["ParquetDir"]:
+                    MetaFile = Path(data["ParquetDir"]) / "_metadata.duckdb"
+                    if MetaFile.is_file():
+                        return data | {"DBFile": str(MetaFile.resolve())}
+            return data
 
     def __init__(self, args={}, config_file=None, **kwargs):
         self._Connection = None
@@ -65,20 +79,20 @@ class DuckDB(WritableFactorDB):
             if not dc_dir.is_dir() or dc_dir.name == "exceptions":
                 continue
             dc_name = dc_dir.name
-            view_name = self._QSArgs.InnerPrefix + dc_name
+            view_name = self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix + dc_name
             # 如果已有同名原生表则跳过
             if dc_name in self._TableInfo.index:
                 continue
-            glob_pattern = str(dc_dir / "**" / "*.parquet").replace("\\", "/")
+            glob_pattern = str(dc_dir / "**" / "*.parquet").replace("\\", "/").replace("'", "''")
             try:
                 self._Connection.execute(
-                    f"CREATE OR REPLACE VIEW \"{view_name}\" AS "
+                    f"CREATE OR REPLACE VIEW {_quote(view_name)} AS "
                     f"SELECT * FROM read_parquet('{glob_pattern}', hive_partitioning=true)"
                 )
             except Exception as e:
                 self._QS_Logger.warning(f"'{self.Name}' 创建 Parquet 视图 '{dc_name}' 失败: {e}")
                 continue
-            iFactorInfo = self._Connection.execute(f"PRAGMA table_info('{view_name}')").fetchall()
+            iFactorInfo = self._getDBFieldInfo(view_name)
             if not iFactorInfo:
                 continue
             iFactorInfo = pd.DataFrame(iFactorInfo, columns=["cid", "DBFieldName", "DataType", "Nullable", "DefaultValue", "FieldKey"])
@@ -88,7 +102,7 @@ class DuckDB(WritableFactorDB):
             iFactorInfo["TableName"] = dc_name
             self._TableInfo = pd.concat([
                 self._TableInfo,
-                pd.DataFrame([[view_name, "", "WideTable"]], columns=["DBTableName", "Description", "TableClass"], index=[dc_name])
+                pd.DataFrame([[view_name, "", "WideTable", {}]], columns=["DBTableName", "Description", "TableClass", "FTArgs"], index=[dc_name])
             ])
             self._FactorInfo = pd.concat([self._FactorInfo, self._genFactorInfo(iFactorInfo)])
             self._ParquetTables.add(dc_name)
@@ -120,14 +134,28 @@ class DuckDB(WritableFactorDB):
             raise __QS_Error__(Msg)
         return self._Connection.execute(sql_str).fetchall()
 
+    def _getDBFieldInfo(self, table_name):
+        """读取实际字段结构，兼容名称中含引号的表和视图。"""
+        Fields = self._Connection.execute(f"DESCRIBE {_quote(table_name)}").fetchall()
+        return [(i, Name, Type, Nullable == "NO", Default, Key == "PRI")
+                for i, (Name, Type, Nullable, Key, Default, Extra) in enumerate(Fields)]
+
     def connect(self):
         import duckdb
+        if self._Connection is not None:
+            self.disconnect()
         self._Connection = duckdb.connect(self._QSArgs.DBFile)
-        nPrefix = len(self._QSArgs.InnerPrefix)
-        SQLStr = f"SELECT table_name AS DBTableName FROM information_schema.tables WHERE table_name LIKE '{self._QSArgs.InnerPrefix}%' ORDER BY table_name"
-        Result = self._Connection.execute(SQLStr).df()
+        Prefix = self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix
+        nPrefix = len(Prefix)
+        SQLStr = """SELECT table_name AS DBTableName, table_type FROM information_schema.tables
+                    WHERE table_catalog = current_database() AND table_schema = 'main'
+                    AND starts_with(table_name, ?) ORDER BY table_name"""
+        Result = self._Connection.execute(SQLStr, [Prefix]).df()
+        # 磁盘数据库中的 Parquet 视图会随库文件保留，重连后仍需恢复只读标记。
+        self._ParquetTables = {name[nPrefix:] for name, kind in Result.itertuples(index=False, name=None) if kind == "VIEW"}
+        Result = Result.drop(columns="table_type")
         if Result.shape[0] == 0:
-            self._TableInfo = pd.DataFrame(columns=["DBTableName", "Description", "TableClass"])
+            self._TableInfo = pd.DataFrame(columns=["DBTableName", "Description", "TableClass", "FTArgs"])
             self._FactorInfo = pd.DataFrame(columns=["DBFieldName", "DataType", "FieldType", "Supplementary", "Description", "Nullable", "FieldKey"])
             self._FactorInfo.index = pd.MultiIndex.from_tuples([], names=["TableName", "FieldName"])
         else:
@@ -135,12 +163,13 @@ class DuckDB(WritableFactorDB):
             self._TableInfo["TableName"] = self._TableInfo["DBTableName"].apply(lambda x: x[nPrefix:])
             self._TableInfo["Description"] = ""
             self._TableInfo["TableClass"] = "WideTable"
+            self._TableInfo["FTArgs"] = [{} for _ in self._TableInfo.index]
             self._TableInfo = self._TableInfo.set_index(["TableName"])
 
             FactorInfoList = []
             for iTableName in self._TableInfo.index:
-                iDBTableName = self._QSArgs.InnerPrefix + iTableName
-                iFactorInfo = self._Connection.execute(f"PRAGMA table_info('{iDBTableName}')").fetchall()
+                iDBTableName = self._TableInfo.loc[iTableName, "DBTableName"]
+                iFactorInfo = self._getDBFieldInfo(iDBTableName)
                 if iFactorInfo:
                     iFactorInfo = pd.DataFrame(iFactorInfo, columns=["cid", "DBFieldName", "DataType", "Nullable", "DefaultValue", "FieldKey"])
                     iFactorInfo = iFactorInfo[~iFactorInfo["DBFieldName"].isin(self._QSArgs.IgnoreFields)]
@@ -160,6 +189,7 @@ class DuckDB(WritableFactorDB):
         if ParquetDir:
             self._registerParquetViews(ParquetDir)
 
+        self._loadMetaData()
         return self
 
     def disconnect(self):
@@ -198,6 +228,8 @@ class DuckDB(WritableFactorDB):
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
         Args = self._QSArgs.FTArgs.copy()
+        # 表级参数覆盖库级默认值，调用参数优先；复制容器以隔离各次初始化。
+        Args.update(deepcopy(self._TableInfo.at[table_name, "FTArgs"]))
         Args.update(args)
         iFactorInfo = self._FactorInfo.loc[table_name]
         # 确定时点字段
@@ -231,6 +263,15 @@ class DuckDB(WritableFactorDB):
         return Args
 
     def getTable(self, table_name: str, args: dict = {}) -> SQL_Table:
+        """按库级默认参数、表级 FTArgs、本次 args 的顺序合并并初始化因子表。
+
+        Args:
+            table_name: 因子表名称。
+            args: 本次初始化参数，覆盖同名的库级和表级参数。
+
+        Returns:
+            使用合并参数初始化的因子表对象。
+        """
         Args = self._initFTArgs(table_name=table_name, args=args)
         return eval(f"SQL_{Args['TableType']}(fdb=self, args=Args, table_info=self._TableInfo.loc[table_name], factor_info=self._FactorInfo.loc[table_name], logger=self._QS_Logger)")
 
@@ -343,9 +384,22 @@ class DuckDB(WritableFactorDB):
             Msg = f"因子库 '{self.Name}' 调用方法 renameTable 错误: 新因子表名 '{new_table_name}' 已经存在于库中!"
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        self.renameDBTable(self._QSArgs.InnerPrefix + old_table_name, self._QSArgs.InnerPrefix + new_table_name)
-        self._TableInfo = self._TableInfo.rename(index={old_table_name: new_table_name})
-        self._FactorInfo = self._FactorInfo.rename(index={old_table_name: new_table_name}, level=0)
+        if new_table_name == old_table_name:
+            return
+        OldDBTable = self._TableInfo.at[old_table_name, "DBTableName"]
+        NewDBTable = self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix + new_table_name
+        NewTableInfo = self._TableInfo.rename(index={old_table_name: new_table_name})
+        NewTableInfo.at[new_table_name, "DBTableName"] = NewDBTable
+        NewFactorInfo = self._FactorInfo.rename(index={old_table_name: new_table_name}, level=0)
+        with self._transaction():
+            self.renameDBTable(self._QSArgs.InnerPrefix + old_table_name, self._QSArgs.InnerPrefix + new_table_name)
+            for Table in ("table_metadata", "factor_metadata"):
+                if self._hasMetaDataTable(Table):
+                    self._Connection.execute(
+                        f"UPDATE qs_meta.{Table} SET db_table = ? WHERE db_schema = 'main' AND db_table = ?",
+                        [NewDBTable, OldDBTable]
+                    )
+        self._TableInfo, self._FactorInfo = NewTableInfo, NewFactorInfo
 
     def createTable(self, table_name: str, field_types: Dict[str, str]):
         self._checkNotParquet(table_name, "createTable")
@@ -353,7 +407,7 @@ class DuckDB(WritableFactorDB):
         FieldTypes[self._QSArgs.DTField] = FieldTypes.pop(self._QSArgs.DTField, "VARCHAR NOT NULL")
         FieldTypes[self._QSArgs.IDField] = FieldTypes.pop(self._QSArgs.IDField, "VARCHAR NOT NULL")
         self.createDBTable(self._QSArgs.InnerPrefix + table_name, FieldTypes, primary_keys=[self._QSArgs.DTField, self._QSArgs.IDField], index_fields=[self._QSArgs.IDField])
-        self._TableInfo = pd.concat([self._TableInfo, pd.DataFrame([[self._QSArgs.InnerPrefix + table_name, "", "WideTable"]], columns=["DBTableName", "Description", "TableClass"], index=[table_name])])
+        self._TableInfo = pd.concat([self._TableInfo, pd.DataFrame([[self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix + table_name, "", "WideTable", {}]], columns=["DBTableName", "Description", "TableClass", "FTArgs"], index=[table_name])])
         NewFactorInfo = pd.DataFrame(FieldTypes, index=["DataType"], columns=pd.Index(sorted(FieldTypes.keys()), name="DBFieldName")).T.reset_index()
         NewFactorInfo["TableName"] = table_name
         self._FactorInfo = pd.concat([self._FactorInfo, self._genFactorInfo(NewFactorInfo)])
@@ -361,13 +415,18 @@ class DuckDB(WritableFactorDB):
     def deleteTable(self, table_name: str):
         if table_name not in self._TableInfo.index:
             return
-        if table_name in self._ParquetTables:
-            SQLStr = f"DROP VIEW IF EXISTS {_quote(self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix + table_name)}"
-            self.execute(SQLStr)
-            self._ParquetTables.discard(table_name)
-            self._QS_Logger.info(f"'{self.Name}' 调用方法 deleteTable 删除 Parquet 视图 '{table_name}'")
-        else:
-            self.deleteDBTable(self._QSArgs.InnerPrefix + table_name)
+        DBTable = self._TableInfo.at[table_name, "DBTableName"]
+        with self._transaction():
+            if table_name in self._ParquetTables:
+                self.execute(f"DROP VIEW IF EXISTS {_quote(DBTable)}")
+            else:
+                self.deleteDBTable(self._QSArgs.InnerPrefix + table_name)
+            for Table in ("table_metadata", "factor_metadata"):
+                if self._hasMetaDataTable(Table):
+                    self._Connection.execute(
+                        f"DELETE FROM qs_meta.{Table} WHERE db_schema = 'main' AND db_table = ?", [DBTable]
+                    )
+        self._ParquetTables.discard(table_name)
         TableNames = self._TableInfo.index.tolist()
         TableNames.remove(table_name)
         self._TableInfo = self._TableInfo.loc[TableNames]
@@ -393,10 +452,21 @@ class DuckDB(WritableFactorDB):
             Msg = f"因子库 '{self.Name}' 调用方法 renameFactor 错误: 新因子名 '{new_factor_name}' 已经存在于因子表 '{table_name}' 中!"
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
-        self.renameField(self._QSArgs.InnerPrefix + table_name, old_factor_name, new_factor_name)
+        if new_factor_name == old_factor_name:
+            return
         TableNames = self._TableInfo.index.tolist()
         TableNames.remove(table_name)
-        self._FactorInfo = pd.concat([self._FactorInfo.loc[TableNames], self._FactorInfo.loc[[table_name]].rename(index={old_factor_name: new_factor_name}, level=1)])
+        NewFactorInfo = pd.concat([self._FactorInfo.loc[TableNames], self._FactorInfo.loc[[table_name]].rename(index={old_factor_name: new_factor_name}, level=1)])
+        NewFactorInfo.at[(table_name, new_factor_name), "DBFieldName"] = new_factor_name
+        with self._transaction():
+            self.renameField(self._QSArgs.InnerPrefix + table_name, old_factor_name, new_factor_name)
+            if self._hasMetaDataTable("factor_metadata"):
+                self._Connection.execute(
+                    """UPDATE qs_meta.factor_metadata SET field_name = ?
+                       WHERE db_schema = 'main' AND db_table = ? AND field_name = ?""",
+                    [new_factor_name, self._TableInfo.at[table_name, "DBTableName"], old_factor_name]
+                )
+        self._FactorInfo = NewFactorInfo
 
     def deleteFactor(self, table_name: str, factor_names: List[str]):
         self._checkNotParquet(table_name, "deleteFactor")
@@ -405,27 +475,215 @@ class DuckDB(WritableFactorDB):
         FactorIndex = self._FactorInfo.loc[table_name].index.difference(factor_names).tolist()
         if not FactorIndex:
             return self.deleteTable(table_name)
-        self.deleteField(self._QSArgs.InnerPrefix + table_name, factor_names)
         TableNames = self._TableInfo.index.tolist()
         TableNames.remove(table_name)
         Remaining = self._FactorInfo.loc[table_name].loc[FactorIndex]
         Remaining.index = pd.MultiIndex.from_product([[table_name], Remaining.index], names=["TableName", "FieldName"])
-        self._FactorInfo = pd.concat([self._FactorInfo.loc[TableNames], Remaining])
+        NewFactorInfo = pd.concat([self._FactorInfo.loc[TableNames], Remaining])
+        with self._transaction():
+            self.deleteField(self._QSArgs.InnerPrefix + table_name, factor_names)
+            if self._hasMetaDataTable("factor_metadata"):
+                self._Connection.executemany(
+                    "DELETE FROM qs_meta.factor_metadata WHERE db_schema = 'main' AND db_table = ? AND field_name = ?",
+                    [[self._TableInfo.at[table_name, "DBTableName"], Name] for Name in factor_names]
+                )
+        self._FactorInfo = NewFactorInfo
 
     # -------------------- 元数据操作 --------------------
+    @contextmanager
+    def _transaction(self):
+        """在同一事务内维护数据库结构与元信息，失败时回滚。"""
+        self._Connection.begin()
+        try:
+            yield
+            self._Connection.commit()
+        except Exception:
+            self._Connection.rollback()
+            raise
+
+    def _hasMetaDataTable(self, table_name):
+        """检查元信息表是否存在，不对旧数据库执行写操作。"""
+        if self._QSArgs.DBFile == ":memory:":
+            return False
+        return self._Connection.execute(
+            """SELECT 1 FROM information_schema.tables WHERE table_catalog = current_database()
+               AND table_schema = 'qs_meta' AND table_name = ?""", [table_name]
+        ).fetchone() is not None
+
+    def _ensureMetaDataTables(self):
+        """首次设置磁盘库元信息时创建专用存储表。"""
+        self._Connection.execute("CREATE SCHEMA IF NOT EXISTS qs_meta")
+        for Table, Field in (("table_metadata", ""), ("factor_metadata", "field_name VARCHAR, ")):
+            Keys = "db_schema, db_table, " + ("field_name, " if Field else "") + "meta_key"
+            self._Connection.execute(
+                f"CREATE TABLE IF NOT EXISTS qs_meta.{Table} ("
+                f"db_schema VARCHAR, db_table VARCHAR, {Field}meta_key VARCHAR, "
+                f"meta_value JSON NOT NULL, PRIMARY KEY ({Keys}))"
+            )
+
+    @staticmethod
+    def _assignMetaData(info, index, values):
+        """按单元格保存元信息，保留列表、字典与显式空值。"""
+        for Key, Value in values.items():
+            if Key not in info.columns:
+                info[Key] = pd.Series(index=info.index, dtype=object)
+            elif info[Key].dtype != object:
+                info[Key] = info[Key].astype(object)
+            info.at[index, Key] = Value
+
+    def _loadMetaData(self):
+        """将已存在表和字段的持久化元信息覆盖到结构推导结果。"""
+        TableNames = dict(zip(self._TableInfo["DBTableName"], self._TableInfo.index))
+        for Table, IsFactor in (("table_metadata", False), ("factor_metadata", True)):
+            if not self._hasMetaDataTable(Table):
+                continue
+            Fields = "db_table, " + ("field_name, " if IsFactor else "") + "meta_key, meta_value"
+            Rows = self._Connection.execute(f"SELECT {Fields} FROM qs_meta.{Table} WHERE db_schema = 'main'").fetchall()
+            for Row in Rows:
+                TableName = TableNames.get(Row[0])
+                if TableName is None:
+                    continue
+                Info = self._FactorInfo if IsFactor else self._TableInfo
+                Index = (TableName, Row[1]) if IsFactor else TableName
+                if Index in Info.index:
+                    Value = json.loads(Row[-1])
+                    if not IsFactor and Row[-2] == "FTArgs" and not isinstance(Value, dict):
+                        raise TypeError("表级元信息 'FTArgs' 必须是字典")
+                    self._assignMetaData(Info, Index, {Row[-2]: Value})
+
+    def _metaDataTarget(self, table_name, factor_name=None):
+        """校验元信息目标，防止无效名称创建虚假的表或字段。"""
+        if self._Connection is None:
+            raise __QS_Error__("数据库尚未连接，不能修改元信息")
+        if table_name not in self._TableInfo.index:
+            raise __QS_Error__(f"不存在因子表: '{table_name}'")
+        Info = self._TableInfo if factor_name is None else self._FactorInfo
+        Index = table_name if factor_name is None else (table_name, factor_name)
+        if Index not in Info.index:
+            raise __QS_Error__(f"因子表 '{table_name}' 中不存在因子: '{factor_name}'")
+        return Info, Index, self._TableInfo.at[table_name, "DBTableName"]
+
+    @staticmethod
+    def _validateMetaData(values):
+        """校验键及 JSON 值，拒绝会在往返序列化时改变类型的对象。"""
+        def CheckValue(value):
+            if type(value) in (str, int, float, bool, type(None)):
+                return
+            if type(value) is list:
+                for Item in value:
+                    CheckValue(Item)
+                return
+            if type(value) is dict and all(isinstance(Key, str) for Key in value):
+                for Item in value.values():
+                    CheckValue(Item)
+                return
+            raise TypeError("元信息值仅支持字符串、数字、布尔值、列表、字符串键字典和 None")
+
+        Structural = {"DBTableName", "DBFieldName", "DataType", "Nullable", "FieldKey", "TableName", "FieldName"}
+        for Key, Value in values.items():
+            if not isinstance(Key, str):
+                raise TypeError("元信息键必须是字符串")
+            if Key in Structural:
+                raise __QS_Error__(f"'{Key}' 来自数据库实际结构，不能通过元信息接口修改")
+            CheckValue(Value)
+        return {Key: json.dumps(Value, ensure_ascii=False, allow_nan=False) for Key, Value in values.items()}
+
+    def _setMetaData(self, table_name, factor_name, key, value, meta_data):
+        """先准备缓存副本，事务提交成功后再替换内存缓存。"""
+        Info, Index, DBTable = self._metaDataTarget(table_name, factor_name)
+        Values = meta_data if meta_data is not None else ({key: value} if key is not None else {})
+        if factor_name is None and "FTArgs" in Values and not isinstance(Values["FTArgs"], dict):
+            raise TypeError("表级元信息 'FTArgs' 必须是字典")
+        Encoded = self._validateMetaData(Values)
+        if not Encoded:
+            return
+        NewInfo = Info.copy(deep=True)
+        self._assignMetaData(NewInfo, Index, {Key: json.loads(Value) for Key, Value in Encoded.items()})
+        if self._QSArgs.DBFile != ":memory:":
+            Table = "table_metadata" if factor_name is None else "factor_metadata"
+            Identity = ["main", DBTable] + ([] if factor_name is None else [factor_name])
+            Rows = [Identity + [Key, Value] for Key, Value in Encoded.items()]
+            Placeholders = ", ".join("?" for _ in Rows[0])
+            with self._transaction():
+                self._ensureMetaDataTables()
+                self._Connection.executemany(
+                    f"INSERT INTO qs_meta.{Table} VALUES ({Placeholders}) "
+                    "ON CONFLICT DO UPDATE SET meta_value = excluded.meta_value", Rows
+                )
+        if factor_name is None:
+            self._TableInfo = NewInfo
+        else:
+            self._FactorInfo = NewInfo
+
     def setTableMetaData(self, table_name: str, key: Optional[str] = None, value: Any = None, meta_data: Optional[dict] = None):
-        if meta_data is not None:
-            for k, v in meta_data.items():
-                self._TableInfo.loc[table_name, k] = v
-        elif key is not None:
-            self._TableInfo.loc[table_name, key] = value
+        """设置表元信息，磁盘库立即持久化，None 表示显式空值。
+
+        Args:
+            table_name: 因子表名称。
+            key: 元信息键，不允许修改数据库结构字段。
+            value: JSON 支持的元信息值；FTArgs 必须为字典，用于初始化因子表参数。
+            meta_data: 批量设置的键值对，提供时优先于 key 和 value。
+        """
+        self._setMetaData(table_name, None, key, value, meta_data)
 
     def setFactorMetaData(self, table_name: str, ifactor_name: str, key: Optional[str] = None, value: Any = None, meta_data: Optional[dict] = None):
-        if meta_data is not None:
-            for k, v in meta_data.items():
-                self._FactorInfo.loc[(table_name, ifactor_name), k] = v
-        elif key is not None:
-            self._FactorInfo.loc[(table_name, ifactor_name), key] = value
+        """设置因子元信息，磁盘库立即持久化，None 表示显式空值。
+
+        Args:
+            table_name: 因子表名称。
+            ifactor_name: 因子名称。
+            key: 元信息键，不允许修改数据库结构字段。
+            value: JSON 支持的元信息值。
+            meta_data: 批量设置的键值对，提供时优先于 key 和 value。
+        """
+        self._setMetaData(table_name, ifactor_name, key, value, meta_data)
+
+    def _deleteMetaData(self, table_name, factor_name, key):
+        """删除一个覆盖值，并恢复当前数据库结构推导的默认值。"""
+        self._validateMetaData({key: None})
+        Info, Index, DBTable = self._metaDataTarget(table_name, factor_name)
+        if factor_name is None:
+            Default = {"Description": "", "TableClass": "WideTable", "FTArgs": {}}.get(key)
+        else:
+            Fields = self._getDBFieldInfo(DBTable)
+            Defaults = pd.DataFrame(Fields, columns=["cid", "DBFieldName", "DataType", "Nullable", "DefaultValue", "FieldKey"])
+            Defaults["TableName"] = table_name
+            Default = self._genFactorInfo(Defaults).loc[Index].get(key)
+        NewInfo = Info.copy(deep=True)
+        if key in NewInfo.columns:
+            self._assignMetaData(NewInfo, Index, {key: Default})
+        Table = "table_metadata" if factor_name is None else "factor_metadata"
+        if self._hasMetaDataTable(Table):
+            SQLStr = f"DELETE FROM qs_meta.{Table} WHERE db_schema = 'main' AND db_table = ? AND meta_key = ?"
+            Params = [DBTable, key]
+            if factor_name is not None:
+                SQLStr += " AND field_name = ?"
+                Params.append(factor_name)
+            with self._transaction():
+                self._Connection.execute(SQLStr, Params)
+        if factor_name is None:
+            self._TableInfo = NewInfo
+        else:
+            self._FactorInfo = NewInfo
+
+    def deleteTableMetaData(self, table_name: str, key: str):
+        """删除表元信息覆盖，恢复默认值。
+
+        Args:
+            table_name: 因子表名称。
+            key: 待删除的元信息键。
+        """
+        self._deleteMetaData(table_name, None, key)
+
+    def deleteFactorMetaData(self, table_name: str, ifactor_name: str, key: str):
+        """删除因子元信息覆盖，恢复当前结构推导值。
+
+        Args:
+            table_name: 因子表名称。
+            ifactor_name: 因子名称。
+            key: 待删除的元信息键。
+        """
+        self._deleteMetaData(table_name, ifactor_name, key)
 
     # -------------------- 数据操作 --------------------
     def deleteData(self, table_name: str, ids: Optional[List[str]] = None, dts: Optional[List[dt.datetime]] = None, dt_ids: Optional[List[Tuple[dt.datetime, str]]] = None):

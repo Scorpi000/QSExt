@@ -287,6 +287,8 @@ class _SourceModules(importlib.abc.MetaPathFinder, importlib.abc.Loader):
 @contextmanager
 def definition_modules(files):
     """隔离每次上传的模块命名空间，依赖文件不会跨用户或跨导入复用。"""
+    from QSExt.DefModule.Source import normalize_definition_sources
+    files, _ = normalize_definition_sources(files)
     finder = _SourceModules(files)
     sys.meta_path.insert(0, finder)
     try:
@@ -305,6 +307,32 @@ def definition_modules(files):
 
 def import_definition(files, entry, registry, definition_input, *, model_args=None, register_operator=None,
                       register_node=None, prepare_input=None):
+    """转换 notebook 后复用统一入口，错误位置映射回原始单元。"""
+    from QSExt.DefModule.Source import normalize_definition_sources, format_definition_error
+    if entry not in files:
+        raise DefinitionImportError("入口脚本未上传")
+    try:
+        sources, source_maps = normalize_definition_sources(files)
+    except ValueError as error:
+        raise DefinitionImportError(str(error)) from error
+    try:
+        document = _import_definition(sources, str(PurePosixPath(entry).with_suffix(".py")), registry,
+            definition_input, model_args=model_args, register_operator=register_operator,
+            register_node=register_node, prepare_input=prepare_input)
+    except Exception as error:
+        message = format_definition_error(error, source_maps)
+        if message != str(error):
+            raise DefinitionImportError(message) from error
+        raise
+    imported = document.extensions["qsweb"]["definition_import"]
+    imported["entry"] = entry
+    if source_maps:
+        imported["source_maps"] = source_maps
+    return document
+
+
+def _import_definition(files, entry, registry, definition_input, *, model_args=None, register_operator=None,
+                       register_node=None, prepare_input=None):
     """用户明确导入时执行定义函数，展开模块依赖并冻结本次构图结果。"""
     from QSExt.DefModule.DefContent import build_graph_def
     if entry not in files:
