@@ -3,6 +3,7 @@
 import os
 import json
 import datetime as dt
+import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -18,6 +19,7 @@ from QuantStudio.Core.QSObject import Panel
 from QuantStudio.Factor.FactorDB import WritableFactorDB
 from QuantStudio.Factor.FactorUtils import SQL_WideTable, SQL_FeatureTable, SQL_MappingTable, SQL_NarrowTable, SQL_TimeSeriesTable, SQL_ConstituentTable, SQL_FinancialTable, SQL_Table
 from QuantStudio.Tools.SQLDBFun import genSQLInCondition
+from QSExt.Factor._DuckDBCoordination import CoordinatedDB, TABLE_CLASSES, _SessionCursor, coordinated
 
 
 def _quote(name: str) -> str:
@@ -32,12 +34,14 @@ def _identifyDataType(dtypes):
         return "DOUBLE"
 
 
-class DuckDB(WritableFactorDB):
+class DuckDB(CoordinatedDB, WritableFactorDB):
     """基于 DuckDB 的因子库"""
 
     class __QS_ArgClass__(WritableFactorDB.__QS_ArgClass__):
         Name: str = Field(default="DuckDB", title="名称", frozen=True)
         DBFile: str = Field(default=":memory:", title="DuckDB文件", frozen=True, description="未显式指定时优先使用 ParquetDir 内已有的 _metadata.duckdb，否则使用内存库")
+        CoordinatedAccess: bool = Field(default=False, title="跨进程协调访问", frozen=True, exclude=True)
+        LockTimeout: float = Field(default=30, ge=0, allow_inf_nan=False, title="协调锁超时秒数", frozen=True, exclude=True)
         InnerPrefix: str = Field(default="qs_", title="内部前缀", frozen=True)
         DTField: str = Field(default="datetime", title="时点字段", frozen=True)
         IDField: str = Field(default="code", title="ID字段", frozen=True)
@@ -67,6 +71,7 @@ class DuckDB(WritableFactorDB):
         self._ParquetTables = set()
         self._SQLFun = {"toDate": "CAST(%s AS DATE)", "toString": "CAST(%s AS VARCHAR)"}
         super().__init__(args=args, config_file=(__QS_ConfigPath__+os.sep+"DuckDBConfig.json" if config_file is None else config_file), **kwargs)
+        self._initCoordination()
 
     # -------------------- Parquet 外部数据源 --------------------
     def _registerParquetViews(self, parquet_dir: str):
@@ -111,15 +116,24 @@ class DuckDB(WritableFactorDB):
     # -------------------- 连接管理 --------------------
     @property
     def Connection(self):
+        if self.Args.CoordinatedAccess:
+            if self._SessionOwner != threading.get_ident():
+                return None
+            self._CatalogDirty = True
         return self._Connection
 
     def cursor(self):
+        if self.Args.CoordinatedAccess:
+            if self.Connection is None:
+                raise __QS_Error__("协调模式下 cursor() 只能在 with db.session(): 内使用")
+            return _SessionCursor(self)
         if self._Connection is None:
             Msg = f"'{self.Name}' 获取 cursor 失败: 数据库尚未连接!"
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
         return self._Connection.cursor()
 
+    @coordinated
     def execute(self, sql_str: str):
         if self._Connection is None:
             Msg = f"'{self.Name}' 执行 SQL 命令失败: 数据库尚未连接!"
@@ -127,13 +141,19 @@ class DuckDB(WritableFactorDB):
             raise __QS_Error__(Msg)
         self._Connection.execute(sql_str)
 
+    @coordinated
     def fetchall(self, sql_str: str):
+        if self.Args.CoordinatedAccess:
+            import duckdb
+            if any(stmt.type != duckdb.StatementType.SELECT for stmt in duckdb.extract_statements(sql_str)):
+                self._CatalogDirty = True
         if self._Connection is None:
             Msg = f"'{self.Name}' 执行 SQL 查询失败: 数据库尚未连接!"
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
         return self._Connection.execute(sql_str).fetchall()
 
+    @coordinated
     def _getDBFieldInfo(self, table_name):
         """读取实际字段结构，兼容名称中含引号的表和视图。"""
         Fields = self._Connection.execute(f"DESCRIBE {_quote(table_name)}").fetchall()
@@ -141,10 +161,28 @@ class DuckDB(WritableFactorDB):
                 for i, (Name, Type, Nullable, Key, Default, Extra) in enumerate(Fields)]
 
     def connect(self):
+        if self.Args.CoordinatedAccess:
+            with self._coordinationThread():
+                if self._SessionDepth:
+                    return self
+                self._LogicalConnected = True
+                self._CatalogStamp = None
+                try:
+                    with self.session():
+                        pass
+                except BaseException:
+                    self._LogicalConnected = False
+                    raise
+            return self
         import duckdb
         if self._Connection is not None:
             self.disconnect()
         self._Connection = duckdb.connect(self._QSArgs.DBFile)
+        self._loadCatalog()
+        return self
+
+    def _loadCatalog(self):
+        """在持有真实连接时重新读取结构和持久化元信息。"""
         Prefix = self._QSArgs.TablePrefix + self._QSArgs.InnerPrefix
         nPrefix = len(Prefix)
         SQLStr = """SELECT table_name AS DBTableName, table_type FROM information_schema.tables
@@ -185,7 +223,7 @@ class DuckDB(WritableFactorDB):
                 self._FactorInfo.index = pd.MultiIndex.from_tuples([], names=["TableName", "FieldName"])
 
         # 注册 Parquet 外部数据源
-        ParquetDir = self._QSArgs.ParquetDir
+        ParquetDir = self._ParquetPath if self.Args.CoordinatedAccess else self._QSArgs.ParquetDir
         if ParquetDir:
             self._registerParquetViews(ParquetDir)
 
@@ -193,6 +231,14 @@ class DuckDB(WritableFactorDB):
         return self
 
     def disconnect(self):
+        if self.Args.CoordinatedAccess:
+            with self._coordinationThread():
+                if self._SessionDepth:
+                    raise __QS_Error__("不能在活动的 DuckDB session 内 disconnect")
+                self._LogicalConnected = False
+                self._CatalogStamp = None
+                self._ParquetTables.clear()
+            return 0
         if self._Connection is not None:
             self._Connection.close()
             self._Connection = None
@@ -219,6 +265,7 @@ class DuckDB(WritableFactorDB):
 
     # -------------------- 因子表访问 --------------------
     @property
+    @coordinated
     def TableNames(self) -> List[str]:
         return sorted(self._TableInfo.index)
 
@@ -262,6 +309,7 @@ class DuckDB(WritableFactorDB):
         Args["Name"] = table_name
         return Args
 
+    @coordinated
     def getTable(self, table_name: str, args: dict = {}) -> SQL_Table:
         """按库级默认参数、表级 FTArgs、本次 args 的顺序合并并初始化因子表。
 
@@ -272,8 +320,13 @@ class DuckDB(WritableFactorDB):
         Returns:
             使用合并参数初始化的因子表对象。
         """
+        return self._makeTable(table_name, args, coordinated=self.Args.CoordinatedAccess)
+
+    def _makeTable(self, table_name, args, coordinated):
+        """使用当前结构构造原生表或协调表，调用方负责持有会话。"""
         Args = self._initFTArgs(table_name=table_name, args=args)
-        return eval(f"SQL_{Args['TableType']}(fdb=self, args=Args, table_info=self._TableInfo.loc[table_name], factor_info=self._FactorInfo.loc[table_name], logger=self._QS_Logger)")
+        cls = TABLE_CLASSES[Args["TableType"]] if coordinated else globals()["SQL_" + Args["TableType"]]
+        return cls(fdb=self, args=Args, table_info=self._TableInfo.loc[table_name], factor_info=self._FactorInfo.loc[table_name], logger=self._QS_Logger)
 
     # -------------------- 底层表操作 --------------------
     def _checkNotParquet(self, table_name: str, method_name: str):
@@ -282,6 +335,7 @@ class DuckDB(WritableFactorDB):
             self._QS_Logger.error(Msg)
             raise __QS_Error__(Msg)
 
+    @coordinated
     def createDBTable(self, table_name: str, field_types: Dict[str, str], primary_keys: List[str] = [], index_fields: List[str] = []):
         qt = _quote
         SQLStr = f"CREATE TABLE IF NOT EXISTS {qt(self._QSArgs.TablePrefix + table_name)} ("
@@ -297,6 +351,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._QS_Logger.info(f"'{self.Name}' 调用方法 createDBTable 在数据库中创建表 '{table_name}'")
 
+    @coordinated
     def deleteDBTable(self, table_name: str):
         SQLStr = f"DROP TABLE IF EXISTS {_quote(self._QSArgs.TablePrefix + table_name)}"
         try:
@@ -308,6 +363,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._QS_Logger.info(f"'{self.Name}' 调用方法 deleteDBTable 从数据库中删除表 '{table_name}'")
 
+    @coordinated
     def renameDBTable(self, old_table_name: str, new_table_name: str):
         SQLStr = f"ALTER TABLE {_quote(self._QSArgs.TablePrefix + old_table_name)} RENAME TO {_quote(self._QSArgs.TablePrefix + new_table_name)}"
         try:
@@ -319,6 +375,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._QS_Logger.info(f"'{self.Name}' 调用方法 renameDBTable 将表 '{old_table_name}' 重命名为 '{new_table_name}'")
 
+    @coordinated
     def addField(self, table_name: str, field_types: Dict[str, str]):
         for iField, iDataType in field_types.items():
             SQLStr = f"ALTER TABLE {_quote(self._QSArgs.TablePrefix + table_name)} ADD COLUMN {_quote(iField)} {iDataType}"
@@ -331,6 +388,7 @@ class DuckDB(WritableFactorDB):
             else:
                 self._QS_Logger.info(f"'{self.Name}' 调用方法 addField 为表 '{table_name}' 添加字段 '{iField}'")
 
+    @coordinated
     def renameField(self, table_name: str, old_field_name: str, new_field_name: str):
         SQLStr = f"ALTER TABLE {_quote(self._QSArgs.TablePrefix + table_name)} RENAME COLUMN {_quote(old_field_name)} TO {_quote(new_field_name)}"
         try:
@@ -342,6 +400,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._QS_Logger.info(f"'{self.Name}' 调用方法 renameField 将表 '{table_name}' 中的字段 '{old_field_name}' 重命名为 '{new_field_name}'")
 
+    @coordinated
     def deleteField(self, table_name: str, field_names: List[str]):
         if not field_names:
             return 0
@@ -362,6 +421,7 @@ class DuckDB(WritableFactorDB):
             else:
                 self._QS_Logger.info(f"'{self.Name}' 调用方法 deleteField 删除表 '{table_name}' 中的字段 '{iField}'")
 
+    @coordinated
     def truncateDBTable(self, table_name: str):
         SQLStr = f"DELETE FROM {_quote(self._QSArgs.TablePrefix + table_name)}"
         try:
@@ -374,6 +434,7 @@ class DuckDB(WritableFactorDB):
             self._QS_Logger.info(f"'{self.Name}' 调用方法 truncateDBTable 清空数据库中的表 '{table_name}'")
 
     # -------------------- 因子表管理 --------------------
+    @coordinated
     def renameTable(self, old_table_name: str, new_table_name: str):
         self._checkNotParquet(old_table_name, "renameTable")
         if old_table_name not in self._TableInfo.index:
@@ -401,6 +462,7 @@ class DuckDB(WritableFactorDB):
                     )
         self._TableInfo, self._FactorInfo = NewTableInfo, NewFactorInfo
 
+    @coordinated
     def createTable(self, table_name: str, field_types: Dict[str, str]):
         self._checkNotParquet(table_name, "createTable")
         FieldTypes = field_types.copy()
@@ -412,6 +474,7 @@ class DuckDB(WritableFactorDB):
         NewFactorInfo["TableName"] = table_name
         self._FactorInfo = pd.concat([self._FactorInfo, self._genFactorInfo(NewFactorInfo)])
 
+    @coordinated
     def deleteTable(self, table_name: str):
         if table_name not in self._TableInfo.index:
             return
@@ -433,6 +496,7 @@ class DuckDB(WritableFactorDB):
         self._FactorInfo = self._FactorInfo.loc[TableNames]
 
     # -------------------- 因子管理 --------------------
+    @coordinated
     def addFactor(self, table_name: str, field_types: Dict[str, str]):
         self._checkNotParquet(table_name, "addFactor")
         if table_name not in self._TableInfo.index:
@@ -442,6 +506,7 @@ class DuckDB(WritableFactorDB):
         NewFactorInfo["TableName"] = table_name
         self._FactorInfo = pd.concat([self._FactorInfo, self._genFactorInfo(NewFactorInfo)]).sort_index()
 
+    @coordinated
     def renameFactor(self, table_name: str, old_factor_name: str, new_factor_name: str):
         self._checkNotParquet(table_name, "renameFactor")
         if old_factor_name not in self._FactorInfo.loc[table_name].index:
@@ -468,6 +533,7 @@ class DuckDB(WritableFactorDB):
                 )
         self._FactorInfo = NewFactorInfo
 
+    @coordinated
     def deleteFactor(self, table_name: str, factor_names: List[str]):
         self._checkNotParquet(table_name, "deleteFactor")
         if (not factor_names) or (table_name not in self._TableInfo.index):
@@ -493,6 +559,10 @@ class DuckDB(WritableFactorDB):
     @contextmanager
     def _transaction(self):
         """在同一事务内维护数据库结构与元信息，失败时回滚。"""
+        if self.Args.CoordinatedAccess:
+            with self.session():
+                yield
+            return
         self._Connection.begin()
         try:
             yield
@@ -501,6 +571,7 @@ class DuckDB(WritableFactorDB):
             self._Connection.rollback()
             raise
 
+    @coordinated
     def _hasMetaDataTable(self, table_name):
         """检查元信息表是否存在，不对旧数据库执行写操作。"""
         if self._QSArgs.DBFile == ":memory:":
@@ -615,6 +686,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._FactorInfo = NewInfo
 
+    @coordinated
     def setTableMetaData(self, table_name: str, key: Optional[str] = None, value: Any = None, meta_data: Optional[dict] = None):
         """设置表元信息，磁盘库立即持久化，None 表示显式空值。
 
@@ -626,6 +698,7 @@ class DuckDB(WritableFactorDB):
         """
         self._setMetaData(table_name, None, key, value, meta_data)
 
+    @coordinated
     def setFactorMetaData(self, table_name: str, ifactor_name: str, key: Optional[str] = None, value: Any = None, meta_data: Optional[dict] = None):
         """设置因子元信息，磁盘库立即持久化，None 表示显式空值。
 
@@ -666,6 +739,7 @@ class DuckDB(WritableFactorDB):
         else:
             self._FactorInfo = NewInfo
 
+    @coordinated
     def deleteTableMetaData(self, table_name: str, key: str):
         """删除表元信息覆盖，恢复默认值。
 
@@ -675,6 +749,7 @@ class DuckDB(WritableFactorDB):
         """
         self._deleteMetaData(table_name, None, key)
 
+    @coordinated
     def deleteFactorMetaData(self, table_name: str, ifactor_name: str, key: str):
         """删除因子元信息覆盖，恢复当前结构推导值。
 
@@ -686,6 +761,7 @@ class DuckDB(WritableFactorDB):
         self._deleteMetaData(table_name, ifactor_name, key)
 
     # -------------------- 数据操作 --------------------
+    @coordinated
     def deleteData(self, table_name: str, ids: Optional[List[str]] = None, dts: Optional[List[dt.datetime]] = None, dt_ids: Optional[List[Tuple[dt.datetime, str]]] = None):
         self._checkNotParquet(table_name, "deleteData")
         if table_name not in self._TableInfo.index:
@@ -748,6 +824,7 @@ class DuckDB(WritableFactorDB):
                 self._QS_Logger.warning(f"因子库 {self.Name} 中的因子表 {table_name} 中的字段 {DropNaFields} 不允许 NULL, 但写入数据中出现 NULL, 删除相应行后执行写入!")
         return data
 
+    @coordinated
     def writeData(self, data: Panel, table_name: str, if_exists: Literal["update", "replace", "append"] = "update", data_type: Dict[str, Literal["double", "string", "object"]] = {}, **kwargs):
         if table_name in self._ParquetTables:
             Msg = f"'{self.Name}' 调用方法 writeData 错误: 不支持写入 Parquet 视图 '{table_name}'，请使用原生 DuckDB 表!"

@@ -1,6 +1,8 @@
 {
 	"Name": "DuckDB",
     "DBFile": ":memory:",
+    "CoordinatedAccess": false,
+    "LockTimeout": 30,
 	"InnerPrefix": "qs_",
 	"DTField": "datetime",
 	"IDField": "code",
