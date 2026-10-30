@@ -134,6 +134,31 @@ class ComponentTests(unittest.TestCase):
         self.assertIsInstance(compiled.outputs["result"], module.Result)
         self.assertEqual(module.calls, ["build"])
 
+    def test_unlisted_dependency_base_preserves_subclass_validation(self):
+        """依赖基类不进入组件库，子类仍可连线且不接受其他节点。"""
+        self.write("nodes.py", '''
+            from QuantStudio.Core.Node import Node
+            from QuantStudio.Core.Input import DependencyModel
+            class Base(Node): pass
+            class Concrete(Base): pass
+            class Other(Node): pass
+            class Consumer(Node):
+                class __QS_DepClass__(DependencyModel):
+                    source: Base
+            COMPONENTS = [Concrete, Other, Consumer]
+        ''')
+        registry = load_component_directory(self.root)
+        doc = {"blocks": [
+            {"id": "source", "definition": {"id": "components.nodes.Concrete"}, "operation": "build"},
+            {"id": "result", "definition": {"id": "components.nodes.Consumer"}, "operation": "build",
+             "inputs": {"source": {"kind": "reference", "block": "source"}}},
+        ], "outputs": {"result": {"kind": "reference", "block": "result"}}}
+        self.assertFalse([item for item in validate_graph(doc, registry) if item.severity == "error"])
+        self.assertEqual(len(registry.list_definitions()), 3)
+        compile_graph(doc, registry)
+        doc["blocks"][0]["definition"]["id"] = "components.nodes.Other"
+        self.assertTrue(any(item.severity == "error" for item in validate_graph(doc, registry)))
+
     def test_bad_declarations_fail_with_list_position(self):
         """错误列表项、重复标识和错误模型都在启动期失败。"""
         prefix = "from QuantStudio.Factor.Factor import DataFactor\nfrom QSExt.Graph.api import Component\n"

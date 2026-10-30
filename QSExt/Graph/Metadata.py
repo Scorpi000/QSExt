@@ -71,7 +71,11 @@ class TypeRegistry:
             for base, kind in ((Factor, "factor"), (Node, "node"), (FactorOperator, "operator"),
                                (NodeTemplate, "template"), (ResourceDescriptor, "resource")):
                 if issubclass(annotation, base):
-                    return TypeDescriptor(kind=kind, type_id=exact or f"{annotation.__module__}.{annotation.__qualname__}")
+                    type_id = exact or f"{annotation.__module__}.{annotation.__qualname__}"
+                    # 输入可以声明未公开为组件的基类，仍须保留本地继承校验。
+                    if exact is None:
+                        self.register(type_id, annotation)
+                    return TypeDescriptor(kind=kind, type_id=type_id)
             if issubclass(annotation, BaseModel):
                 fields = {name: self.describe(field.annotation) for name, field in annotation.model_fields.items()}
                 return TypeDescriptor(kind="model", fields=fields, members=describe_fields(annotation, self),
