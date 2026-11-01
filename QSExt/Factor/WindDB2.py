@@ -735,6 +735,18 @@ class WindDB2(QSSQLObject, FactorDB):
         SQLStr += f""" AND S_INFO_EXCHMARKET IN ('{"','".join(exchange)}')"""
         SQLStr += " ORDER BY S_INFO_WINDCODE"
         return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), StartDate=start_date))]
+
+    def _getAllHKStock(self, date, is_current=True, start_date=None):
+        if start_date is not None: start_date = start_date.strftime("%Y%m%d")
+        if is_current:
+            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}HKShareDescription WHERE (S_INFO_DELISTDATE IS NULL OR S_INFO_DELISTDATE > '{Date}') AND S_INFO_LISTDATE <= '{Date}'"
+        else:
+            SQLStr = "SELECT S_INFO_WINDCODE FROM {Prefix}HKShareDescription WHERE S_INFO_LISTDATE <= '{Date}'"
+        if start_date is not None:
+            SQLStr += " AND (S_INFO_DELISTDATE IS NULL OR S_INFO_DELISTDATE > '{StartDate}')"
+            if is_current: SQLStr += " AND S_INFO_LISTDATE <= '{StartDate}'"
+        SQLStr += " ORDER BY S_INFO_WINDCODE"
+        return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), StartDate=start_date))]
     
     def getStockID(self, exchange:Union[StockExchangeType, Tuple[StockExchangeType, ...]]=("SSE", "SZSE", "BSE"), date=None, is_current=True, start_date:Optional[dt.datetime]=None, **kwargs) -> List[str]:
         """给定交易所和日期, 获取股票证券 ID 序列
@@ -759,6 +771,10 @@ class WindDB2(QSSQLObject, FactorDB):
         if not exchange.isdisjoint(iExchange):
             IDs += self._getAllAStock(exchange=exchange.intersection(iExchange), date=date, is_current=is_current, start_date=start_date)
             exchange = exchange.difference(iExchange)
+        # 港股
+        if "HKEX" in exchange:
+            IDs += self._getAllHKStock(date=date, is_current=is_current, start_date=start_date)
+            exchange.remove("HKEX")
         if exchange:
             Msg = f"外部因子库 '{self._QSArgs.Name}' 调用 getStockID 时错误: 尚不支持交易所 {str(exchange)}"
             self._QS_Logger.error(Msg)

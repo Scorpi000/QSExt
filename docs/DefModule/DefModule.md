@@ -21,6 +21,8 @@ def defNode(di):
 
 Python 使用 `build_graph_def([(module, model_args, meta_override)], di)`，得到 GraphBuildResult：requested 是按请求顺序排列的 GraphDef，definitions 是本次共享缓存，max_lookback 是依赖闭包最大回溯需求。GraphDef 的 NodeList/OutputNames 对应公开输出，FactorList/StrategyList/OtherNodeList 是派生视图。相同模块、参数和有效元信息在一次构图内只执行一次，不同实例不会按名称或 QSID 合并。
 
+`ModelArgs` 可以直接传入 pandas DataFrame、Series 和 Index（例如从 Excel 读取的因子配置表）。构图参数标识保留完整数据、行列顺序、轴名称和数据类型，并支持表格中的 NaN、NA、NaT 及无穷值；分类类型还保留类别与顺序。同内容副本可复用定义，内容或结构变化会创建独立定义，传给入口的参数仍为深拷贝。
+
 `prepare_input(plan, di)` 回调在依赖分析后、执行入口前运行，可根据 plan.max_lookback 准备日期。RequireDates=True 的模块缺少 DTs 时在调用入口前失败。新协议严格返回列表；同一对象重复返回只保留首次，同名不同对象自动生成不同输出名。
 
 QSWeb 的脚本导入已接入该协议，并自动持久化可还原的上传 Node 类。示例 `examples/graph_example.py` 无需数据库，同时公开普通汇总节点和常量因子。未知外部类需先注册组件；上传类必须是模块级类，且不能带未建模的额外实例状态。

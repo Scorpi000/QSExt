@@ -5,9 +5,11 @@ from datetime import date, datetime
 import hashlib
 import inspect
 import json
+import math
 import re
 import warnings
 
+import pandas as pd
 from pydantic import Field
 from QuantStudio.Core import __QS_Args__
 from QuantStudio.Core.Node import Node
@@ -64,7 +66,27 @@ def definition_meta(module, override=None):
 
 
 def _canonical(value):
+    """按完整内容及表格结构生成本次构图的参数标识。"""
+    def dtype(value):
+        if isinstance(value, pd.CategoricalDtype):
+            return ["category", encode(value.categories), value.ordered]
+        return str(value)
+
     def encode(item):
+        if item is pd.NA or item is pd.NaT:
+            return [type(item).__name__]
+        if isinstance(item, pd.DataFrame):
+            return ["DataFrame", encode(item.index), encode(item.columns),
+                    [[dtype(column.dtype), encode(column.tolist())]
+                     for _, column in item.items()]]
+        if isinstance(item, pd.Series):
+            return ["Series", encode(item.name), encode(item.index),
+                    dtype(item.dtype), encode(item.tolist())]
+        if isinstance(item, pd.MultiIndex):
+            return ["MultiIndex", encode(item.names), [encode(level) for level in item.levels],
+                    [code.tolist() for code in item.codes]]
+        if isinstance(item, pd.Index):
+            return [type(item).__name__, dtype(item.dtype), encode(item.name), encode(item.tolist())]
         if isinstance(item, dict):
             if not all(isinstance(key, str) for key in item):
                 raise TypeError("构图参数的映射键必须是字符串")
@@ -73,6 +95,8 @@ def _canonical(value):
             return [type(item).__name__, [encode(value) for value in item]]
         if isinstance(item, (datetime, date)):
             return [type(item).__name__, item.isoformat()]
+        if type(item) is float and not math.isfinite(item):
+            return ["float", str(item)]
         if item is None or type(item) in (str, bool, int, float):
             return [type(item).__name__, item]
         raise TypeError(f"构图参数不能规范化: {type(item).__name__}")
