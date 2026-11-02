@@ -169,9 +169,6 @@ class _FinancialTable(_WindSQLTable, SQL_FinancialTable):
     """保留 Wind 公告日期和业绩快报口径的财务因子表"""
     __doc__ = SQL_FinancialTable.__doc__
     class __QS_ArgClass__(_WindSQLTable.__QS_ArgClass__, SQL_FinancialTable.__QS_ArgClass__):
-        pass
-
-    class __QS_ArgClass__(SQL_FinancialTable.__QS_ArgClass__):
         ReportType: list[str] = Field(default_factory=lambda: ["408001000", "408004000", "408005000"], title="报表类型", frozen=True)
         ExprFactor: str = Field(default="", title="业绩快报因子", frozen=True)
         NoticeFactor: str = Field(default="", title="业绩预告因子", frozen=True)
@@ -660,8 +657,8 @@ class WindDB2(QSSQLObject, FactorDB):
     """Wind 量化研究数据库。
 
     Args:
-        args: 当前框架的英文参数，如 TablePrefix、DBInfoFile 和 FTArgs。
-        config_file: JSON 配置文件，默认查找 WindDB2Config.json。
+        args: 仅支持英文参数键，如 TablePrefix、DBInfoFile 和 FTArgs；不支持中文别名。
+        config_file: JSON 配置文件，默认查找 WindDB2Config.json，参数键同样只支持英文。
     """
 
     class __QS_ArgClass__(QSSQLObject.__QS_ArgClass__, FactorDB.__QS_ArgClass__):
@@ -689,6 +686,17 @@ class WindDB2(QSSQLObject, FactorDB):
         return self._TableInfo.index[mask].tolist()
 
     def getTable(self, table_name: str, args: dict={}) -> SQL_Table:
+        """使用英文参数键创建因子表，不再支持中文参数别名。
+
+        Args:
+            table_name: 元数据中的因子表名称。
+            args: 因子表参数，只支持 MultiMapping、LookBack 等英文键。
+                FTArgs 和表元数据 DefaultArgs 中的参数键遵循同一约定。
+                TablePrefix 默认继承库前缀，可通过上述参数层级显式覆盖。
+
+        Returns:
+            因子表对象。
+        """
         if self._TableInfo is not None and table_name in self._TableInfo.index:
             info = self._TableInfo.loc[table_name]
             table_type = args.get("TableType", info["TableClass"])
@@ -698,7 +706,7 @@ class WindDB2(QSSQLObject, FactorDB):
                 defaults = {} if pd.isna(defaults) else ast.literal_eval(defaults)
                 if table_type == "MappingTable" and defaults.get("PublDTField") is None:
                     defaults.pop("PublDTField", None)
-                values = {"DTFmt": "%Y%m%d", "DateFmt": "%Y%m%d"}
+                values = {"DTFmt": "%Y%m%d", "DateFmt": "%Y%m%d", "TablePrefix": self.Args.TablePrefix}
                 values = values | self.Args.FTArgs | defaults | args
                 values["Name"] = table_name
                 return table_class(fdb=self, args=values, logger=self.Logger)
@@ -933,7 +941,6 @@ class WindDB2(QSSQLObject, FactorDB):
         """
         Prefix = self._QSArgs.TablePrefix
         if standard != "申万行业分类": raise __QS_Error__("无法识别的行业分类标准 : %s, 支持的行业分类标准有 : %s" % (standard, "申万行业分类"))
-        if date is None: date = dt.date.today()
         SQLStr = f"""
             SELECT s_info_industrycode AS IndustryID
             FROM {Prefix}IndexContrastSector

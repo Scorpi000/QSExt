@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+from pydantic import ValidationError
 
 from QuantStudio.Core import __QS_Error__
 from QuantStudio.Core.CalcEngine import Engine
@@ -71,10 +72,60 @@ class TestWindDB2(unittest.TestCase):
         table = fdb.getTable("中国A股日行情", args={"LookBack": 5})
         self.assertFalse(table.Args.MultiMapping)
         self.assertEqual(table.Args.LookBack, 5)
-        table = fdb.getTable("中国A股日行情", args={"多重映射": True, "MultiMapping": False})
+        table = fdb.getTable("中国A股日行情", args={"MultiMapping": True})
+        self.assertTrue(table.Args.MultiMapping)
+        table = fdb.getTable("中国A股日行情", args={"MultiMapping": False})
         self.assertFalse(table.Args.MultiMapping)
         self.assertIsInstance(table.PrepareID, str)
         self.assertEqual(table.getFactor("收盘价(元)").Name, "收盘价(元)")
+
+    def test_table_prefix_inheritance_and_overrides(self):
+        """因子表继承库前缀，各层覆盖及显式空前缀均用于实际 SQL。"""
+        fdb = WindDB2(args={"TablePrefix": "wind.", "FTArgs": {"TablePrefix": "ft."}}, config_file="")
+        name = "中国A股日行情"
+        tables = [(self.fdb.getTable(name), "wind."), (fdb.getTable(name), "ft.")]
+        fdb._TableInfo.loc[name, "DefaultArgs"] = "{'TablePrefix': 'metadata.'}"
+        tables.extend([
+            (fdb.getTable(name), "metadata."),
+            (fdb.getTable(name, args={"TablePrefix": "explicit."}), "explicit."),
+            (fdb.getTable(name, args={"TablePrefix": ""}), ""),
+        ])
+        for table, expected in tables:
+            with self.subTest(prefix=expected):
+                self.assertEqual(table.Args.TablePrefix, expected)
+                with patch.object(table.FactorDB, "fetchall", return_value=[]) as fetch:
+                    table.readData(["收盘价(元)"], self.ids, [dt.datetime(2024, 1, 2)])
+                self.assertIn(f"FROM {expected}AShareEODPrices ", fetch.call_args.args[0])
+        self.assertEqual(fdb.Args.TablePrefix, "wind.")
+
+    def test_chinese_database_argument_names_are_rejected(self):
+        """库参数和配置文件均拒绝中文参数键。"""
+        for args in ({"表名前缀": "wind."}, {"表名前缀": "wind.", "TablePrefix": "explicit."}):
+            with self.subTest(args=args), self.assertRaises(ValidationError) as error:
+                WindDB2(args=args, config_file="")
+            self.assertIn(("表名前缀",), [item["loc"] for item in error.exception.errors()])
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "wind.json"
+            config.write_text(json.dumps({"表名前缀": "wind."}), encoding="utf-8")
+            with self.assertRaises(ValidationError):
+                WindDB2(config_file=str(config))
+
+    def test_chinese_table_argument_names_are_rejected(self):
+        """中文参数单独出现或与英文参数混用时均报错。"""
+        for args in ({"多重映射": True}, {"多重映射": True, "MultiMapping": False}):
+            with self.subTest(args=args), self.assertRaises(ValidationError) as error:
+                self.fdb.getTable("中国A股日行情", args=args)
+            self.assertIn(("多重映射",), [item["loc"] for item in error.exception.errors()])
+
+    def test_chinese_default_argument_names_are_rejected(self):
+        """FTArgs 和表元数据默认参数均拒绝中文参数键。"""
+        fdb = WindDB2(args={"FTArgs": {"多重映射": True}}, config_file="")
+        with self.assertRaises(ValidationError):
+            fdb.getTable("中国A股日行情")
+        fdb = WindDB2(config_file="")
+        fdb._TableInfo.loc["中国A股日行情", "DefaultArgs"] = "{'多重映射': True}"
+        with self.assertRaises(ValidationError):
+            fdb.getTable("中国A股日行情")
 
     def test_explicit_config_and_info_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -97,6 +148,30 @@ class TestWindDB2(unittest.TestCase):
         np.testing.assert_array_equal(data.iloc[0].to_numpy(), [[10], [12]])
         self.assertIn("wind.AShareEODPrices", fetch.call_args.args[0])
         self.assertIn("'20240102'", fetch.call_args.args[0])
+
+    def test_financial_id_mapping(self):
+        """财务表保留 Wind ID 映射能力，并同时接受专用财务参数。"""
+        names = self.fdb._TableInfo.index[self.fdb._TableInfo.TableClass == "FinancialTable"]
+        self.assertGreater(len(names), 0)
+        for name in names:
+            with self.subTest(table=name):
+                table = self.fdb.getTable(name)
+                self.assertIsNone(table.Args.IDMapping)
+                self.assertEqual(table.__QS_adjustID__(self.ids), self.ids)
+                self.assertEqual(table.__QS_restoreID__(self.ids), self.ids)
+                table = self.fdb.getTable(name, args={
+                    "IDMapping": "MFID2WindCode", "ReportType": ["408001000"],
+                    "ExprFactor": "快报字段", "NoticeFactor": "预告字段",
+                })
+                self.assertEqual(table.Args.ReportType, ["408001000"])
+                self.assertEqual(table.Args.ExprFactor, "快报字段")
+                self.assertEqual(table.Args.NoticeFactor, "预告字段")
+                with patch("QSExt.Factor.WindDB2.WindIDMapping.MFID2WindCode", return_value=self.ids) as mapping:
+                    self.assertEqual(table.__QS_adjustID__(["000001"]), self.ids)
+                    mapping.assert_called_once_with(ids=["000001"])
+                with patch("QSExt.Factor.WindDB2.WindIDMapping.WindCode2MFID", return_value=["000001"]) as mapping:
+                    self.assertEqual(table.__QS_restoreID__(self.ids), ["000001"])
+                    mapping.assert_called_once_with(ids=self.ids)
 
     def test_financial_announcement_and_ttm(self):
         dates = [dt.datetime(2024, 4, 29), dt.datetime(2024, 4, 30)]
