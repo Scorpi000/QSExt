@@ -302,6 +302,23 @@ class TestDuckDBCoordinated(unittest.TestCase):
             first.writeData(Panel({"close": self.frame}), "minute")
         self.assertIsNone(first.Connection)
 
+    def test_parquet_root_lock_and_temporary_files_do_not_reload_catalog(self):
+        """根目录锁文件和临时文件变化不会使每个短会话重复扫描表结构。"""
+        root = Path(self.tmp.name) / "market"
+        root.mkdir()
+        db = DuckDB(args={"DBFile": str(root / "_metadata.duckdb"),
+                          "ParquetDir": str(root), "CoordinatedAccess": True}, config_file={}).connect()
+        self.addCleanup(db.disconnect)
+        db.createTable("daily", {"close": "DOUBLE"})
+        self.assertEqual(db.TableNames, ["daily"])
+        with mock.patch.object(db, "_loadCatalog", wraps=db._loadCatalog) as reload:
+            (root / "metadata-backup.tmp").write_text("临时文件", encoding="utf-8")
+            table = db.getTable("daily")
+            self.assertIn("close", table.FactorNames)
+            table.getFactorMetaData(["close"])
+            self.assertEqual(db.TableNames, ["daily"])
+            reload.assert_not_called()
+
     def test_spawn_local_factor(self):
         ctx = multiprocessing.get_context("spawn")
         output = ctx.Queue()

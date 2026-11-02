@@ -918,6 +918,62 @@ class WindDB2(QSSQLObject, FactorDB):
         SQLStr += "ORDER BY s_info_windcode"
         return [iRslt[0] for iRslt in self.fetchall(SQLStr.format(Prefix=self.Args.TablePrefix, Date=date.strftime("%Y%m%d"), OptionCode=option_code))]
 
+    def getIndustryID(self, standard:str="申万行业分类", level:int=1, **kwargs) -> List[str]:
+        """给定行业分类和日期, 获取行业 ID 序列
+
+        Args:
+            standard: 行业分类
+            level: 分类层级
+            date: 指定日, 默认值 None 表示当前日期
+            is_current: False 表示指定日之前曾经存续过的行业, True 表示指定日仍然保持存续的行业
+            start_date: 起始日, 如果非 None 并且 is_current=False 表示提取在 start_date 至 date 之间存续过的行业, 如果 is_current=True 表示提取在 start_date 至 date 之间均保持存续的行业
+        
+        Returns:
+            行业 ID 序列
+        """
+        Prefix = self._QSArgs.TablePrefix
+        if standard != "申万行业分类": raise __QS_Error__("无法识别的行业分类标准 : %s, 支持的行业分类标准有 : %s" % (standard, "申万行业分类"))
+        if date is None: date = dt.date.today()
+        SQLStr = f"""
+            SELECT s_info_industrycode AS IndustryID
+            FROM {Prefix}IndexContrastSector
+        """
+        if level == 1:
+            SQLStr += "WHERE s_info_industrycode LIKE '76%000000000000'"
+        elif level == 2:
+            SQLStr += "WHERE s_info_industrycode LIKE '76%0000000000' AND s_info_industrycode NOT LIKE '76%000000000000'"
+        else:
+            raise __QS_Error__(f"{standard} 不支持的分类层级 : {level}")
+        SQLStr += " ORDER BY IndustryID"
+        return [str(iRslt[0]) for iRslt in self.fetchall(SQLStr)]
+
+    def getIndustryInfo(self, standard:str="申万行业分类", level:int=1, **kwargs) -> pd.DataFrame:
+        """给定行业分类和日期, 获取行业的基本信息
+
+        Args:
+            standard: 行业分类
+            level: 分类层级
+            date: 指定日, 默认值 None 表示当前日期
+            
+        Returns:
+            DataFrame(columns=["IndustryID", "IndustryName", "IndexID"])
+        """
+        Prefix = self._QSArgs.TablePrefix
+        if standard != "申万行业分类": raise __QS_Error__("无法识别的行业分类标准 : %s, 支持的行业分类标准有 : %s" % (standard, "申万行业分类"))
+        SQLStr = f"""
+            SELECT s_info_industrycode AS IndustryID, s_info_industryname AS IndustryName, SUBSTR(s_info_indexcode, 0, 6) AS IndexID
+            FROM {Prefix}IndexContrastSector
+        """
+        if level == 1:
+            SQLStr += "WHERE s_info_industrycode LIKE '76%000000000000'"
+        elif level == 2:
+            SQLStr += "WHERE s_info_industrycode LIKE '76%0000000000' AND s_info_industrycode NOT LIKE '76%000000000000'"
+        else:
+            raise __QS_Error__(f"{standard} 不支持的分类层级 : {level}")
+        SQLStr += " ORDER BY IndustryID"
+        IndustryInfo = pd.DataFrame(self.fetchall(SQLStr), columns=["IndustryID", "IndustryName", "IndexID"])
+        return IndustryInfo.groupby(["IndustryID"], as_index=False).last()
+
 _TABLE_CLASSES = {
     "WideTable": _WideTable,
     "NarrowTable": _NarrowTable,

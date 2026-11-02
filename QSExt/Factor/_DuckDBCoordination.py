@@ -84,13 +84,23 @@ class CoordinatedDB:
 
     def _catalogStamp(self):
         paths = [Path(self._DBPath), Path(self._DBPath + ".wal")]
-        if self._ParquetPath:
-            paths.append(Path(self._ParquetPath))
         result = []
         for path in paths:
             try:
                 stat = path.stat()
                 result.append((stat.st_mtime_ns, stat.st_size))
+            except FileNotFoundError:
+                result.append(None)
+        if self._ParquetPath:
+            # Windows 协调锁创建、删除会改变根目录时间，不能据此重扫所有视图。
+            # 只跟踪实际数据子目录，仍能发现新表及空目录首次落盘的数据。
+            directories = []
+            try:
+                for path in sorted(Path(self._ParquetPath).iterdir()):
+                    if path.is_dir() and path.name != "exceptions":
+                        stat = path.stat()
+                        directories.append((path.name, stat.st_mtime_ns, stat.st_size))
+                result.append(tuple(directories))
             except FileNotFoundError:
                 result.append(None)
         return tuple(result)
