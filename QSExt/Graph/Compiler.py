@@ -291,7 +291,9 @@ def validate_graph(document, registry, *, targets=None, allow_partial=True):
         诊断元组；结构和类型错误即使在草稿中仍为 error。
     """
     document = _document_snapshot(document)
-    diagnostics = _analyze(document, registry, targets, allow_partial)[3]
+    from .Interfaces import resolve_graph_interface
+    document, diagnostics = resolve_graph_interface(document, registry, targets=targets, allow_partial=allow_partial)
+    diagnostics += _analyze(document, registry, targets, allow_partial)[3]
     if any(item.severity == "error" for item in diagnostics):
         return tuple(diagnostics)
     from .Subgraphs import expand_subgraphs
@@ -301,14 +303,17 @@ def validate_graph(document, registry, *, targets=None, allow_partial=True):
         return (*diagnostics, Diagnostic(code="invalid_subgraph", message=str(error)))
     if not expansion.origins:
         return tuple(diagnostics)
+    expanded, interface_diagnostics = resolve_graph_interface(expansion.document, registry, targets=targets, allow_partial=allow_partial, input_origins=expansion.origins)
     diagnostics += [expansion.diagnostic(item) for item in
-                    _analyze(expansion.document, registry, targets, allow_partial)[3]]
+                    [*interface_diagnostics, *_analyze(expanded, registry, targets, allow_partial)[3]]]
     return tuple({item.model_dump_json(): item for item in diagnostics}.values())
 
 
 def describe_block(document, block_id, registry):
     """获取实例槽位描述，静态展开上游模板或绑定算子的声明。"""
     document = _document_snapshot(document)
+    from .Interfaces import resolve_graph_interface
+    document, _ = resolve_graph_interface(document, registry)
     _, _, views, diagnostics, _ = _analyze(document, registry, None, True)
     if block_id not in views:
         raise GraphError(diagnostics)
@@ -326,7 +331,9 @@ def compile_graph(document, registry, *, targets=None, resources=None, source_or
     """静态展开子图后构造普通图，将内部诊断和运行来源映射到组件实例。"""
     from .Subgraphs import expand_subgraphs
     document = _document_snapshot(document)
-    diagnostics = _analyze(document, registry, _target_names(document, targets), False)[3]
+    from .Interfaces import resolve_graph_interface
+    document, diagnostics = resolve_graph_interface(document, registry, targets=_target_names(document, targets), allow_partial=False, input_origins=source_origins)
+    diagnostics += _analyze(document, registry, _target_names(document, targets), False)[3]
     if any(item.severity == "error" for item in diagnostics):
         raise GraphError(diagnostics)
     try:
@@ -335,7 +342,7 @@ def compile_graph(document, registry, *, targets=None, resources=None, source_or
         raise GraphError([Diagnostic(code="invalid_subgraph", message=str(error))]) from error
     expansion.origins = {**(source_origins or {}), **expansion.origins}
     try:
-        result = _compile_graph(expansion.document, registry, targets=targets, resources=resources)
+        result = _compile_graph(expansion.document, registry, targets=targets, resources=resources, input_origins=expansion.origins)
     except GraphError as error:
         raise GraphError([expansion.diagnostic(item) for item in error.diagnostics]) from error
     result.source_map = tuple(replace(item, block_id=expansion.origins[item.block_id][0],
@@ -345,7 +352,7 @@ def compile_graph(document, registry, *, targets=None, resources=None, source_or
     return result
 
 
-def _compile_graph(document, registry, *, targets=None, resources=None):
+def _compile_graph(document, registry, *, targets=None, resources=None, input_origins=None):
     """只构造目标依赖闭包，不执行计算、不解析资源句柄。
 
     Args:
@@ -359,8 +366,12 @@ def _compile_graph(document, registry, *, targets=None, resources=None):
         GraphError: 结构、输入或构造验证失败。
     """
     document = _document_snapshot(document)
+    from .Interfaces import resolve_graph_interface
+    document, interface_diagnostics = resolve_graph_interface(document, registry,
+        targets=_target_names(document, targets), allow_partial=False, input_origins=input_origins)
     target_names = _target_names(document, targets)
     blocks, order, views, diagnostics, _ = _analyze(document, registry, target_names, False)
+    diagnostics = [*interface_diagnostics, *diagnostics]
     if any(item.severity == "error" for item in diagnostics):
         raise GraphError(diagnostics)
     resources = resources or ResourceCatalog()

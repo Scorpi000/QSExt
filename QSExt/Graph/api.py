@@ -11,6 +11,8 @@ from .Definitions import (
     register_builtin_operators,
 )
 from .Compiler import Compilation, GraphError, SourceMapping, compile_graph, describe_block, validate_graph
+from .Interfaces import (GraphInterface, GraphParameter, FactorInputArgs, factor_input_component,
+                         describe_graph_interface, resolve_graph_interface)
 from .Resources import (
     RESOURCE_RESOLVER_KEY, DBPoolResourceResolver, MappingResourceResolver, RegistryResourceResolver,
     ResourceCatalog, ResourceResolver,

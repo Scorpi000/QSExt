@@ -17,15 +17,17 @@ class ConstructionContext:
     dates: tuple[datetime, ...]
     section_ids: tuple[str, ...]
     module_directory: str | None = None
+    ruler: tuple[datetime, ...] = ()
 
 
 _construction = ContextVar("graph_construction", default=None)
 
 
 @contextmanager
-def construction_scope(dates, section_ids, module_directory=None):
+def construction_scope(dates, section_ids, module_directory=None, *, ruler=None):
     """在执行线程中限定构图维度的生命周期。"""
-    token = _construction.set(ConstructionContext(tuple(dates), tuple(section_ids), module_directory))
+    token = _construction.set(ConstructionContext(tuple(dates), tuple(section_ids), module_directory,
+                                               tuple(ruler) if ruler is not None else tuple(dates)))
     try:
         yield
     finally:

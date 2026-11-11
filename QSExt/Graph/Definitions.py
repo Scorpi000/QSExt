@@ -208,6 +208,9 @@ def create_default_registry():
     registry.register_node("qs.node.select", SelectResult)
     register_builtin_operators(registry)
     register_source_definitions(registry)
+    from .Interfaces import factor_input_component
+    from .Components import register_component
+    register_component(registry, factor_input_component(), category="图输入")
     register_extension_definitions(registry)
     return registry
 

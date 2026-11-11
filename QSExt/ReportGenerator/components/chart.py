@@ -132,9 +132,9 @@ def _render_ic_decay_bar(data: pd.DataFrame, params: dict,
     ax.bar(x, values, 0.6, color=theme.chart_colors[0], alpha=0.8)
     ax.set_title(params.get("title", "IC 衰减分析"))
     ax.set_xticks(x)
-    ax.set_xticklabels([str(i) for i in data.index], rotation=0)
+    ax.set_xticklabels([str(i) for i in values.index], rotation=0)
     ax.axhline(y=0, color="gray", linestyle="--", linewidth=0.8)
-    ax.set_xlabel("调仓周期（月）")
+    ax.set_xlabel(params.get("x_label", "调仓周期（月）"))
     ax.set_ylabel("IC 均值")
     fig.tight_layout()
     return fig
@@ -409,7 +409,7 @@ def _render_ic_decay_bar_plotly(data: pd.DataFrame, params: dict,
     ))
     fig.add_hline(y=0, line_dash="dash", line_color="gray", line_width=0.8)
     _plotly_layout(fig, params, theme)
-    fig.update_xaxes(title="调仓周期（月）")
+    fig.update_xaxes(title=params.get("x_label", "调仓周期（月）"))
     fig.update_yaxes(title="IC 均值")
     return fig
 

@@ -22,8 +22,10 @@ from QSExt import __QS_MainPath__, __QS_ConfigPath__
 
 def _importInfo(info_resource):
     """读取并整理 Wind 的两张元数据工作表。"""
-    TableInfo = pd.read_excel(info_resource, "TableInfo", engine="openpyxl").set_index("TableName")
-    FactorInfo = pd.read_excel(info_resource, "FactorInfo", engine="openpyxl")
+    with pd.ExcelFile(info_resource, engine="openpyxl") as xlsFile:
+        TableInfo = pd.read_excel(xlsFile, "TableInfo").set_index("TableName")
+        FactorInfo = pd.read_excel(xlsFile, "FactorInfo")
+        IndustryInfo = pd.read_excel(xlsFile, "IndustryInfo", header=0, index_col=None)
     FactorInfo["TableName"] = FactorInfo["TableName"].replace({"中国LOF基本资料": "中国LOF基金基本资料"})
     FactorInfo["FieldType"] = FactorInfo["FieldType"].fillna("因子")
     FactorInfo = FactorInfo.set_index(["TableName", "FieldName"])
@@ -42,7 +44,9 @@ def _importInfo(info_resource):
             for field in fields[fields == "OutDate"].index:
                 FactorInfo.loc[(name, field), "Supplementary"] = "不包含"
             FactorInfo.loc[name, "FieldType"] = fields.replace({"InDate": "Date", "OutDate": "EndDate"}).to_numpy()
-    return TableInfo, FactorInfo
+    IndustryInfo["IndustryID"] = IndustryInfo["IndustryID"].astype(str)
+    IndustryInfo["IndexID"] = IndustryInfo["IndexID"].astype(str)
+    return TableInfo, FactorInfo, IndustryInfo
 
 class WindIDMapping:
     WindDB = None
@@ -675,7 +679,7 @@ class WindDB2(QSSQLObject, FactorDB):
 
     def _initInfo(self):
         self._InfoResourcePath = os.fspath(self.Args.DBInfoFile) if self.Args.DBInfoFile else os.path.join(__QS_MainPath__, "Resource", "WindDB2Info.xlsx")
-        self._TableInfo, self._FactorInfo = _importInfo(self._InfoResourcePath)
+        self._TableInfo, self._FactorInfo, self._IndustryInfo = _importInfo(self._InfoResourcePath)
 
     @property
     def TableNames(self) -> list[str]:
@@ -952,7 +956,12 @@ class WindDB2(QSSQLObject, FactorDB):
         else:
             raise __QS_Error__(f"{standard} 不支持的分类层级 : {level}")
         SQLStr += " ORDER BY IndustryID"
-        return [str(iRslt[0]) for iRslt in self.fetchall(SQLStr)]
+        IndustryIDMapping = self._IndustryInfo[self._IndustryInfo["Standard"]==standard]
+        if not IndustryIDMapping.empty:
+            IndustryIDMapping = IndustryIDMapping.set_index(["WindID"])["IndustryID"]
+            return [IndustryIDMapping.get(str(iRslt[0]), str(iRslt[0])) for iRslt in self.fetchall(SQLStr)]
+        else:
+            return [str(iRslt[0]) for iRslt in self.fetchall(SQLStr)]
 
     def getIndustryInfo(self, standard:str="申万行业分类", level:int=1, **kwargs) -> pd.DataFrame:
         """给定行业分类和日期, 获取行业的基本信息
@@ -968,7 +977,7 @@ class WindDB2(QSSQLObject, FactorDB):
         Prefix = self._QSArgs.TablePrefix
         if standard != "申万行业分类": raise __QS_Error__("无法识别的行业分类标准 : %s, 支持的行业分类标准有 : %s" % (standard, "申万行业分类"))
         SQLStr = f"""
-            SELECT s_info_industrycode AS IndustryID, s_info_industryname AS IndustryName, SUBSTR(s_info_indexcode, 0, 6) AS IndexID
+            SELECT s_info_industrycode AS IndustryID, s_info_industryname AS IndustryName, SUBSTR(s_info_indexcode, 0, 7) AS IndexID
             FROM {Prefix}IndexContrastSector
         """
         if level == 1:
@@ -979,7 +988,11 @@ class WindDB2(QSSQLObject, FactorDB):
             raise __QS_Error__(f"{standard} 不支持的分类层级 : {level}")
         SQLStr += " ORDER BY IndustryID"
         IndustryInfo = pd.DataFrame(self.fetchall(SQLStr), columns=["IndustryID", "IndustryName", "IndexID"])
-        return IndustryInfo.groupby(["IndustryID"], as_index=False).last()
+        IndustryInfo = IndustryInfo.groupby(["IndustryID"], as_index=False).last()
+        IndustryIDMapping = self._IndustryInfo[self._IndustryInfo["Standard"]==standard]
+        if not IndustryIDMapping.empty:
+            IndustryInfo["IndustryID"] = IndustryInfo["IndustryID"].replace(IndustryIDMapping.set_index(["WindID"])["IndustryID"])
+        return IndustryInfo
 
 _TABLE_CLASSES = {
     "WideTable": _WideTable,

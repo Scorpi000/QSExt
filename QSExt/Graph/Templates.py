@@ -38,6 +38,10 @@ def export_template(document, output, registry, *, id_, version=1):
         仅包含该模板及其已捕获依赖闭包的配方。
     """
     document = GraphDocument.model_validate(document)
+    from .Interfaces import resolve_graph_interface
+    document, interface_diagnostics = resolve_graph_interface(document, registry, targets=[output])
+    if any(item.severity == "error" for item in interface_diagnostics):
+        raise GraphError(interface_diagnostics)
     _, order, views, diagnostics, _ = _analyze(document, registry, [output], True)
     if any(item.severity == "error" for item in diagnostics):
         raise GraphError(diagnostics)

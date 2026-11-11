@@ -86,7 +86,7 @@ def set_parameter(block, target, value):
     current[target.path[-1]] = deepcopy(value)
 
 
-def parameter_fields(block, descriptor, registry):
+def parameter_fields(block, descriptor, registry, *, include_missing=False):
     """列出可公开的声明字段，模型字段递归，数组和映射作为整体。"""
     from QuantStudio.Factor.Factor import Factor
     groups = [("args", descriptor.args, block.args)]
@@ -98,9 +98,9 @@ def parameter_fields(block, descriptor, registry):
             keys = (*path, info.name)
             present = info.name in values
             value = values.get(info.name, info.default)
-            if info.type.kind == "model" and isinstance(value, dict):
-                yield from walk(location, info.type.members, value, keys)
-            elif info.type.persistable and (present or info.default_available):
+            if info.type.kind == "model" and (isinstance(value, dict) or include_missing):
+                yield from walk(location, info.type.members, value if isinstance(value, dict) else {}, keys)
+            elif info.type.persistable and (present or info.default_available or include_missing):
                 name = block.id + "." + location + "." + ".".join(keys)
                 metadata = info.model_copy(deep=True, update={"name": name, "title": name,
                     "default": deepcopy(value), "default_available": True, "has_default": True,
@@ -115,6 +115,10 @@ def extract_subgraph(document, selected, registry, *, output=None, parameters=()
     """提取选区；只支持完整 Node/Factor 的一个出口，不自动捕获外部节点。"""
     from .Compiler import GraphError, describe_block, validate_graph
     document = GraphDocument.model_validate(document).model_copy(deep=True)
+    from .Interfaces import resolve_graph_interface
+    document, interface_diagnostics = resolve_graph_interface(document, registry)
+    if any(item.severity == "error" for item in interface_diagnostics):
+        raise GraphError(interface_diagnostics)
     selected = set(selected)
     blocks = {block.id: block for block in document.blocks}
     if not selected or selected - blocks.keys():
