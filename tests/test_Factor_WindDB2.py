@@ -149,29 +149,24 @@ class TestWindDB2(unittest.TestCase):
         self.assertIn("wind.AShareEODPrices", fetch.call_args.args[0])
         self.assertIn("'20240102'", fetch.call_args.args[0])
 
-    def test_financial_id_mapping(self):
-        """财务表保留 Wind ID 映射能力，并同时接受专用财务参数。"""
+    def test_financial_parameters_have_no_native_id_mapping(self):
+        """WindDB2 只保留财务参数，ID 映射由外部包装层负责。"""
         names = self.fdb._TableInfo.index[self.fdb._TableInfo.TableClass == "FinancialTable"]
         self.assertGreater(len(names), 0)
         for name in names:
             with self.subTest(table=name):
                 table = self.fdb.getTable(name)
-                self.assertIsNone(table.Args.IDMapping)
                 self.assertEqual(table.__QS_adjustID__(self.ids), self.ids)
                 self.assertEqual(table.__QS_restoreID__(self.ids), self.ids)
                 table = self.fdb.getTable(name, args={
-                    "IDMapping": "MFID2WindCode", "ReportType": ["408001000"],
+                    "ReportType": ["408001000"],
                     "ExprFactor": "快报字段", "NoticeFactor": "预告字段",
                 })
                 self.assertEqual(table.Args.ReportType, ["408001000"])
                 self.assertEqual(table.Args.ExprFactor, "快报字段")
                 self.assertEqual(table.Args.NoticeFactor, "预告字段")
-                with patch("QSExt.Factor.WindDB2.WindIDMapping.MFID2WindCode", return_value=self.ids) as mapping:
-                    self.assertEqual(table.__QS_adjustID__(["000001"]), self.ids)
-                    mapping.assert_called_once_with(ids=["000001"])
-                with patch("QSExt.Factor.WindDB2.WindIDMapping.WindCode2MFID", return_value=["000001"]) as mapping:
-                    self.assertEqual(table.__QS_restoreID__(self.ids), ["000001"])
-                    mapping.assert_called_once_with(ids=self.ids)
+                with self.assertRaises(ValidationError):
+                    self.fdb.getTable(name, args={"IDMapping": "MFID2WindCode"})
 
     def test_financial_announcement_and_ttm(self):
         dates = [dt.datetime(2024, 4, 29), dt.datetime(2024, 4, 30)]

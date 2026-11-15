@@ -48,56 +48,10 @@ def _importInfo(info_resource):
     IndustryInfo["IndexID"] = IndustryInfo["IndexID"].astype(str)
     return TableInfo, FactorInfo, IndustryInfo
 
-class WindIDMapping:
-    WindDB = None
-    _MFID2WindCodeMapping = None
-
-    @classmethod
-    def MFID2WindCode(cls, ids):
-        IDMapping = cls._MFID2WindCodeMapping
-        if IDMapping is not None:
-            IDs = IDMapping.set_index(["ID"]).iloc[:, 0].reindex(index=ids)
-            if pd.notnull(IDs).all(): return IDs.tolist()
-        SQLStr = f"""SELECT s_info_outercode, f_info_windcode
-        FROM {cls.WindDB.Args.TablePrefix}ChinaMutualFundDescription
-        """
-        IDMapping = pd.DataFrame(cls.WindDB.fetchall(SQLStr), columns=["ID", "WindCode"])
-        cls._MFID2WindCodeMapping = IDMapping
-        IDs = IDMapping.set_index(["ID"]).iloc[:, 0].reindex(index=ids)
-        return IDs.where(pd.notnull(IDs), ids).tolist()
-
-    @classmethod
-    def WindCode2MFID(cls, ids):
-        IDMapping = cls._MFID2WindCodeMapping
-        if IDMapping is not None:
-            IDs = IDMapping.set_index(["WindCode"]).iloc[:, 0].reindex(index=ids)
-            if pd.notnull(IDs).all(): return IDs.tolist()
-        SQLStr = f"""SELECT s_info_outercode, f_info_windcode
-        FROM {cls.WindDB.Args.TablePrefix}ChinaMutualFundDescription
-        """
-        IDMapping = pd.DataFrame(cls.WindDB.fetchall(SQLStr), columns=["ID", "WindCode"])
-        cls._MFID2WindCodeMapping = IDMapping
-        IDs = IDMapping.set_index(["WindCode"]).iloc[:, 0].reindex(index=ids)
-        return IDs.where(pd.notnull(IDs), ids).tolist()
-
 class _WindSQLTable(SQL_Table):
     """为通用 SQL 表注入 Wind 元数据和表名前缀"""
     class __QS_ArgClass__(SQL_Table.__QS_ArgClass__):
-        IDMapping:Optional[Literal["MFID2WindCode"]] = Field(default=None, title="ID映射", frozen=True, repr=False)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        WindIDMapping.WindDB = self._FactorDB
-
-    def __QS_adjustID__(self, ids):
-        if self.Args.IDMapping == "MFID2WindCode":
-            return WindIDMapping.MFID2WindCode(ids=ids)
-        return ids
-    
-    def __QS_restoreID__(self, ids):
-        if self.Args.IDMapping == "MFID2WindCode":
-            return WindIDMapping.WindCode2MFID(ids=ids)
-        return ids
+        pass
 
 
 class _WideTable(_WindSQLTable, SQL_WideTable):
@@ -808,7 +762,7 @@ class WindDB2(QSSQLObject, FactorDB):
         """
         if date is None: date = dt.date.today()
         if start_date is not None: start_date = start_date.strftime("%Y%m%d")
-        SQLStr = "SELECT s_info_outercode AS ID FROM {Prefix}ChinaMutualFundDescription "
+        SQLStr = "SELECT f_info_windcode AS ID FROM {Prefix}ChinaMutualFundDescription "
         SQLStr += "WHERE f_info_setupdate <= '{Date}' "
         if start_date is not None:
             SQLStr += "AND ((f_info_maturitydate IS NULL) OR (f_info_maturitydate >= '{StartDate}')) "

@@ -101,6 +101,25 @@ class Resource:
                 operations["database"].append(name)
         return {"operations": operations, "extensions": {name: {"mutates": mutates} for name, mutates in extensions.items() if not mutates or allowed_write}, "read": True, "write": allowed_write and bool(writes), "metadata_revision": self.metadata_revision}
 
+    def catalog(self):
+        """在资源所有者线程内生成默认参数因子表的紧凑目录快照。"""
+        db = self.connect()
+        tables, skipped = [], []
+        for table_name in db.TableNames:
+            try:
+                adapters.validate_table_args(db, table_name, {})
+                table = db.getTable(table_name)
+                names = list(table.FactorNames)
+                metadata = table.getFactorMetaData(factor_names=names) if names else {}
+                tables.append({"table_name": table_name, "factor_names": names,
+                               "factor_metadata": metadata})
+            except (RemoteFactorError, ValueError, TypeError, KeyError) as error:
+                LOGGER.info("目录跳过需要参数或元数据不兼容的表 %s/%s: %s",
+                            self.definition.name, table_name, type(error).__name__)
+                skipped.append({"table_name": table_name, "code": getattr(error, "code", "INVALID_ARGUMENT")})
+        return {"resource_id": self.export.ResourceID, "config_revision": self.revision,
+                "metadata_revision": self.metadata_revision, "tables": tables, "skipped_tables": skipped}
+
     def describe(self, target):
         obj = self.target(target)
         result = {"target": target.model_dump(), "resource_id": self.export.ResourceID, "config_revision": self.revision, "metadata_revision": self.metadata_revision}

@@ -104,6 +104,12 @@ class FactorDBServiceClient:
         from QSExt.Factor.RemoteDB import RemoteFactorDB
         return RemoteFactorDB(args={"ServerURL": self.server_url, "Database": name, "TokenEnv": self.token_env, "TimeoutSeconds": self.timeout_seconds, "ConnectTimeoutSeconds": self.connect_timeout_seconds})
 
+    def getCatalog(self, name):
+        """一次读取数据库的默认参数表、因子及元数据目录。"""
+        if self.info is None:
+            self.connect()
+        return self._request("GET", "/databases/" + quote(name, safe="") + "/catalog")
+
     def call(self, database, identity, target, operation="describe", kwargs=None, action="invoke", data=None, mutation=False):
         """构造明确目标请求；写请求一次发送，不自动重放。"""
         if self.info is None:

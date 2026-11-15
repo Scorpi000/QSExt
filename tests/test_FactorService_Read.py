@@ -143,6 +143,9 @@ class TestRemoteService(unittest.TestCase):
     def test_directory_and_both_backends(self):
         with FactorDBServiceClient(self.url, "QS_TEST_CLIENT_TOKEN") as service:
             self.assertEqual({row["name"] for row in service.listDatabases()}, {"duck", "hdf", "hdf_write", "parquet"})
+            catalog = service.getCatalog("duck")
+            self.assertEqual(catalog["tables"][0]["table_name"], "daily")
+            self.assertTrue({"close", "open"}.issubset(catalog["tables"][0]["factor_names"]))
         for backend in ("duck", "hdf"):
             with self.subTest(backend=backend):
                 db = self.connect(backend)

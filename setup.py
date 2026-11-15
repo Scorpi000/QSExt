@@ -36,6 +36,7 @@ setuptools.setup(
     extras_require={
         "factor-client": ["httpx>=0.28,<1", "pyarrow>=18,<30"],
         "factor-server": ["httpx>=0.28,<1", "pyarrow>=18,<30", "fastapi>=0.115,<1", "uvicorn>=0.30,<1"],
+        "factor-mcp": ["httpx>=0.28,<1", "pyarrow>=18,<30", "fastmcp>=3.2,<4"],
     },
     package_data={"QSExt": ["Resource/*"]}
 )

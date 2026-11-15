@@ -17,7 +17,7 @@ import importlib
 import json
 import os
 import sys
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import Field
 
@@ -41,7 +41,9 @@ _BUILTIN_DB_CLASSES = {
 class DBDef(__QS_Args__):
     """单条数据库连接定义。
 
-    对应 FACTOR_DATABASES 配置中的一个元素。
+    对应 FACTOR_DATABASES 配置中的一个元素。可以使用 ``class_path`` 和
+    ``args`` 让连接池创建实例，也可以通过 ``instance`` 交入预先创建但尚未
+    连接的实例；两种方式互斥。
     """
 
     name: str = Field(default="", title="逻辑名称")
@@ -50,9 +52,14 @@ class DBDef(__QS_Args__):
     args: dict = Field(default={}, title="构造参数")
     config_file: Optional[str] = Field(default=None, title="外部配置文件路径（JSON）")
 
+    instance: Optional[Any] = Field(default=None, title="预先创建的数据库实例", repr=False)
+
     @property
     def resolved_class_name(self) -> str:
         """解析后的完整类路径。"""
+        if self.instance is not None:
+            cls = type(self.instance)
+            return f"{cls.__module__}.{cls.__qualname__}"
         return _BUILTIN_DB_CLASSES.get(self.class_path, self.class_path)
 
 
@@ -73,6 +80,9 @@ class DBPool:
     上下文管理器:
         with DBPool(db_defs) as pool:
             db = pool["JYDB"]
+
+    ``DBPool`` 同时负责传入实例的连接与断开。包装数据库若引用其他数据库，
+    应由包装对象管理其生命周期，或把共享依赖作为独立条目一并交给连接池。
     """
 
     def __init__(self, db_defs: List[DBDef]):
@@ -90,6 +100,27 @@ class DBPool:
 
     def _create_one(self, db_def: DBDef):
         """根据单条定义创建一个 FactorDB 实例。"""
+        if db_def.instance is not None:
+            conflicts = []
+            if db_def.class_path:
+                conflicts.append("class")
+            if db_def.args:
+                conflicts.append("args")
+            if db_def.config_file:
+                conflicts.append("config_file")
+            if conflicts:
+                raise ValueError(
+                    f"因子库 '{db_def.name}' 使用 instance 时不能同时配置: "
+                    + ", ".join(conflicts)
+                )
+            if not callable(getattr(db_def.instance, "connect", None)):
+                raise TypeError(f"因子库 '{db_def.name}' 的 instance 缺少 connect() 方法")
+            if not callable(getattr(db_def.instance, "disconnect", None)):
+                raise TypeError(f"因子库 '{db_def.name}' 的 instance 缺少 disconnect() 方法")
+            return db_def.instance
+
+        if not db_def.class_path:
+            raise ValueError(f"因子库 '{db_def.name}' 必须配置 class 或 instance")
         cls = self._resolve_class(db_def.resolved_class_name)
 
         kwargs = {"args": db_def.args}
@@ -433,7 +464,16 @@ class RuntimeSettings(__QS_Args__):
                     role=item.get("role", "source"),
                     args=item.get("args", {}),
                     config_file=item.get("config_file"),
+                    instance=item.get("instance"),
                 ))
+            else:
+                name = getattr(item, "Name", "")
+                if not name:
+                    raise TypeError(
+                        "FACTOR_DATABASES 中直接使用数据库实例时，实例必须提供非空 Name；"
+                        "需要指定名称或角色时请使用 {'name': ..., 'instance': ...}"
+                    )
+                db_defs.append(DBDef(name=name, role="source", instance=item))
         data["factor_databases"] = db_defs
 
         # 过滤掉当前类不接受的字段（如 bt_store 只在 DefSettings 中定义）

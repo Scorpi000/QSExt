@@ -111,6 +111,11 @@ def create_app(definitions, config):
         resource = registry.resource(database)
         return control(await result(resource.executor.submit(resource.capabilities)))
 
+    @app.get(PREFIX + "/databases/{database}/catalog")
+    async def catalog(database: str):
+        resource = registry.resource(database)
+        return control(await result(resource.executor.submit(resource.catalog)))
+
     @app.post(PREFIX + "/databases/{database}/{action}")
     async def dispatch(database: str, action: str, http: HTTPRequest):
         if action not in ("describe", "invoke", "read", "read-batch", "write"):
